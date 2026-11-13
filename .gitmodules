@@ -1,0 +1,9 @@
+[submodule "mariadb-wikipedia-datasets"]
+	path = mariadb-wikipedia-datasets
+	url = https://github.com/MariaDB/mariadb-wikipedia-datasets
+[submodule "mariadb-vector-wikipedia-rag"]
+	path = mariadb-vector-wikipedia-rag
+	url = https://github.com/MariaDB/mariadb-vector-wikipedia-rag
+[submodule "mariadb-system-versioning-wikipedia"]
+	path = mariadb-system-versioning-wikipedia
+	url = https://github.com/MariaDB/mariadb-system-versioning-wikipedia
