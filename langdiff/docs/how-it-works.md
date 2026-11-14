@@ -1,0 +1,312 @@
+# How langdiff works
+
+langdiff finds where the Finnish, Swedish and English Wikipedia articles on one topic **state
+different figures** or **frame the same thing differently**. It needs no LLM: only bge-m3 vectors,
+compared inside MariaDB. An optional LLM step (off by default) can summarise and translate.
+
+Everything below was measured on dataset S (history of Finland: 29,460 articles) on one laptop CPU,
+unless marked otherwise.
+
+## The pipeline at a glance
+
+```mermaid
+flowchart TD
+  L[langdiff-load: dataset S into MariaDB] --> A[article + article_vector]
+  Q[GET /api/diff?title=…] --> T[Topic: editions sharing a wikidata_id]
+  A --> T
+  T --> E1[Split articles into passages, embed with bge-m3 on demand]
+  E1 --> P[Passage matching: mutual nearest across languages, HNSW]
+  P --> E2[Split matched passages into sentences, embed on demand]
+  E2 --> S[Sentence matching inside each passage pair: exact join]
+  S --> G[Group matched sentences across languages: one group per fact]
+  G --> F1[Figures: numbers stated differently, majority → outlier]
+  G --> F2[Framing: position on semantic axes, furthest edition → outlier]
+  P --> F3[Passage-level figures: quantities, only with a shared anchor number]
+  F1 --> R[JSON: figures + framing]
+  F2 --> R
+  F3 --> R
+  R --> UI[Web page: cards, quotes side by side, copy, optional AI]
+```
+
+Two different questions are answered by two different mechanisms:
+
+| Question | Mechanism | What it never does |
+|---|---|---|
+| *Are these about the same thing?* (matching) | vector distance: mutual nearest neighbour, under a threshold | flag anything |
+| *Do they say it differently?* (flagging) | numbers in the text; positions on semantic axes | decide what is about the same thing |
+
+Content that only one edition has never finds a partner, so it is never reported: langdiff is about
+disagreement, not omission.
+
+## Data model
+
+```mermaid
+erDiagram
+  article ||--|| article_vector : "1 vector per article (from the dataset)"
+  article ||--o{ chunk : "split into passages"
+  chunk ||--o{ sentence : "split into sentences"
+  article {
+    char lang PK
+    int page_id PK
+    varchar wikidata_id "same topic across languages"
+    varchar title
+    mediumtext text
+  }
+  article_vector {
+    vector embedding "VECTOR(1024), HNSW index"
+  }
+  chunk {
+    smallint seq PK
+    varchar heading
+    text text
+    vector embedding "VECTOR(1024), HNSW index"
+  }
+  sentence {
+    smallint n PK
+    text text
+    vector embedding "VECTOR(1024), no index"
+  }
+  llm_cache {
+    binary k PK "sha256 of model + prompt"
+    mediumtext response
+  }
+```
+
+`chunk` and `sentence` are filled on demand the first time a topic is asked for, then reused.
+
+## One request
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant API as FastAPI (/api/diff)
+  participant DB as MariaDB
+  participant O as Ollama (bge-m3)
+  B->>API: title=Urho Kekkonen
+  API->>DB: editions with the same wikidata_id
+  alt passages not embedded yet
+    API->>O: embed passages (≈2 per s on CPU)
+    API->>DB: INSERT chunk
+  end
+  loop each passage × each other language
+    API->>DB: ORDER BY VEC_DISTANCE_COSINE(...) LIMIT 1 (HNSW)
+  end
+  alt sentences not embedded yet
+    API->>O: embed sentences (≈8 per s on CPU)
+    API->>DB: INSERT sentence
+  end
+  API->>DB: one query: sentence pairs + axis positions (window functions)
+  API->>API: group, flag figures and framing
+  API-->>B: figures, framing
+  opt "AI summaries" ticked
+    B->>API: POST /api/explain, /api/translate (LLM, cached in llm_cache)
+  end
+```
+
+## Step by step
+
+### 1. Splitting
+
+- **Passages** (`split()` in `app.py`): consecutive lines merged until ≥300 characters, never across a
+  heading. Sections of sources and links (*Lähteet*, *Källor*, *References*…) and "Main article:"
+  lines are skipped: they always differ and say nothing.
+- **Sentences** (`sentences()`): split at `.!?` followed by a capital letter, quote or bracket; not
+  before a digit, so Finnish "3. syyskuuta" and "(k. 1985)" stay whole. Pieces under 30 characters
+  join a neighbour in the same line. Table rows and list items are one sentence each.
+
+### 2. Matching
+
+| Level | How | Threshold | Why this way |
+|---|---|---|---|
+| Article | same `wikidata_id` | — | exact, free |
+| Passage | nearest passage in each other language **over the whole corpus** (HNSW), kept if mutual | cosine distance ≤ 0.40 | the counterpart can sit in another article (fi keeps *Talvisodan tausta* apart from *Talvisota*) |
+| Sentence | nearest sentence **inside the matched passage pair**, kept if mutual (`ROW_NUMBER()` both ways) | ≤ 0.40 for figures, ≤ 0.35 for framing | a passage pair has a few dozen sentence pairs: an exact join beats index lookups |
+
+"Mutual" means each is the other's nearest: one-to-one, so one long English paragraph cannot absorb
+three Finnish ones.
+
+### 3. Grouping across languages
+
+Matched sentence pairs that connect (fi–sv, sv–en, fi–en) form one **group** per fact, with at most
+one sentence per language. A chain that reaches two sentences of one language is ambiguous and falls
+back to its pairs. The same grouping is applied to matched passages for the passage-level figure
+check. Example: the three Urho Kekkonen passages on the 1978 election, with their measured cosine
+distances:
+
+```mermaid
+flowchart LR
+  fi["fi: …hän sai … 82 prosenttia äänistä ja 260 valitsijamiestä"] ---|0.324| sv["sv: …fick han 82 procent av rösterna och 260 elektorer"]
+  sv ---|0.223| en["en: …went on to win 259 out of the 300 electoral college votes"]
+  fi ---|0.313| en
+  classDef odd stroke-width:3px
+  class en odd
+```
+
+Measured: with three languages most groups are still pairs (Urho Kekkonen: 27 three-language groups
+and 90 pairs; Winter War: 8 and 37). Voting needs three; the more languages, the more groups have a
+majority.
+
+### 4a. Flagging figures (`discrepancy.py`)
+
+Digits read the same in every language here; only thousands separators differ (`25,904`, `23 576`,
+`23 576`), and they are normalised.
+
+1. Between two sentences of a group, a **conflict** is a pair of numbers that each side has and the
+   other lacks, close in value:
+   - quantities (≥100, not years) within a factor of 1.67;
+   - years within ±2, and only for sentence pairs closer than 0.30 (unrelated events have unrelated
+     years). Pairs in a group that did not match directly are treated as far: no years.
+
+   Each number is matched once, to its closest counterpart.
+2. Conflicting numbers that touch form a **slot** (one fact). A language whose sentence states one of
+   the slot's values exactly backs that value.
+3. A value held by more than half of the slot, by at least two editions, makes the others
+   **outliers**. Two editions, or no majority, give no outlier.
+
+**Passage-level fallback**: whole passages are compared too, for quantities only, and only when the
+two passages share at least one identical number. "43,557 wounded" in both en and sv shows they
+report the same statistics, so 25,904 vs 23 576 dead in the same passages is a real conflict, even
+though one side is a table row that never pairs with a sentence.
+
+### 4b. Flagging framing (`compare.py`)
+
+An **axis** is the difference between the mean vectors of two groups of anchor sentences, written in
+all three languages so that the language cancels out:
+
+| Axis | Positive end (anchors) | Negative end (anchors) |
+|---|---|---|
+| evaluation | "a great success, widely praised", "heroic and admirable" | "a disastrous failure, widely condemned", "brutal and shameful" |
+| certainty | "a well-documented fact", "confirmed by the records" | "an unconfirmed, disputed claim", "according to some sources … allegedly" |
+
+A sentence's position is $p = 1 - d_{\cos}(s, \text{axis})$, computed in SQL. Languages sit at
+slightly different places on every axis, so positions become z-scores against the language's own mean
+and spread: $z_\ell = (p - \mu_\ell) / \sigma_\ell$. In a group, each edition's **deviation** is
+
+$$\Delta_\ell = z_\ell - \frac{1}{|G|-1}\sum_{k \in G,\,k \neq \ell} z_k$$
+
+With two editions this is just their difference. The largest $|\Delta|$ over editions and axes is
+reported when it is at least 1.2σ; with three or more editions, that edition is the outlier.
+
+### 5. Worked examples (real output)
+
+| Topic | Kind | Editions | Result |
+|---|---|---|---|
+| Urho Kekkonen | figures, passage group | fi 260, sv 260, en 259 (1978 electoral votes) | outlier: **en** |
+| Urho Kekkonen | framing, pair, 3.0σ | fi "1978 presidentinvaalit olivat **riemuvoitto**" (a triumph) vs sv "var **enbart ett statspolitiskt skådespel**" (merely a political spectacle) | fi more positive |
+| Urho Kekkonen | figures, pair | fi presidency until 1982 vs sv 1956–1981 | no majority |
+| Winter War | figures, passage | en 25,904 vs sv 23 576 Finnish dead (anchor: 43,557 wounded in both) | no majority |
+| Winter War | figures, pair | en 114 vs sv 119 combat planes | no majority |
+
+## Measured cost
+
+| What | Measured |
+|---|---|
+| Passage matching, HNSW (Winter War: 266 passages; Kekkonen) | 0.45 s; 0.21 s |
+| Sentence matching, exact join inside passage pairs (Kekkonen, 183 pairs) | 0.01 s |
+| Same alignment with one HNSW lookup per sentence (Winter War, 2,652 lookups) | 3.68 s vs 0.11 s for the join |
+| Whole `/api/diff` once embedded (Kekkonen; Winter War) | 0.25 s; 0.50 s |
+| Embedding with Ollama on CPU | ≈2 passages/s, ≈8 sentences/s |
+| Dataset S, topics in ≥2 languages | 17,431 articles → 149,524 passages, 594,025 sentences |
+
+Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vectors of 4 KB.
+
+## Design decisions and tradeoffs
+
+| Decision | Chosen | Alternative | Why |
+|---|---|---|---|
+| Who judges "different" | numbers + semantic axes | LLM per pair | cost and scale: an LLM call per matched pair is 35–60 calls per article; axes are one dot product per sentence |
+| Granularity | sentence, with passage fallback | passage only | passage-level number checks paired unrelated figures (two troop counts in one paragraph); sentences pin one fact |
+| Matching rule | mutual nearest + threshold | nearest only | one-to-one: a long paragraph cannot match everything |
+| Passage search | HNSW over the whole corpus | exact join within the topic | finds counterparts in other articles; stays fast as the corpus grows |
+| Sentence search | exact join within passage pairs | HNSW | measured 0.11 s vs 3.68 s; exact; no index to maintain on the largest table |
+| Language bias on axes | per-language z-scores, anchors in every language | raw positions | raw positions differ per language before any content does |
+| Years | only in very close pairs, never in passage fallback | always | articles share many years; differing years are usually different events |
+| Embedding | on demand, cached | precomputed | no upfront job for a demo; `TODO.md` describes the precompute |
+
+## Limitations
+
+- **Only figures and tone.** A different name, place or claim with no number and no shift in tone is
+  not found without the LLM.
+- **Framing is noisier than figures.** Strong hits (≥2σ) are usually real; around 1.2–1.5σ, many are
+  wording differences (Urho Kekkonen: 11 framing findings, the top 3 convincing).
+- **Two axes.** Others (blame/agency, nationalist vs neutral wording) would need their own anchors and
+  checking.
+- **Thresholds are tuned on two articles** (Winter War, Urho Kekkonen).
+- **Coincidences.** A number can match a different fact (en 35,000 French soldiers vs sv 22,000 troops
+  in a different plan).
+
+## Scaling to more languages
+
+What carries over unchanged: bge-m3 covers 100+ languages in one vector space, so matching works as
+is; z-scores are per language, so a new language gets its own baseline from its own data.
+
+What needs work:
+
+| Piece | Today | With more languages |
+|---|---|---|
+| Language list | `LANGS` in `compare.py`, the loader, the page | from the data |
+| Sentence splitter | `.!?` + Latin capital | per script: CJK `。`, Arabic `؟`, Thai has no sentence punctuation |
+| Numbers | Western digits; space/comma/dot thousands | Arabic-Indic and Devanagari digits, Indian grouping `1,23,456`, Swiss `1'000`, decimal commas, non-Gregorian years (Thai Buddhist era, Persian calendar) |
+| Axis anchors | fi, sv, en | add anchors in each language; check each axis per language |
+| Passage lookups | 2 per passage | L−1 per passage, plus reverse lookups for mutuality |
+
+**Groups get better with more languages.** Pairwise comparison grows as $L(L-1)/2$ language pairs (45
+for 10 languages); groups need one sentence per language per fact, and a majority vote says *which*
+edition is the outlier. With three languages a majority is rare (most groups are pairs); with ten,
+most facts are covered several times.
+
+```mermaid
+flowchart LR
+  subgraph "3 languages: mostly pairs"
+    a1[fi] --- a2[sv]
+  end
+  subgraph "many languages: groups with a majority"
+    b1[fi 260] --- b2[sv 260]
+    b2 --- b3[de 260]
+    b3 --- b4[en 259]
+    b1 --- b5[et 260]
+  end
+```
+
+**Risk to check before adding many languages: filtered HNSW.** Passage lookups filter by language
+(`WHERE lang = %s ORDER BY VEC_DISTANCE_COSINE(...) LIMIT 1`). MariaDB served this from the vector
+index with a filter during the scan (`EXPLAIN`: `key: embedding`, `Using where`). With three
+languages a third of all passages pass the filter; with 300 languages, a fraction of a percent does,
+and the index may need to visit far more nodes to find one. Untested here; options are one table (and
+index) per language, or one per group of languages, and measuring recall against the exact join.
+
+## Scaling to all of Wikipedia
+
+Run it as a batch job, not on request:
+
+```mermaid
+flowchart LR
+  D[Dumps / FineWiki per language] --> K[Topics with ≥2 editions, via wikidata_id]
+  K --> W1[Workers, one topic at a time]
+  W1 --> EMB[GPU embedding: passages, sentences]
+  EMB --> DB[(MariaDB: chunk with HNSW)]
+  W1 --> CMP[Match, group, flag]
+  DB --> CMP
+  CMP --> FT[(findings table)]
+  FT --> UI[Web page reads findings only]
+  REV[New revisions, rev_id changed] --> W1
+```
+
+- **Topics are independent.** Everything after embedding works on one `wikidata_id` at a time, so it
+  parallelises across workers; only the passage search touches the whole corpus, and that is an index
+  lookup.
+- **Only topics with ≥2 editions** need passages and sentences at all.
+- **Embedding dominates.** At the measured CPU rates one article costs about $8.6/2 + 34/8 \approx 8.6$
+  s; per million articles that is about 100 CPU-days. A GPU is required; its throughput was not
+  measured here.
+- **Storage**, at about 43 vectors of 4 KB per article: about 175 GB per million articles, ~80 % of it
+  sentence vectors. Sentence vectors are only needed while aligning, so a batch job can embed,
+  align, flag and discard them, keeping only passages (~35 GB per million articles) and findings.
+- **HNSW memory.** The passage index must fit the server's vector-index cache to stay fast; size the
+  MariaDB vector index cache for it (not measured here).
+- **Framing statistics** (`axis_stats()`) are computed today by scanning every sentence once per
+  process; at scale, compute them once per bulk load and store them in a table.
+- **Updates.** Every row keeps `rev_id`; re-embed and re-compare only topics where some edition has a
+  new revision.
+- **The LLM stays optional.** At scale it is best used to verify the top findings per topic (a few
+  per topic), not every matched pair.

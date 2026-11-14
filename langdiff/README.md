@@ -41,44 +41,18 @@ A new provider with one of these APIs is a new preset; a new API is a `(request,
 
 ## How
 
-No LLM is needed: three levels of bge-m3 vectors, compared in MariaDB (`compare.py`).
+No LLM is needed: articles, passages and sentences are matched across languages with bge-m3
+vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
+into one group per fact, and each group is checked for **different figures** and **different
+framing** (position on "fact ↔ disputed" and "praised ↔ condemned" axes). With three editions in a
+group, the one that disagrees with the other two is the outlier ("260 (fi, sv) vs 259 (en)").
 
-1. **Article** (`article`, `article_vector`): the dataset as is. Editions of a topic share a
-   `wikidata_id`; their vectors give the whole-article distance.
-2. **Passage** (`chunk`, HNSW index): paragraphs merged to ≥300 characters, never across a heading;
-   source and link sections skipped. For each passage, its nearest passage in every other language
-   over the whole corpus (`ORDER BY VEC_DISTANCE_COSINE(...) LIMIT 1`, served by the vector index),
-   kept when the match is mutual and closer than 0.40. The counterpart may be in another article.
-   Information only one edition has never forms such a pair, so it is not reported.
-3. **Sentence** (`sentence`, no index): inside each passage pair, sentences that are each other's
-   nearest. An exact join (two `ROW_NUMBER()`s): a passage pair holds a few dozen sentence pairs,
-   so it beats index lookups (Winter War: 0.11 s vs 3.7 s for per-sentence HNSW).
-
-On sentence pairs clearly about the same thing:
-
-- **Different figures** (`discrepancy.py`): numbers each side has and the other lacks, close in
-  value: quantities within a factor of 1.67, years within ±2 for very close pairs only. Thousands
-  separators (`25,904`, `23 576`) are normalised; each number matches once, to its closest
-  counterpart. Whole passages are compared too, for quantities only and only when they share an
-  identical number ("43,557 wounded" in both shows they report the same statistics): that catches a
-  table row against a sentence.
-- **Different framing**: each sentence's position on semantic axes, one `VEC_DISTANCE_COSINE`
-  against an axis vector. An axis is the difference between two groups of anchor sentences written
-  in all three languages ("a well-documented fact" vs "an unconfirmed, disputed claim"; "praised"
-  vs "condemned"), so the language cancels out. Positions are compared as z-scores against each
-  language's own mean; pairs at least 1.2σ apart are reported.
-
-Example (Urho Kekkonen): fi "Vuoden 1978 presidentinvaalit olivat riemuvoitto istuvalle
-presidentille" (a triumph) vs sv "Presidentvalet år 1978 var enbart ett statspolitiskt skådespel" (a
-mere political spectacle): evaluation axis, 3.0σ.
+Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
+all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
 **AI summaries** (checkbox on the page, off by default): an LLM checks each finding, says what each
 edition states, and can translate the quotes to English keeping the highlights. Cached in `llm_cache`.
 
-Limits: names, places and claims that contradict without numbers or a shift in tone are not found
-without the LLM. Axes are noisy on short or list-like sentences. The thresholds are tuned on two
-articles (Winter War, Urho Kekkonen).
-
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=15`,
-`POST /api/explain {"passages": [{"lang", "heading", "text"}, {…}]}` (one pair),
+`POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
