@@ -28,6 +28,9 @@
   form .btn { border-radius: 0 2px 2px 0; }
   .box, .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
   .card.dismissed { opacity: .6; }
+  /* Findings the AI check finds no contradiction in: header, title and verdict only, until reopened. */
+  .card.collapsed .quotes, .card.collapsed .tools, .card.collapsed .summary { display: none; }
+  .card.collapsed h3 { font-size: 1rem; }
   .box h2 { margin: 0; font: bold 1.3rem sans-serif; display: flex; gap: .5rem; align-items: center; }
   .pill { font: bold .8rem sans-serif; background: #eaf3ff; color: var(--link); border-radius: 1em; padding: .1rem .6rem; }
   .box p { font-family: var(--serif); margin: .3rem 0 0; }
@@ -350,7 +353,16 @@ function card(finding) {
       .then((x) => {
         verdict.className = "muted";
         verdict.textContent = x.discrepancy ? `AI: ${x.title}` : "AI: these passages do not contradict each other.";
-        if (!x.discrepancy) article.classList.add("dismissed");
+        if (!x.discrepancy) {
+          article.classList.add("dismissed", "collapsed");
+          const reopen = $("button", { className: "btn small", type: "button", ariaExpanded: "false" }, "Show anyway", icon("chevron"));
+          reopen.addEventListener("click", () => {
+            const open = !article.classList.toggle("collapsed");
+            reopen.ariaExpanded = String(open);
+            reopen.replaceChildren(open ? "Collapse" : "Show anyway", icon(open ? "up" : "chevron"));
+          });
+          verdict.append(" ", reopen);
+        }
         summary.textContent = x.summary;
         for (const [lang, phrases] of Object.entries(x.highlights)) state.highlights[lang] = [...(state.highlights[lang] || []), ...phrases];
         renderQuotes();

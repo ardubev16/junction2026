@@ -392,4 +392,5 @@ def translate(req: TranslateRequest):
 
 @app.get("/")
 def index():
-    return FileResponse(Path(__file__).with_name("index.html"))
+    # Revalidate on every load (a 304 when unchanged): browsers otherwise reuse an old page after updates.
+    return FileResponse(Path(__file__).with_name("index.html"), headers={"Cache-Control": "no-cache"})
