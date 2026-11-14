@@ -9,6 +9,7 @@ they are too often harmless. With three or more editions, the one against a majo
 
 import re
 from collections import Counter
+from functools import lru_cache
 
 # A number with thousands groups ("126 875", "126,875", "126.875") or plain digits.
 NUMBER = re.compile(r"(?<![\d.,])(\d{1,3}(?:[ \u00a0\u202f,.]\d{3})+|\d+)(?!\d)")
@@ -17,8 +18,9 @@ QUANTITY_RATIO = 0.6  # quantities within this ratio of each other may be the sa
 MIN_CHANGE = 0.2  # and they must differ by at least this share of the larger one to be worth showing
 
 
+@lru_cache(maxsize=65536)  # one topic compares the same sentences thousands of times
 def numbers(text: str) -> dict[int, list[str]]:
-    """Value -> how it is written in the text, for the numbers worth comparing."""
+    """Value -> how it is written in the text, for the numbers worth comparing. Shared: do not modify."""
     found: dict[int, list[str]] = {}
     for m in NUMBER.finditer(text):
         value = int(re.sub(r"\D", "", m.group(1)))

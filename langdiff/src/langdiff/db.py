@@ -61,6 +61,20 @@ SCHEMA = [
     )""",
     # Tables made before Cyrillic was added: their rows covered Latin only.
     "ALTER TABLE topic_editions ADD COLUMN IF NOT EXISTS scripts VARCHAR(100) NOT NULL DEFAULT 'LATIN'",
+    # Embeddings every process needs again (the framing axes' and the appendix headings' anchor
+    # sentences), keyed by sha256 of model + text: a restart then costs no GPU call. Article passages
+    # and sentences keep theirs in chunk and sentence.
+    """CREATE TABLE IF NOT EXISTS embedding_cache (
+      k         BINARY(32)   PRIMARY KEY,
+      embedding VECTOR(1024) NOT NULL
+    )""",
+    # A topic's computed differences, for reloads: valid while `state` (sha256 of the comparison code
+    # and the topic's editions) is unchanged.
+    """CREATE TABLE IF NOT EXISTS diff_cache (
+      wikidata_id VARCHAR(20) PRIMARY KEY,
+      state       BINARY(32)  NOT NULL,
+      response    LONGTEXT    NOT NULL
+    ) CHARACTER SET utf8mb4""",
 ]
 
 

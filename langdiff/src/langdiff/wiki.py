@@ -14,7 +14,7 @@ from urllib.parse import urlparse
 import httpx
 import numpy as np
 
-from .embeddings import embed, token_counts
+from .embeddings import embed, embed_cached, token_counts
 
 UA = "langdiff/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.github.com)"
 SCRIPTS = ("LATIN", "CYRILLIC")  # Unicode script names of the editions compared
@@ -127,7 +127,7 @@ def _unit(vectors: list[bytes]) -> np.ndarray:
 @lru_cache
 def _anchors() -> tuple[np.ndarray, int]:
     """Unit vectors of APPENDIX + CONTENT, and how many of them are appendix names."""
-    return _unit(embed(APPENDIX + CONTENT)), len(APPENDIX)
+    return _unit(embed_cached(APPENDIX + CONTENT)), len(APPENDIX)
 
 
 def appendix_headings(texts: list[str]) -> set[str]:

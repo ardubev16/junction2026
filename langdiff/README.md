@@ -46,6 +46,16 @@ Titles not in the database are looked up on English Wikipedia (`/api/diff?lang=`
 the seconds so far; the web app and the extension poll it each second under a spinner. AI checks and
 translations show the same spinner.
 
+**Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
+work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article` /
+`article_vector` (`topic_editions` marks a topic fetched), the anchor sentences of the framing axes and
+of the appendix headings in `embedding_cache`, LLM answers in `llm_cache`, and each topic's computed
+differences in `diff_cache`, valid while its editions and the comparison code (`compare.py`,
+`discrepancy.py`) are unchanged. Measured: Talvisota (66 editions) 43.9 s the first time, 0.29 s on
+reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. A topic loaded later can change a
+passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
+row to recompute.
+
 ### Chrome extension
 
 `extension/` shows the same findings on Wikipedia itself (fi, sv, en): a "langdiff · N" button opens

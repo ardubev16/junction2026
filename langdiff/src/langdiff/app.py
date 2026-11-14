@@ -1,5 +1,6 @@
 """API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently or state very different figures."""
 
+import hashlib
 import json
 import re
 import time
@@ -12,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import wiki
+from . import compare, discrepancy, wiki
 from .compare import differences
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
@@ -20,6 +21,8 @@ from .llm import chat
 
 MIN_CHARS = 300  # merge paragraphs until a part is at least this long: tiny parts embed noisily
 TARGETS = {"en": "English"}  # languages the UI can translate into
+# The comparison code: cached differences computed by other code are not reused (diff_cache.state).
+CODE = hashlib.sha256(b"".join(Path(m.__file__).read_bytes() for m in (compare, discrepancy))).hexdigest()
 # Sections that are lists of sources and links, not content; they always "differ". fi, sv, en.
 SKIP = re.compile(
     r"\b(lähteet|viitteet|kirjallisuutta|aiheesta muualla|katso myös|huomautukset|"
@@ -261,13 +264,23 @@ def compare_editions(title: str, lang: str, progress) -> dict:
         )
         similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall()]
 
-        def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
-            progress(f"Embedding the sentences of {len(pages)} matched articles")
-            ensure_sentences(cur, pages)
-            progress("Comparing sentences: figures and framing")
+        # A reload reads the differences computed for these editions by this code.
+        # shortcut: passage matching also searches other topics' passages (HNSW over the corpus), so a
+        # topic loaded later can change a match here without changing `state`; delete the topic's
+        # diff_cache row to recompute. A precompute job would refresh affected topics instead.
+        state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
+        cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
+        if row := cur.fetchone():
+            found = json.loads(row[0])
+        else:
+            def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
+                progress(f"Embedding the sentences of {len(pages)} matched articles")
+                ensure_sentences(cur, pages)
+                progress("Comparing sentences: figures and framing")
 
-        progress("Matching passages across languages")
-        found = differences(cur, wikidata_id, sentences_then_compare)
+            progress("Matching passages across languages")
+            found = differences(cur, wikidata_id, sentences_then_compare)
+            cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps(found)))
 
     return {
         "wikidata_id": wikidata_id,

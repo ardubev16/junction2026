@@ -29,7 +29,7 @@ import pymysql
 
 from .db import LANGS
 from .discrepancy import anchored_conflicts, conflicts, figure_slots, value
-from .embeddings import embed
+from .embeddings import embed_cached
 
 ER_STATEMENT_TIMEOUT = 1969  # MariaDB: "Query execution was interrupted (max_statement_time exceeded)"
 
@@ -76,14 +76,17 @@ def axis_vectors() -> dict[str, bytes]:
     """Each axis as a VECTOR value: mean of its positive anchors minus mean of its negative ones."""
     out = {}
     for name, (pos, neg, _) in AXES.items():
-        p, n = (unit(np.stack([np.frombuffer(v, "<f4") for v in embed(group)])) for group in (pos, neg))
+        p, n = (unit(np.stack([np.frombuffer(v, "<f4") for v in embed_cached(group)])) for group in (pos, neg))
         out[name] = unit(p.mean(0) - n.mean(0)).astype("<f4").tobytes()
     return out
 
 
-# shortcut: computed once per process over the sentences embedded so far; at Wikipedia scale,
-# keep these per-language statistics in a table refreshed after each bulk load.
+# shortcut: computed once per process over the sentences embedded so far (again when a topic brings
+# languages not seen yet); at Wikipedia scale, keep these per-language statistics in a table
+# refreshed after each bulk load.
 _stats: dict[str, dict[str, tuple[float, float]]] = {}
+_pooled: dict[str, tuple[float, float]] = {}
+_seen: set[str] = set()  # languages present when _stats was computed
 
 
 def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]]:
@@ -91,19 +94,21 @@ def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]
     slightly different places on every axis; comparing against their own mean removes that. A
     language with too few sentences for its own statistics gets all languages' pooled ones."""
     axes = axis_vectors()
-    pooled = {}
-    if any(lang not in _stats.get(name, {}) for name in axes for lang in langs):
+    if not langs <= _seen:  # small languages never get their own entry: remember they were counted
         for name, vector in axes.items():
             position = "1 - VEC_DISTANCE_COSINE(embedding, %s)"
             cur.execute(
                 f"SELECT lang, COUNT(*), AVG({position}), STDDEV({position}) FROM sentence GROUP BY lang",
                 (vector, vector),
             )
-            _stats[name] = {lang: (mean, sd) for lang, n, mean, sd in cur.fetchall() if n >= MIN_STATS_SENTENCES}
+            rows = cur.fetchall()
+            _stats[name] = {lang: (mean, sd) for lang, n, mean, sd in rows if n >= MIN_STATS_SENTENCES}
+            _seen.update(lang for lang, *_ in rows)
             cur.execute(f"SELECT AVG({position}), STDDEV({position}) FROM sentence", (vector, vector))
-            pooled[name] = cur.fetchone()
+            _pooled[name] = cur.fetchone()
+        _seen.update(langs)  # a language with no sentences yet must not trigger this on every request
     return {
-        name: {lang: _stats[name][lang] if lang in _stats[name] else pooled[name] for lang in langs}
+        name: {lang: _stats[name][lang] if lang in _stats[name] else _pooled[name] for lang in langs}
         for name in axes
     }
 
@@ -221,9 +226,12 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     parent: dict = {}
 
     def find(x):
-        while parent.setdefault(x, x) != x:
-            x = parent[x]
-        return x
+        root = x
+        while parent.setdefault(root, root) != root:
+            root = parent[root]
+        while x != root:  # path compression: chains stay short (66 editions took 12 s without it)
+            parent[x], x = root, parent[x]
+        return root
 
     kept = [(a, b, d) for a, b, d in edges if d <= max_dist]
     for a, b, _ in kept:
