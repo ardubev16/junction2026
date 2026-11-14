@@ -2,12 +2,14 @@
 
 Fetched once per topic through the MediaWiki API (plain-text extracts), converted to the dataset's
 Markdown with appendix sections (bibliography, links) removed, embedded and stored like the dataset's
-articles. Wikimedia rate-limits bursts (HTTP 429 with Retry-After), so requests go one at a time.
+articles. Editions are fetched FETCHERS at a time; Wikimedia answers bursts with HTTP 429 and
+Retry-After, which api() waits out.
 """
 
 import re
 import time
 import unicodedata
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -20,6 +22,8 @@ UA = "WikiCross/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.g
 SCRIPTS = ("LATIN", "CYRILLIC")  # Unicode script names of the editions compared
 SCRIPT_SHARE = 0.9  # letters that must be in SCRIPTS for an edition to be compared
 RETRIES = 3
+# Editions fetched at once: each is on its own host (fi.wikipedia.org, …), and api() waits out 429s.
+FETCHERS = 8
 MAX_TOKENS = 8192  # bge-m3's limit: longer articles are embedded truncated
 # An appendix line (a citation, a link) is shorter than this; a section with a longer line holds prose.
 # Measured on Stepan Bandera's 47 editions: appendix lines at most 306 chars, closing content 450+.
@@ -192,18 +196,21 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
     skipped = sum(not in_scripts(title) for _, _, title in candidates)
     wanted = [c for c in candidates if in_scripts(c[2])]
     fetched, failed = [], False
-    for i, (lang, url, title) in enumerate(wanted, 1):
-        progress(f"Fetching edition {i} of {len(wanted)} from Wikipedia ({lang}.wikipedia.org)")
-        try:
-            p = page(urlparse(url).netloc, title, text=True)
-        except WikiError as e:
-            print(f"editions of {wikidata_id}: {e}", flush=True)
-            failed = True
-            continue
-        if not p or p["wikidata_id"] != wikidata_id or not in_scripts(p["extract"][:3000]):
-            skipped += 1
-            continue
-        fetched.append({**p, "lang": lang})
+    with ThreadPoolExecutor(FETCHERS) as pool:
+        jobs = {pool.submit(page, urlparse(url).netloc, title, True): lang for lang, url, title in wanted}
+        for done, job in enumerate(as_completed(jobs), 1):
+            progress(f"Fetched {done} of {len(wanted)} editions from Wikipedia")
+            try:
+                p = job.result()
+            except WikiError as e:
+                print(f"editions of {wikidata_id}: {e}", flush=True)
+                failed = True
+                continue
+            if not p or p["wikidata_id"] != wikidata_id or not in_scripts(p["extract"][:3000]):
+                skipped += 1
+                continue
+            fetched.append({**p, "lang": jobs[job]})
+    fetched.sort(key=lambda e: e["lang"])  # completion order varies; keep runs comparable
 
     progress(f"Embedding {len(fetched)} new editions on the GPU")
     classified = appendix_headings(sorted({h for e in fetched for _, h in headings(e["extract"])}))

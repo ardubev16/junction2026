@@ -31,13 +31,14 @@ match Ollama's `bge-m3` (cosine 0.99999), so they are comparable with the datase
 
 **Live editions** (`src/wikicross/wiki.py`): the first request for a topic follows its language links
 and fetches every edition whose title and text are in Latin or Cyrillic script (≥90 % of letters;
-`SCRIPTS`), one MediaWiki API request at a time (Wikimedia answers bursts with 429), converts the
+`SCRIPTS`), eight MediaWiki API requests at a time (`FETCHERS`; 429 answers are waited out), converts the
 plain-text extract to Markdown without its closing appendix (references, bibliography, links:
 headings classified by bge-m3 against anchor names in Latin and Cyrillic languages, only in the
 trailing run of sections without prose), and embeds them all in one batch. `topic_editions`
 remembers finished topics and which scripts they covered, so a topic fetched before Cyrillic was
-added fetches its Cyrillic editions once. Measured: Stepan Bandera (not in S) 47 editions in 49 s,
-then 4.4 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s; adding Cyrillic,
+added fetches its Cyrillic editions once. Measured, one request at a time: Stepan Bandera (not in S)
+47 editions in 49 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s. Eight at a
+time: Mannerheim-linja's 28 editions in about 1 s. Adding Cyrillic,
 Urho Kekkonen gained 8 editions (be, be-tarask, mn, os, ru, sr, uk, …) and Talvisota went to 66.
 Titles are looked up in any language in the database, else on English Wikipedia; `/api/diff?lang=de`
 looks them up in that edition only (in the database, else on de.wikipedia.org), as the extension does.
