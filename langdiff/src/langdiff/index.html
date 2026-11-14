@@ -93,14 +93,31 @@ q.addEventListener("input", () => {
   }, 200);
 });
 
-document.getElementById("f").addEventListener("submit", async (e) => {
-  e.preventDefault();
+// The query lives in the URL (?title=…) so results can be shared and Back/Forward work. The title is
+// only ever put into input.value, textContent and URLSearchParams: never parsed as HTML.
+let current = 0;
+async function search(title, push) {
+  if (push) history.pushState(null, "", `?${new URLSearchParams({ title })}`);
+  q.value = title;
+  document.title = `${title} — langdiff`;
+  const mine = ++current;  // a slower, older search must not overwrite a newer one
   out.replaceChildren($("p", { className: "pending", textContent: "Comparing the editions… the first time an article is asked for, its passages are embedded: this may take a minute." }));
-  const r = await fetch(`/api/diff?title=${encodeURIComponent(q.value)}&limit=10`);
+  const r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: 10 })}`);
   const data = await r.json();
+  if (mine !== current) return;
   if (!r.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
   render(data);
+}
+const fromUrl = () => new URLSearchParams(location.search).get("title")?.trim();
+
+document.getElementById("f").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const title = q.value.trim();
+  if (title && title !== fromUrl()) search(title, true);
+  else if (title) search(title, false);
 });
+window.addEventListener("popstate", () => { const t = fromUrl(); if (t) search(t, false); });
+if (fromUrl()) search(fromUrl(), false);
 
 function render(data) {
   const langs = data.articles.map((a) => a.lang);
@@ -108,7 +125,7 @@ function render(data) {
   out.replaceChildren(
     $("h1", { textContent: head.title }),
     $("div", { className: "editions muted" }, "Editions: ",
-      ...data.articles.flatMap((a, i) => [i ? " · " : "", $("a", { href: a.url, target: "_blank", textContent: `${a.lang}: ${a.title}` })]),
+      ...data.articles.flatMap((a, i) => [i ? " · " : "", $("a", { href: /^https?:\/\//.test(a.url) ? a.url : "#", target: "_blank", rel: "noopener", textContent: `${a.lang}: ${a.title}` })]),
       $("br"), "Whole-article distance: ",
       data.similarity.map((s) => `${s.a}↔${s.b} ${s.distance.toFixed(3)}`).join(" · ")),
     $("section", { className: "box" },
