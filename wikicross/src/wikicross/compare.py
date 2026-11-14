@@ -266,16 +266,13 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     return [(sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()] + between
 
 
-def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], dict]:
-    """What the editions of a topic state differently, best first ({"kind": "framing"}, by deviation).
-    Each has members, one per language: the passage, its position (page_id, seq) and the sentence
-    (n, sentence).
-
-    Also each edition's leaning: {"axes": {axis: ends}, "editions": {lang: {"groups": n, axis: mean
-    deviation}}}, its average distance from the other editions on each axis over every matched group,
-    flagged or not (positive: towards the axis's first end).
+def differences(cur, wikidata_id: str, ensure_sentences, langs: set[str]) -> list[dict]:
+    """What the editions of a topic (those in `langs`) state differently, best first ({"kind": "framing"},
+    by deviation). Each has members, one per language: the passage, its position (page_id, seq) and the
+    sentence (n, sentence).
     """
-    pairs = passage_pairs(cur, wikidata_id)
+    # Matching is mutual per language pair, so leaving editions out does not change the other pairs.
+    pairs = [p for p in passage_pairs(cur, wikidata_id) if p[0][0] in langs and p[1][0] in langs]
     ensure_sentences(cur, sorted({(lang, page_id) for a, b, _ in pairs for lang, page_id, _ in (a, b)}))
     stats = axis_stats(cur, {item[0] for a, b, _ in pairs for item in (a, b)})
     passages = {}
@@ -301,7 +298,6 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
         return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]}
 
     framing = []
-    lean: dict[str, dict[str, list[float]]] = {}  # lang -> axis -> deviations in every group
     for ids, dist in groups(edges, FRAMING_MAX):
         best = None
         for k, (name, (_, _, ends)) in enumerate(AXES.items()):
@@ -309,14 +305,10 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
             for lang, zl in z.items():
                 # how far this edition sits from the others' average: with two, just their difference
                 deviation = zl - fmean(v for other, v in z.items() if other != lang)
-                lean.setdefault(lang, {}).setdefault(name, []).append(deviation)
                 if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
                     best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation}
         if best:
             framing.append({"kind": "framing", "distance": dist, **best, "outlier": len(ids) >= 3,
                             "members": [member(i) for i in ids]})
     framing.sort(key=lambda f: -abs(f["deviation"]))
-    leaning = {"axes": {name: ends for name, (_, _, ends) in AXES.items()},
-               "editions": {lang: {"groups": len(next(iter(by_axis.values()))),
-                                   **{name: fmean(d) for name, d in by_axis.items()}} for lang, by_axis in lean.items()}}
-    return framing, leaning
+    return framing

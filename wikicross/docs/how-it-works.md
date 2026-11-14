@@ -177,11 +177,6 @@ $$\Delta_\ell = z_\ell - \frac{1}{|G|-1}\sum_{k \in G,\,k \neq \ell} z_k$$
 With two editions this is just their difference. The largest $|\Delta|$ over editions and axes is
 reported when it is at least 1.2σ; with three or more editions, that edition is the outlier.
 
-**Leaning** (shown by the extension for the page's edition): an edition's mean $\Delta$ per axis over
-every matched group it is in, reported or not. Below 0.2σ on every axis it reads as neutral; the
-editions with the nearest and furthest such profiles (Euclidean, editions in at least 5 groups) are
-the ones it is framed most and least like. Urho Kekkonen, fi: −0.01, −0.06 and +0.17σ, neutral.
-
 ### 5. Worked example (real output)
 
 | Topic | Kind | Editions | Result |

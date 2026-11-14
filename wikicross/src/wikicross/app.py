@@ -188,10 +188,12 @@ PROGRESS: dict[str, tuple[str, float]] = {}
 
 
 @app.get("/api/diff")
-def diff(title: str, limit: int = 10, lang: str | None = None, focus: str | None = None):
-    """What a topic's editions state differently, best first; `lang` is the edition the title is from
-    (any if not given: then looked up on English Wikipedia if the database does not have it), `focus`
-    an edition whose findings go first."""
+def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, focus: str | None = None,
+         dialects: bool = True):
+    """What a topic's editions state differently, best first, `limit` of them from `offset` (`total`
+    counts all); `lang` is the edition the title is from (any if not given: then looked up on English
+    Wikipedia if the database does not have it), `focus` an edition whose findings go first.
+    `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect()."""
     start = time.monotonic()
 
     def progress(stage: str) -> None:
@@ -199,13 +201,20 @@ def diff(title: str, limit: int = 10, lang: str | None = None, focus: str | None
 
     progress("Looking the topic up")
     try:
-        data = compare_editions(title, lang, progress)
-        # findings involving the focus edition first, each group in its own order, then the limit
+        data = compare_editions(title, lang, progress, dialects)
+        # findings involving the focus edition first, each group in its own order, then the page
         data["differences"].sort(key=lambda f: focus is not None and all(m["lang"] != focus for m in f["members"]))
-        data["differences"] = data["differences"][:limit]
+        data["total"] = len(data["differences"])
+        data["differences"] = data["differences"][offset : offset + limit]
         return data
     finally:
         PROGRESS.pop(title, None)
+
+
+def is_dialect(lang: str) -> bool:
+    """An edition without a two-letter (ISO 639-1) code: a regional language or variety (bar, vro, smn,
+    ast, simple, be-tarask). shortcut: a rule of thumb on the code; a curated list if it misfiles one."""
+    return len(lang) != 2
 
 
 @app.get("/api/progress")
@@ -217,7 +226,7 @@ def progress_of(title: str):
     return {"stage": stage, "seconds": round(time.monotonic() - start)}
 
 
-def compare_editions(title: str, lang: str | None, progress) -> dict:
+def compare_editions(title: str, lang: str | None, progress, dialects: bool = True) -> dict:
     with connect() as conn, conn.cursor() as cur:
         # The page's own edition only: on another one the same title can be another topic (de "Gift").
         cur.execute(
@@ -250,7 +259,7 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
             "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang",
             (wikidata_id,),
         )
-        articles = cur.fetchall()
+        articles = [a for a in cur.fetchall() if dialects or not is_dialect(a[0])]
         if len(articles) < 2:
             raise HTTPException(404, f"{title!r} exists in one language only")
         progress(f"Splitting {len(articles)} editions into passages and embedding the new ones")
@@ -265,7 +274,8 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
                WHERE x.wikidata_id = %s""",
             (wikidata_id,),
         )
-        similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall()]
+        kept = {a[0] for a in articles}
+        similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall() if a in kept and b in kept]
 
         # A reload reads the differences computed for these editions by this code.
         # shortcut: passage matching also searches other topics' passages (HNSW over the corpus), so a
@@ -274,7 +284,7 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
         state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
         cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
         if row := cur.fetchone():
-            found, leaning = json.loads(row[0])
+            found = json.loads(row[0])
         else:
             def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
                 progress(f"Embedding the sentences of {len(pages)} matched articles")
@@ -282,15 +292,14 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
                 progress("Comparing sentences: framing")
 
             progress("Matching passages across languages")
-            found, leaning = differences(cur, wikidata_id, sentences_then_compare)
-            cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps([found, leaning])))
+            found = differences(cur, wikidata_id, sentences_then_compare, kept)
+            cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps(found)))
 
     return {
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
         "similarity": similarity,
         "differences": found,
-        "leaning": leaning,
     }
 
 
