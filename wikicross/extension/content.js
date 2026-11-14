@@ -1,8 +1,7 @@
-// langdiff on Wikipedia: where the other language editions frame the same thing differently, or
+// WikiCross on Wikipedia: where the other language editions frame the same thing differently, or
 // state a figure very differently. In the article view and the edit views. All page text goes in
-// through textContent, never innerHTML. Keep in sync with src/langdiff/index.html (see AGENTS.md).
+// through textContent, never innerHTML. Keep in sync with src/wikicross/index.html (see AGENTS.md).
 (() => {
-  const HOSTS = ["fi", "sv", "en"];  // the editions the extension runs on (manifest.json matches)
   const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
   const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
   const SHOWN = 4;  // editions per card before "Show all", as in the web app
@@ -10,7 +9,8 @@
   const params = new URLSearchParams(location.search);
   const action = params.get("action") || "view";
   const editing = /^(edit|submit)$/.test(action) || /^(edit|editsource)$/.test(params.get("veaction") || "");
-  if (!HOSTS.includes(lang) || !(editing || action === "view")) return;
+  // Articles only (MediaWiki's ns-0 body class, in every skin): not talk or special pages, not the www portal.
+  if (!document.body.classList.contains("ns-0") || !(editing || action === "view")) return;
   const title = (params.get("title") || decodeURIComponent(location.pathname.replace(/^\/wiki\//, ""))).replace(/_/g, " ");
 
   // Icons as SVG: font glyphs show as empty squares where the font lacks them. Constant markup only.
@@ -47,7 +47,7 @@
   });
 
   const host = document.createElement("div");
-  host.id = "langdiff-host";
+  host.id = "wikicross-host";
   const root = host.attachShadow({ mode: "open" });
   root.append($("style", { textContent: `
     :host { all: initial; }
@@ -67,7 +67,7 @@
     .lean b { display: block; font-size: 14px; }
     .body { padding: .4rem .8rem .8rem; }
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
-    /* Keep in sync with src/langdiff/index.html: a discrepancy (facts disagree) is red, impartiality amber. */
+    /* Keep in sync with src/wikicross/index.html: a discrepancy (facts disagree) is red, impartiality amber. */
     .card.discrepancy { border-left: 4px solid #d33; } .card.impartiality { border-left: 4px solid #a66200; }
     .tag { font: bold 10px/1.5 sans-serif; text-transform: uppercase; letter-spacing: .05em; color: #fff; border-radius: 2px; padding: 0 .35rem; }
     .tag.discrepancy { background: #d33; } .tag.impartiality { background: #a66200; }
@@ -87,7 +87,7 @@
     .close { border: 0; background: none; cursor: pointer; color: #54595d; padding: 0; }
     .muted { color: #54595d; } .error { color: #d33; }
     details summary { cursor: pointer; color: #36c; margin-top: .8rem; }
-    /* Keep in sync with the spinner in src/langdiff/index.html. */
+    /* Keep in sync with the spinner in src/wikicross/index.html. */
     .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid #eaecf0; border-top-color: #36c; border-radius: 50%;
                animation: spin .8s linear infinite; vertical-align: -.15em; flex: none; }
     @keyframes spin { to { transform: rotate(360deg); } }
@@ -95,13 +95,13 @@
     .loading { display: flex; gap: .7rem; align-items: center; }
     .loading .spinner { width: 1.6rem; height: 1.6rem; border-width: 3px; }
   ` }));
-  const toggle = $("button", { className: "toggle quiet", type: "button" }, "langdiff");
+  const toggle = $("button", { className: "toggle quiet", type: "button" }, "WikiCross");
   const panel = $("section", { className: "panel", hidden: true });
   root.append(toggle, panel);
   document.body.append(host);
   // The page highlight: a CSS Custom Highlight over the evidence, so the page's DOM (and VisualEditor's
   // model of it) is never touched.
-  document.head.append($("style", { textContent: "::highlight(langdiff) { background-color: #fef6e7; text-decoration: underline 2px #edab00; }" }));
+  document.head.append($("style", { textContent: "::highlight(wikicross) { background-color: #fef6e7; text-decoration: underline 2px #edab00; }" }));
 
   const textarea = document.getElementById("wpTextbox1");
   const words = (text) => [...new Set(text.toLowerCase().match(/[\p{L}\d]{4,}/gu) || [])];
@@ -212,7 +212,7 @@
     const span = (sentence && sentenceSpan(content, sentence, 0)) || figureSpan(content, numbers, 0);
     let range = span && rangeAt(best.el, ...span);
     if (!range) { range = new Range(); range.selectNodeContents(best.el); }
-    CSS.highlights.set("langdiff", new Highlight(range));
+    CSS.highlights.set("wikicross", new Highlight(range));
     (range.startContainer.parentElement || best.el).scrollIntoView({ block: "center", behavior: "smooth" });
     return true;
   }
@@ -300,20 +300,22 @@
     const mine = data.differences.filter((f) => f.members.some((m) => m.lang === lang));
     const elsewhere = data.differences.filter((f) => !mine.includes(f));
     const n = mine.length;
-    toggle.replaceChildren(icon(n ? "alert" : "scale"), `langdiff · ${n}`);
+    toggle.replaceChildren(icon(n ? "alert" : "scale"), `WikiCross · ${n}`);
     toggle.className = n ? "toggle" : "toggle quiet";
     const close = $("button", { className: "close", type: "button", title: "Close", ariaLabel: "Close" }, icon("close"));
     close.addEventListener("click", () => { panel.hidden = true; });
     const body = $("div", { className: "body" });
     const lean = leaning(data);
     if (lean) body.append(lean);
-    if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently or states a figure very differently from the other editions." }));
+    if (!data.articles.some((a) => a.lang === lang)) {
+      body.append($("p", { className: "muted", textContent: `This edition (${langName(lang)}) is not compared: only Latin- and Cyrillic-script editions are. Below, what the others state differently.` }));
+    } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently or states a figure very differently from the other editions." }));
     body.append(...mine.map((f) => finding(f, data.articles)));
     if (elsewhere.length) {
       body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
         ...elsewhere.map((f) => finding(f, data.articles))));
     }
-    panel.replaceChildren($("header", {}, $("h2", { textContent: "langdiff" }), close), body);
+    panel.replaceChildren($("header", {}, $("h2", { textContent: "WikiCross" }), close), body);
   }
 
   function showMessage(text, error) {
@@ -324,7 +326,7 @@
   function load() {
     requested = true;
     const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
-    toggle.replaceChildren(spinner(), "langdiff");
+    toggle.replaceChildren(spinner(), "WikiCross");
     // The server's current stage, polled each second while it works; only the stage is announced.
     const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
     panel.replaceChildren($("div", { className: "body" }, $("div", { className: "loading" }, spinner(),
@@ -337,7 +339,7 @@
     }).catch(() => {}), 1000);
     get("/api/diff", { title, lang, focus: lang, limit: 30 }).then(render).catch((err) => {
       if (!editing && err.status === 404) return host.remove();  // no other edition: stay out of the way
-      toggle.replaceChildren(err.status ? "langdiff · –" : "langdiff · ?");
+      toggle.replaceChildren(err.status ? "WikiCross · –" : "WikiCross · ?");
       showMessage(err.message, true);
     }).finally(() => clearInterval(poll));
   }

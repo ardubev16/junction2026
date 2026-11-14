@@ -1,4 +1,4 @@
-from langdiff.app import sentences
+from wikicross.app import sentences
 
 
 def test_sentences_split_on_full_stops_but_not_finnish_dates_or_abbreviations():

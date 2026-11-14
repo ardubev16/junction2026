@@ -1,6 +1,6 @@
 # Agents
 
-- **Keep the web app and the Chrome extension in sync.** `src/langdiff/index.html` and
+- **Keep the web app and the Chrome extension in sync.** `src/wikicross/index.html` and
   `extension/content.js` show the same findings from the same API: a change to what a finding shows
   (labels, the red Discrepancy / amber Impartiality marks, highlighting, outliers, ordering) goes
   into both, in the same commit. Only page-specific parts differ: the web app has AI summaries and

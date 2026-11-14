@@ -1,4 +1,4 @@
-from langdiff.wiki import in_scripts, markdown, trailing_appendix
+from wikicross.wiki import in_scripts, markdown, trailing_appendix
 
 
 def test_markdown_converts_headings_and_drops_appendix_sections():

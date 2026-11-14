@@ -16,7 +16,7 @@ import numpy as np
 
 from .embeddings import embed, embed_cached, token_counts
 
-UA = "langdiff/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.github.com)"
+UA = "WikiCross/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.github.com)"
 SCRIPTS = ("LATIN", "CYRILLIC")  # Unicode script names of the editions compared
 SCRIPT_SHARE = 0.9  # letters that must be in SCRIPTS for an edition to be compared
 RETRIES = 3

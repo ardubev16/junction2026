@@ -43,7 +43,7 @@ async def lifespan(_app):
     yield
 
 
-app = FastAPI(title="langdiff", lifespan=lifespan)
+app = FastAPI(title="WikiCross", lifespan=lifespan)
 
 
 def split(text: str) -> list[tuple[str, str]]:
@@ -188,9 +188,10 @@ PROGRESS: dict[str, tuple[str, float]] = {}
 
 
 @app.get("/api/diff")
-def diff(title: str, limit: int = 10, lang: str = "en", focus: str | None = None):
-    """What a topic's editions state differently, best first; `lang` is the Wikipedia to look the
-    title up on if the database does not have it, `focus` an edition whose findings go first."""
+def diff(title: str, limit: int = 10, lang: str | None = None, focus: str | None = None):
+    """What a topic's editions state differently, best first; `lang` is the edition the title is from
+    (any if not given: then looked up on English Wikipedia if the database does not have it), `focus`
+    an edition whose findings go first."""
     start = time.monotonic()
 
     def progress(stage: str) -> None:
@@ -216,12 +217,13 @@ def progress_of(title: str):
     return {"stage": stage, "seconds": round(time.monotonic() - start)}
 
 
-def compare_editions(title: str, lang: str, progress) -> dict:
+def compare_editions(title: str, lang: str | None, progress) -> dict:
     with connect() as conn, conn.cursor() as cur:
+        # The page's own edition only: on another one the same title can be another topic (de "Gift").
         cur.execute(
-            "SELECT wikidata_id FROM article WHERE title = %s AND wikidata_id IS NOT NULL "
+            "SELECT wikidata_id FROM article WHERE title = %s AND wikidata_id IS NOT NULL AND (%s IS NULL OR lang = %s) "
             "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang LIMIT 1",
-            (title,),
+            (title, lang, lang),
         )
         if row := cur.fetchone():
             wikidata_id = row[0]
@@ -233,6 +235,7 @@ def compare_editions(title: str, lang: str, progress) -> dict:
             seed_lang, seed_title, seed_url = cur.fetchone()
             seed_host = urlparse(seed_url).netloc
         else:
+            lang = lang or "en"
             try:
                 p = wiki.resolve(lang, title)
             except wiki.WikiError as e:

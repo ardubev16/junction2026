@@ -10,7 +10,7 @@ affected topics) is in [docs/how-it-works.md](docs/how-it-works.md#recomputing-e
 ## Precompute the part and sentence embeddings
 
 Today an article's parts and sentences are embedded with bge-m3 the first time someone asks for it
-(`ensure_chunks()`, `ensure_sentences()` in `src/langdiff/app.py`): 1.5–4 minutes per article on a
+(`ensure_chunks()`, `ensure_sentences()` in `src/wikicross/app.py`): 1.5–4 minutes per article on a
 CPU. Precomputing makes every request take well under a second (measured: 0.24 s for Urho Kekkonen
 once embedded). It also makes the passage search over the whole corpus (HNSW on `chunk`) find
 counterparts in other articles, which it can only do among articles already embedded.
@@ -32,12 +32,12 @@ per-call overhead (~0.5 s). Measure on the first 100 articles before committing 
 
 ### Steps
 
-1. **Prerequisites:** MariaDB up and loaded (`docker compose up -d --wait`, `uv run langdiff-load`),
-   the embedder deployed (`uv run modal deploy src/langdiff/embed_gpu.py`). The database stays here;
+1. **Prerequisites:** MariaDB up and loaded (`docker compose up -d --wait`, `uv run wikicross-load`),
+   the embedder deployed (`uv run modal deploy src/wikicross/embed_gpu.py`). The database stays here;
    only the texts go to Modal.
 
-2. **Add `src/langdiff/precompute.py`** with a `main()` and register it in `pyproject.toml` under
-   `[project.scripts]` as `langdiff-precompute = "langdiff.precompute:main"`. It should:
+2. **Add `src/wikicross/precompute.py`** with a `main()` and register it in `pyproject.toml` under
+   `[project.scripts]` as `wikicross-precompute = "wikicross.precompute:main"`. It should:
    - Select the articles still to do — the query is resumable by itself:
      ```sql
      SELECT a.lang, a.page_id, a.text FROM article a
@@ -55,8 +55,8 @@ per-call overhead (~0.5 s). Measure on the first 100 articles before committing 
 
 3. **Run it**, safe to stop and restart at any time:
    ```bash
-   uv run langdiff-precompute --all-three --workers 4   # the 2,919 topics in all three languages first
-   uv run langdiff-precompute --workers 4               # then the rest
+   uv run wikicross-precompute --all-three --workers 4   # the 2,919 topics in all three languages first
+   uv run wikicross-precompute --workers 4               # then the rest
    ```
 
 5. **Verify:**
@@ -76,6 +76,6 @@ per-call overhead (~0.5 s). Measure on the first 100 articles before committing 
   fine for thousands of sentences, not for 594,000. Compute them once after the bulk load and keep
   them in a small table.
 - **Share the result** instead of recomputing it: export `chunk` and `sentence` to Parquet, like
-  the dataset's own vector files, and teach `langdiff-load` to load them.
+  the dataset's own vector files, and teach `wikicross-load` to load them.
 - **Do not precompute the LLM summaries** with the current key: they are capped by the provider's
   request limits. They are cached in `llm_cache` as people use the app.

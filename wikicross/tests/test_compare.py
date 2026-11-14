@@ -1,5 +1,5 @@
-from langdiff.compare import groups, merge_values
-from langdiff.discrepancy import tally
+from wikicross.compare import groups, merge_values
+from wikicross.discrepancy import tally
 
 
 def test_groups_keep_one_sentence_per_language_instead_of_falling_back_to_pairs():

@@ -1,4 +1,4 @@
-from langdiff.app import MIN_CHARS, split
+from wikicross.app import MIN_CHARS, split
 
 
 def test_split_merges_paragraphs_and_skips_reference_sections():

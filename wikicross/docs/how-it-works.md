@@ -1,6 +1,6 @@
-# How langdiff works
+# How WikiCross works
 
-langdiff finds where the Wikipedia editions of one topic **frame the same thing differently** or
+WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently** or
 **state a figure very differently** (at least 20% apart): Finnish, Swedish and English from dataset
 S, every other Latin- or Cyrillic-script edition fetched live from Wikipedia on the first request (`wiki.py`). It
 needs no LLM: only bge-m3 vectors, compared inside MariaDB. An optional LLM step (off by default) can
@@ -18,7 +18,7 @@ unless marked otherwise.
 
 ```mermaid
 flowchart TD
-  L[langdiff-load: dataset S into MariaDB] --> A[article + article_vector]
+  L[wikicross-load: dataset S into MariaDB] --> A[article + article_vector]
   Q[GET /api/diff?title=…] --> T[Topic: editions sharing a wikidata_id]
   A --> T
   T --> E1[Split articles into passages, embed with bge-m3 on demand]
@@ -42,7 +42,7 @@ Two different questions are answered by two different mechanisms:
 | *Are these about the same thing?* (matching) | vector distance: mutual nearest neighbour, under a threshold | flag anything |
 | *Do they say it differently?* (flagging) | numbers in the text; positions on semantic axes | decide what is about the same thing |
 
-Content that only one edition has never finds a partner, so it is never reported: langdiff is about
+Content that only one edition has never finds a partner, so it is never reported: WikiCross is about
 disagreement, not omission.
 
 ## Data model
@@ -361,7 +361,7 @@ Articles are edited all the time; the stored vectors describe the text they were
 
 **Today nothing detects a change.** `ensure_chunks()` and `ensure_sentences()` only check whether an
 article has rows at all, and the loader keeps no revision (`rev_id` is in the dataset files but not
-loaded). Loading newer text with `langdiff-load` replaces `article` but leaves the old passages,
+loaded). Loading newer text with `wikicross-load` replaces `article` but leaves the old passages,
 sentences and vectors in place: findings would quote text that no longer exists. Until the steps
 below exist, after reloading changed text: `DELETE FROM chunk` / `sentence` for those articles (or
 `TRUNCATE` both).

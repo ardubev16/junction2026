@@ -117,7 +117,7 @@ def chat(system: str, user: str, schema: dict) -> dict:
             return json.loads(row[0])
         api_key = os.environ.get(LLM["key"]) or os.environ.get("AI_API_KEY")
         if not api_key:
-            raise HTTPException(503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env langdiff")
+            raise HTTPException(503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env wikicross")
         request, text = APIS[LLM["api"]]
         url, headers, body = request(system, user, schema, api_key)
         for attempt in range(4):

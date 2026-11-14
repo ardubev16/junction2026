@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>langdiff — cross-language discrepancies</title>
+<title>WikiCross — cross-language discrepancies</title>
 <style>
   :root { --link: #36c; --border: #c8ccd1; --muted: #54595d; --chip: #eaecf0; --warn: #a66200; --bad: #d33; --serif: "Linux Libertine", "Georgia", "Times", serif; }
   body { margin: 0; background: #f8f9fa; color: #202122; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
@@ -84,7 +84,7 @@
 </head>
 <body>
 <header>
-  <div class="wordmark">langdiff</div>
+  <div class="wordmark">WikiCross</div>
   <form id="f">
     <input type="search" id="q" list="titles" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
     <datalist id="titles"></datalist>
@@ -157,7 +157,7 @@ let current = 0, shown = null;
 async function search(title, push) {
   if (push) history.pushState(null, "", `?${new URLSearchParams({ title })}`);
   q.value = title;
-  document.title = `${title} — langdiff`;
+  document.title = `${title} — WikiCross`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
   shown = null;
   // Loading view: the server's current stage (fetching editions, embedding, comparing), polled each
@@ -179,7 +179,7 @@ async function search(title, push) {
     r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: 15 })}`);
     data = await r.json().catch(() => ({ detail: `Server error ${r.status}` }));
   } catch (err) {
-    data = { detail: `langdiff server not reachable: ${err.message}` };
+    data = { detail: `WikiCross server not reachable: ${err.message}` };
   } finally {
     clearInterval(poll);
   }
@@ -213,7 +213,7 @@ function render(data) {
     $("h1", { textContent: head.title }),
     editionsMenu(data.articles),
     ...(data.differences.length ? [$("h2", { textContent: `${data.differences.length} differences` }), ...data.differences.map(card)]
-      : [$("p", { className: "muted", textContent: "The editions state nothing differently that langdiff can find." })]));
+      : [$("p", { className: "muted", textContent: "The editions state nothing differently that WikiCross can find." })]));
 }
 
 const getContext = async (params) => {

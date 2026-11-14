@@ -1,4 +1,4 @@
-"""bge-m3 on a Modal H100. Deploy with `uv run modal deploy src/langdiff/embed_gpu.py`.
+"""bge-m3 on a Modal H100. Deploy with `uv run modal deploy src/wikicross/embed_gpu.py`.
 
 Runs in Modal's cloud, not in the web app: `embeddings.embed()` looks the deployed class up by name.
 """
@@ -6,10 +6,10 @@ Runs in Modal's cloud, not in the web app: `embeddings.embed()` looks the deploy
 import modal
 
 MODEL = "BAAI/bge-m3"  # the model the dataset's vectors were made with
-APP = "langdiff-embed"
+APP = "wikicross-embed"
 
 app = modal.App(APP)
-weights = modal.Volume.from_name("langdiff-hf-cache", create_if_missing=True)
+weights = modal.Volume.from_name("wikicross-hf-cache", create_if_missing=True)
 image = (
     modal.Image.debian_slim(python_version="3.12")
     .uv_pip_install("sentence-transformers>=5", "torch>=2.7")

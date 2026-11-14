@@ -1,4 +1,4 @@
-from langdiff.discrepancy import anchored_conflicts, conflicts, figure_slots, numbers, tally
+from wikicross.discrepancy import anchored_conflicts, conflicts, figure_slots, numbers, tally
 
 
 def test_numbers_read_every_languages_thousands_separator():

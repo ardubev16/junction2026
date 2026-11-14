@@ -1,4 +1,4 @@
-# langdiff
+# WikiCross
 
 Where do the Wikipedia editions of the same topic, in every Latin- or Cyrillic-script language, frame
 things differently or state very different figures? Built on dataset S of
@@ -8,20 +8,20 @@ MariaDB Vector; the other editions are fetched live from Wikipedia the first tim
 ## Run
 
 Needs Docker, uv and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
-sentences are embedded with bge-m3 on a Modal H100 (`src/langdiff/embed_gpu.py`).
+sentences are embedded with bge-m3 on a Modal H100 (`src/wikicross/embed_gpu.py`).
 The embedder is looked up by name in the active Modal profile's workspace; to use one already
 deployed elsewhere (the team's is in `fabio-missagia`), add a token for that workspace instead of
 deploying: `uv run modal token new --profile fabio-missagia` (pick the workspace in the browser; it
 becomes the active profile), or set `MODAL_PROFILE=fabio-missagia` when starting the server.
 
 ```bash
-docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the langdiff-data volume
-uv run langdiff-load          # download S (articles + bge-m3 vectors, fi/sv/en) into MariaDB
-uv run modal deploy src/langdiff/embed_gpu.py   # bge-m3 on an H100, scales to zero after 5 idle minutes
-uv run --env-file .env langdiff   # http://127.0.0.1:8000; .env holds AI_API_KEY
+docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the wikicross-data volume
+uv run wikicross-load          # download S (articles + bge-m3 vectors, fi/sv/en) into MariaDB
+uv run modal deploy src/wikicross/embed_gpu.py   # bge-m3 on an H100, scales to zero after 5 idle minutes
+uv run --env-file .env wikicross   # http://127.0.0.1:8000; .env holds AI_API_KEY
 ```
 
-`langdiff-load` keeps its downloads in `data/` (checked against the release's `SHA256SUMS`) and
+`wikicross-load` keeps its downloads in `data/` (checked against the release's `SHA256SUMS`) and
 can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
 `DB_NAME`.
 
@@ -29,7 +29,7 @@ Embedding an article the first time: ~10 s with a warm GPU container (Urho Kekko
 then 0.3 s from the database. A cold container first loads the model: ~30–50 s. Modal's vectors
 match Ollama's `bge-m3` (cosine 0.99999), so they are comparable with the dataset's.
 
-**Live editions** (`src/langdiff/wiki.py`): the first request for a topic follows its language links
+**Live editions** (`src/wikicross/wiki.py`): the first request for a topic follows its language links
 and fetches every edition whose title and text are in Latin or Cyrillic script (≥90 % of letters;
 `SCRIPTS`), one MediaWiki API request at a time (Wikimedia answers bursts with 429), converts the
 plain-text extract to Markdown without its closing appendix (references, bibliography, links:
@@ -39,7 +39,8 @@ remembers finished topics and which scripts they covered, so a topic fetched bef
 added fetches its Cyrillic editions once. Measured: Stepan Bandera (not in S) 47 editions in 49 s,
 then 4.4 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s; adding Cyrillic,
 Urho Kekkonen gained 8 editions (be, be-tarask, mn, os, ru, sr, uk, …) and Talvisota went to 66.
-Titles not in the database are looked up on English Wikipedia (`/api/diff?lang=` picks another).
+Titles are looked up in any language in the database, else on English Wikipedia; `/api/diff?lang=de`
+looks them up in that edition only (in the database, else on de.wikipedia.org), as the extension does.
 
 **Loading feedback**: while `/api/diff` works, `/api/progress?title=` gives its current stage
 ("Fetching edition 12 of 63 from Wikipedia (ru.wikipedia.org)", embedding, matching, comparing) and
@@ -58,7 +59,8 @@ row to recompute.
 
 ### Chrome extension
 
-`extension/` shows the same findings on Wikipedia itself (fi, sv, en): a "langdiff · N" button opens
+`extension/` shows the same findings on every Wikipedia (`*.wikipedia.org`, article pages): a
+"WikiCross · N" button opens
 a panel listing what this edition states differently from the others, with the other editions'
 sentences and links to them. At its top, where this edition **leans**: on each framing axis its
 average distance from the other editions over every matched sentence group, read as neutral below
@@ -68,7 +70,7 @@ the figure, for evidence that is a whole passage) and scrolled to; in the source
 selected in the wikitext, link markup and `<ref>`s included.
 
 1. Start the backend (above) on `http://127.0.0.1:8000`.
-2. `chrome://extensions` → Developer mode → **Load unpacked** → select `langdiff/extension`.
+2. `chrome://extensions` → Developer mode → **Load unpacked** → select `wikicross/extension`.
 3. Open an article, e.g. `https://fi.wikipedia.org/wiki/Talvisota`, and click the button; or its
    edit view, where it loads at once.
 
@@ -89,7 +91,7 @@ The web app and the extension must stay in sync: see [AGENTS.md](AGENTS.md).
 
 ### LLM
 
-`LLM_PRESET` picks one of the presets in `src/langdiff/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL`
+`LLM_PRESET` picks one of the presets in `src/wikicross/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL`
 override single fields of it. Each preset reads its own key variable, falling back to `AI_API_KEY`,
 so keys for several providers can sit in `.env` together.
 
@@ -101,8 +103,8 @@ so keys for several providers can sit in `.env` together.
 | `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` | `OPENROUTER_API_KEY` | free: 50 requests/day |
 
 ```bash
-LLM_PRESET=minimax uv run --env-file .env langdiff
-LLM_PRESET=openrouter LLM_MODEL=nvidia/nemotron-3.5-super-vl uv run --env-file .env langdiff
+LLM_PRESET=minimax uv run --env-file .env wikicross
+LLM_PRESET=openrouter LLM_MODEL=nvidia/nemotron-3.5-super-vl uv run --env-file .env wikicross
 ```
 
 A new provider with one of these APIs is a new preset; a new API is a `(request, text)` pair in
