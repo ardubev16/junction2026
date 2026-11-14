@@ -200,31 +200,19 @@
 
   function finding(f, articles) {
     const urls = Object.fromEntries(articles.map((a) => [a.lang, a.url]));
-    // Contradictions: the outliers, else every edition in a contradicting pair; framing: its outlier.
-    const outliers = new Set(f.kind === "contradiction" ? (f.outliers.length ? f.outliers : f.pairs.flat()) : f.outlier ? [f.lang] : []);
+    const outliers = new Set(f.outlier ? [f.lang] : []);
     const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
-    let what, label;
-    if (f.kind === "contradiction") {
-      const each = f.pairs.map(([a, b]) => `${langName(a)} and ${langName(b)}`);
-      const n = f.outliers.length;
-      what = n ? (n > 3 ? `${n} editions contradict the others.` : `The ${f.outliers.map(langName).join(" and ")} edition${n > 1 ? "s contradict" : " contradicts"} the others.`)
-        : each.length === 1 ? `The ${each[0]} editions contradict each other.` : `Contradicting editions: ${each.length > 3 ? `${each.length} pairs` : each.join("; ")}.`;
-      label = $("span", { className: "label" }, $("span", { className: "tag discrepancy", textContent: "Discrepancy" }), icon("alert"),
-        `${n ? (n > 3 ? `Outliers: ${n} editions` : `Outlier: ${names(f.outliers)}`) : "Contradiction"} · ${Math.round(f.score * 100)}% sure`);
-    } else {
-      const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
-      what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
-      label = $("span", { className: "label" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
-        `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
-    }
-    const card = $("div", { className: `card ${f.kind === "contradiction" ? "discrepancy" : "impartiality"}` }, label, $("div", { className: "what", textContent: what }));
+    const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
+    const what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
+    const label = $("span", { className: "label" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
+      `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
+    const card = $("div", { className: "card impartiality" }, label, $("div", { className: "what", textContent: what }));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);
     const members = [...f.members].sort((a, b) => rank(a) - rank(b));
     const member = (m) => {
-      const tag = !outliers.has(m.lang) ? "" : f.kind === "contradiction" && !f.outliers.length ? " · contradicting" : " · outlier";
       const who = $("div", { className: "who" }, $("b", { textContent: m.lang === lang ? `This edition (${m.lang})` : `${langName(m.lang)} (${m.lang})` }),
-        ` ${m.title} § ${m.heading || "(intro)"}`, tag);
+        ` ${m.title} § ${m.heading || "(intro)"}`, outliers.has(m.lang) ? " · outlier" : "");
       if (m.lang !== lang && /^https?:\/\//.test(urls[m.lang] || "")) {
         who.append($("a", { href: urls[m.lang], target: "_blank", rel: "noopener" }, "open", icon("link")));
       }

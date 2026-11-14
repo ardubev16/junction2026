@@ -263,32 +263,20 @@ function card(finding) {
   const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
   const state = { highlights: {}, english: null, showEnglish: false, context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
-  let title, label, outliers = [];
-  if (finding.kind === "contradiction") {
-    // The outliers against the rest; else every edition in a contradicting pair goes first.
-    outliers = finding.outliers.length ? finding.outliers : [...new Set(finding.pairs.flat())];
-    const each = finding.pairs.map(([a, b]) => `${langName(a)} and ${langName(b)}`);
-    const n = finding.outliers.length;
-    title = $("h3", { textContent: n ? (n > 3 ? `${n} editions contradict the others.` : `The ${finding.outliers.map(langName).join(" and ")} edition${n > 1 ? "s contradict" : " contradicts"} the others.`)
-      : each.length === 1 ? `The ${each[0]} editions contradict each other.` : `Contradicting editions: ${each.length > 3 ? `${each.length} pairs` : each.join("; ")}.` });
-    label = $("span", { className: "score" }, $("span", { className: "tag discrepancy", textContent: "Discrepancy" }), icon("alert"),
-      `${n ? (n > 3 ? `Outliers: ${n} editions` : `Outlier: ${names(finding.outliers)}`) : "Contradiction"} · ${Math.round(finding.score * 100)}% sure`);
-  } else {
-    const others = finding.members.map((m) => m.lang).filter((l) => l !== finding.lang);
-    const toward = finding.deviation > 0 ? finding.ends[0] : finding.ends[1];
-    const than = others.length > 3 ? names(others) : `the ${names(others)}`;
-    title = $("h3", { textContent: `The ${langName(finding.lang)} edition ${toward} than ${than} edition${others.length > 1 ? "s" : ""}.` });
-    if (finding.outlier) outliers = [finding.lang];
-    label = $("span", { className: "score" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
-      `${finding.outlier ? `Outlier: ${langName(finding.lang)}` : "Different framing"} · ${Math.abs(finding.deviation).toFixed(1)}σ`);
-  }
+  const others = finding.members.map((m) => m.lang).filter((l) => l !== finding.lang);
+  const toward = finding.deviation > 0 ? finding.ends[0] : finding.ends[1];
+  const than = others.length > 3 ? names(others) : `the ${names(others)}`;
+  const title = $("h3", { textContent: `The ${langName(finding.lang)} edition ${toward} than ${than} edition${others.length > 1 ? "s" : ""}.` });
+  const outliers = finding.outlier ? [finding.lang] : [];
+  const label = $("span", { className: "score" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
+    `${finding.outlier ? `Outlier: ${langName(finding.lang)}` : "Different framing"} · ${Math.abs(finding.deviation).toFixed(1)}σ`);
   // Outliers first, then the API's order; a card shows the first SHOWN unless expanded.
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
   const first = members.slice(0, SHOWN);
   const summary = $("p", { className: "summary" });
   const verdict = $("p", { className: "summary" });  // AI only; empty and hidden otherwise
   const quotes = $("div", { className: "quotes" });
-  const article = $("article", { className: `card ${finding.kind === "contradiction" ? "discrepancy" : "impartiality"}` });
+  const article = $("article", { className: "card impartiality" });
   const quoteOf = (p) => p.sentence;
 
   const more = members.length > SHOWN ? $("button", { className: "btn small", type: "button" }) : null;
@@ -336,11 +324,10 @@ function card(finding) {
     const toggle = $("button", { className: "btn small primary", type: "button", disabled: true, textContent: "View quotes in English" });
     verdict.className = "pending";
     verdict.replaceChildren(spinner(), "Checking with AI…");
-    post("/api/explain", { kind: finding.kind, passages: first.map(({ lang, heading, text }) => ({ lang, heading, text })) })
+    post("/api/explain", { passages: first.map(({ lang, heading, text }) => ({ lang, heading, text })) })
       .then((x) => {
         verdict.className = "muted";
-        verdict.textContent = x.discrepancy ? `AI: ${x.title}`
-          : finding.kind === "contradiction" ? "AI: these passages do not contradict each other." : "AI: no clear difference in tone or framing.";
+        verdict.textContent = x.discrepancy ? `AI: ${x.title}` : "AI: no clear difference in tone or framing.";
         if (!x.discrepancy) {
           article.classList.add("dismissed", "collapsed");
           const reopen = $("button", { className: "btn small", type: "button", ariaExpanded: "false" }, "Show anyway", icon("chevron"));

@@ -1,4 +1,4 @@
-"""API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently or contradict each other."""
+"""API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently."""
 
 import hashlib
 import json
@@ -271,7 +271,7 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
         # shortcut: passage matching also searches other topics' passages (HNSW over the corpus), so a
         # topic loaded later can change a match here without changing `state`; delete the topic's
         # diff_cache row to recompute. A precompute job would refresh affected topics instead.
-        state = hashlib.sha256(json.dumps([CODE, compare.CONTRADICTIONS, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
+        state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
         cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
         if row := cur.fetchone():
             found, leaning = json.loads(row[0])
@@ -279,7 +279,7 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
             def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
                 progress(f"Embedding the sentences of {len(pages)} matched articles")
                 ensure_sentences(cur, pages)
-                progress("Comparing sentences: contradictions and framing")
+                progress("Comparing sentences: framing")
 
             progress("Matching passages across languages")
             found, leaning = differences(cur, wikidata_id, sentences_then_compare)
@@ -323,36 +323,21 @@ class Passage(BaseModel):
 
 class ExplainRequest(BaseModel):
     passages: list[Passage]  # parts about the same subject, one per language
-    kind: Literal["contradiction", "framing"] = "contradiction"  # a discrepancy (facts) or impartiality (tone, framing)
-
-
-# What the AI checks for each kind of finding; the answer's `discrepancy` says whether it holds.
-CHECKS = {
-    "contradiction": (
-        "for factual discrepancies: statements about the same thing that disagree (numbers, dates, names, "
-        "places, outcomes). Information that only one passage has is NOT a discrepancy, and neither are "
-        "differences in wording or detail. discrepancy: whether there is at least one. title: in English, "
-        "at most 8 words, naming what disagrees.",
-        "the disagreeing facts",
-    ),
-    "framing": (
-        "for differences in impartiality: describing the same thing in a clearly different tone, with "
-        "loaded or emotive words where another is neutral, more favourably or critically, or presenting "
-        "as settled what another presents as disputed. Different facts, length or detail alone do not "
-        "count. discrepancy: whether such a difference is clear. title: in English, at most 8 words, "
-        "naming how the framing differs.",
-        "the differently framed wording",
-    ),
-}
 
 
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
-    """Whether passages about the same subject, one per language, contradict each other (kind
-    "contradiction") or frame it differently (kind "framing"), and how."""
+    """Whether passages about the same subject, one per language, frame it clearly differently, and how."""
     if len(req.passages) < 2:
         raise HTTPException(400, "need at least two passages")
-    check, phrases = CHECKS[req.kind]
+    check = (
+        "for differences in impartiality: describing the same thing in a clearly different tone, with "
+        "loaded or emotive words where another is neutral, more favourably or critically, or presenting "
+        "as settled what another presents as disputed. Different facts, length or detail alone do not "
+        "count. discrepancy: whether such a difference is clear. title: in English, at most 8 words, "
+        "naming how the framing differs."
+    )
+    phrases = "the differently framed wording"
     answer = chat(
         f"You check passages about the same subject from different language editions of Wikipedia {check} "
         "summary: in English, 1-2 sentences saying what each edition states and how. Do not suggest edits "

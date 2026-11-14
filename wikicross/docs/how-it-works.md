@@ -1,10 +1,9 @@
 # How WikiCross works
 
-WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently** or
-**contradict each other**: Finnish, Swedish and English from dataset S, every other Latin- or
-Cyrillic-script edition fetched live from Wikipedia on the first request (`wiki.py`). It needs no
-LLM: bge-m3 vectors compared inside MariaDB, plus two small models on the GPU (a translator to
-English and an NLI classifier). An optional LLM step (off by default) can summarise and translate.
+WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently**:
+Finnish, Swedish and English from dataset S, every other Latin- or Cyrillic-script edition fetched
+live from Wikipedia on the first request (`wiki.py`). It needs no LLM: only bge-m3 vectors, compared
+inside MariaDB. An optional LLM step (off by default) can summarise and translate.
 
 Passages in two dataset languages (fi, sv, en) are matched over the whole corpus with HNSW, as below.
 Any pair involving another language is matched only inside the topic, by an exact join: HNSW filtered
@@ -26,10 +25,8 @@ flowchart TD
   P --> E2[Split matched passages into sentences, embed on demand]
   E2 --> S[Sentence matching inside each passage pair: exact join]
   S --> G[Group matched sentences across languages: one group per fact]
-  G --> F1[Contradictions: each pair translated to English, NLI both ways; most contradicted → outlier]
   G --> F2[Framing: position on semantic axes, furthest edition → outlier]
-  F1 --> R[JSON: differences, contradictions first, then framing]
-  F2 --> R
+  F2 --> R[JSON: differences, best first]
   R --> UI[Web page and Chrome extension: quotes side by side, copy, optional AI]
 ```
 
@@ -38,7 +35,7 @@ Two different questions are answered by two different mechanisms:
 | Question | Mechanism | What it never does |
 |---|---|---|
 | *Are these about the same thing?* (matching) | vector distance: mutual nearest neighbour, under a threshold | flag anything |
-| *Do they say it differently?* (flagging) | NLI on English translations; positions on semantic axes | decide what is about the same thing |
+| *Do they say it differently?* (flagging) | positions on semantic axes | decide what is about the same thing |
 
 Content that only one edition has never finds a partner, so it is never reported: WikiCross is about
 disagreement, not omission.
@@ -128,7 +125,7 @@ sequenceDiagram
 |---|---|---|---|
 | Article | same `wikidata_id` | — | exact, free |
 | Passage | nearest passage in each other language **over the whole corpus** (HNSW), kept if mutual | cosine distance ≤ 0.40 | the counterpart can sit in another article (fi keeps *Talvisodan tausta* apart from *Talvisota*) |
-| Sentence | nearest sentence **inside the matched passage pair**, kept if mutual (`ROW_NUMBER()` both ways) | ≤ 0.40 for contradictions, ≤ 0.35 for framing | a passage pair has a few dozen sentence pairs: an exact join beats index lookups |
+| Sentence | nearest sentence **inside the matched passage pair**, kept if mutual (`ROW_NUMBER()` both ways) | ≤ 0.35 | a passage pair has a few dozen sentence pairs: an exact join beats index lookups |
 
 "Mutual" means each is the other's nearest: one-to-one, so one long English paragraph cannot absorb
 three Finnish ones.
@@ -154,46 +151,7 @@ Measured: with three languages most groups are still pairs (Urho Kekkonen: 27 th
 and 90 pairs; Winter War: 8 and 37). Voting needs three; the more languages, the more groups have a
 majority.
 
-### 4a. Flagging contradictions: discrepancy (`compare.py`, `embed_gpu.py`)
-
-**Off by default** (`CONTRADICTIONS=1` enables it): translating and judging every matched pair takes
-minutes on a topic's first load. With it off, no discrepancies are reported and the GPU container
-loads bge-m3 only.
-
-No rules about numbers, dates or names: whether two sentences contradict each other is decided by
-what they mean.
-
-1. Every matched sentence pair (cosine distance ≤ 0.40) is **translated to English** with M2M100
-   (`facebook/m2m100_1.2B`), whose source language codes are the editions' own (`nb` → `no`,
-   `sh` → `hr`); the few editions it lacks go through `Helsinki-NLP/opus-mt-mul-en`, which needs no
-   code. English sentences are kept as they are.
-2. Two **NLI models** (classifiers, not LLMs) score the pair as entailment, neutral or
-   contradiction, **both ways round**: `MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli`
-   on the English translations, `MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7` on the
-   original sentences. The pair contradicts when all four give contradiction at least 0.9 (the
-   lowest of the four). The two fail differently: the English one on mistranslations ("carros", tanks,
-   as cars), the multilingual one when neither side is English. Different events about the same
-   person tend to score high one way only.
-3. Each group is a **vote** over its matched pairs: an edition matched with two or more others and
-   contradicting at least two thirds of them is the **outlier**, while the outliers are at most a
-   third of the group. Otherwise the editions in the contradicting pairs just **differ**.
-4. Outliers come first, then by the highest contradiction probability.
-
-Why both: the multilingual model alone compared the original sentences well when one side was
-English (sv vs en on the 1968 invasion: 0.00) and badly when neither was (the same sentence, sk vs
-sv: 0.98 "contradiction"). Translating first fixes that but adds translation errors: with opus-mt
-alone, Talvisota had 200+ contradictions, many of them mistranslations; requiring both models to
-agree brought it to 73. Urho Kekkonen kept every real one we found (1927–1931 vs 1927–1932; the
-October vs November 1961 note; Karjalainen sent to Moscow vs home to Helsinki).
-
-Translations, NLI scores and anchor embeddings are kept in `translation_cache`, `nli_cache` and
-`embedding_cache`, keyed by sha256 of model + text: a recompute after a code change costs no GPU
-call.
-
-### 4b. Flagging framing: impartiality (`compare.py`)
-
-Findings from 4a are **discrepancies** (facts disagree, marked red); findings from here are
-**impartiality** findings (the same thing described differently, marked amber).
+### 4. Flagging framing (`compare.py`)
 
 An **axis** is the difference between the mean vectors of two groups of anchor sentences, written in
 all three languages so that the language cancels out:
@@ -224,20 +182,11 @@ every matched group it is in, reported or not. Below 0.2σ on every axis it read
 editions with the nearest and furthest such profiles (Euclidean, editions in at least 5 groups) are
 the ones it is framed most and least like. Urho Kekkonen, fi: −0.01, −0.06 and +0.17σ, neutral.
 
-### 5. Worked examples (real output)
+### 5. Worked example (real output)
 
 | Topic | Kind | Editions | Result |
 |---|---|---|---|
 | Urho Kekkonen | framing, pair, 3.0σ | fi "1978 presidentinvaalit olivat **riemuvoitto**" (a triumph) vs sv "var **enbart ett statspolitiskt skådespel**" (merely a political spectacle) | fi more positive |
-| Urho Kekkonen | contradiction, outlier | en "in **October** 1961, the Soviet Union sent a diplomatic note" vs fr "L'URSS envoie **fin novembre** une note de crise" | fr the outlier |
-| Urho Kekkonen | contradiction, pair | en "worked for the Association of Rural Municipalities **until 1932**" vs sv "arbetade han **från 1927 till 1931** för Maalaiskuntien liitto" | differ |
-| Urho Kekkonen | contradiction, pair | fi "lähetti ulkoministeri Ahti Karjalaisen **Moskovaan**" vs sv "skickade … Ahti Karjalainen … **hem till Helsingfors**" | differ |
-
-With every Latin- and Cyrillic-script edition (55), Urho Kekkonen gives 20 contradictions, about 8
-of them real by our reading. The rest are one place under two names (Ekudden and Tamminiemi,
-Sandudd and Hietaniemi) or two events matched as one fact (appointed Minister of Justice in 1936 vs
-1944). The number rules this replaced paired figures that were different facts (684 Soviet planes
-shot down vs 146 Finnish planes at the start of the war), and could not see a changed date or place.
 
 ## Measured cost
 
@@ -247,8 +196,6 @@ shot down vs 146 Finnish planes at the start of the war), and could not see a ch
 | Sentence matching, exact join inside passage pairs (Kekkonen, 183 pairs) | 0.01 s |
 | Same alignment with one HNSW lookup per sentence (Winter War, 2,652 lookups) | 3.68 s vs 0.11 s for the join |
 | Whole `/api/diff` once embedded (Kekkonen; Winter War) | 0.25 s; 0.50 s |
-| Translation to English, M2M100 1.2B on an H100, 2 beams (2,048 sentences, 7 languages) | 58 s |
-| Contradiction check on a cached topic (translations and NLI scores in the DB; Kekkonen) | 14 s for the whole `/api/diff` recompute |
 | Embedding with Ollama on CPU | ≈2 passages/s, ≈8 sentences/s |
 | Dataset S, topics in ≥2 languages | 17,431 articles → 149,524 passages, 594,025 sentences |
 
@@ -258,29 +205,23 @@ Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vecto
 
 | Decision | Chosen | Alternative | Why |
 |---|---|---|---|
-| Who judges "different" | NLI classifier on English translations + semantic axes | LLM per pair; rules about numbers | an LLM call per matched pair is 35–60 calls per article; number rules (the first version) missed names, dates and outcomes and paired unrelated figures; one NLI batch scores thousands of pairs in seconds |
-| Granularity | sentence | passage | NLI on whole passages mixes facts; sentences pin one fact |
+| Who judges "different" | semantic axes | LLM per pair; rules about numbers; NLI on translations | an LLM call per matched pair is 35–60 calls per article. Two earlier versions flagged contradictions and were removed: number rules (missed names, dates and outcomes; paired unrelated figures) and NLI classifiers on machine translations (about half the findings real, minutes per topic's first load; commit `56dcbbe`) |
 | Matching rule | mutual nearest + threshold | nearest only | one-to-one: a long paragraph cannot match everything |
 | Passage search | HNSW over the whole corpus | exact join within the topic | finds counterparts in other articles; stays fast as the corpus grows |
 | Sentence search | exact join within passage pairs | HNSW | measured 0.11 s vs 3.68 s; exact; no index to maintain on the largest table |
 | Language bias on axes | per-language z-scores, anchors in every language | raw positions | raw positions differ per language before any content does |
-| Cross-language NLI | translate both sides to English, then an English NLI model | multilingual NLI on the originals | multilingual NLI called near-translations contradictory when neither side was English |
 | Embedding | on demand, cached | precomputed | no upfront job for a demo; `TODO.md` describes the precompute |
 
 ## Limitations
 
-- **Only contradictions and tone.** Facts only one edition states are never reported (no partner).
+- **Only tone.** Facts only one edition states are never reported (no partner), and neither are
+  editions stating different facts.
 - **Framing is noisy.** Strong hits (≥2σ) are usually real; around 1.2–1.5σ, many are
   wording differences (Urho Kekkonen: 11 framing findings, the top 3 convincing).
 - **Three axes.** Others (blame/agency, nationalist vs neutral framing) would need their own anchors
   and checking. The wording axis also fires on sentences that differ in a fact rather than in tone
   ("largest" vs "second largest" national park).
 - **Thresholds are tuned on two articles** (Winter War, Urho Kekkonen).
-- **Translation errors.** Where both models fail together (a small language translated poorly, and
-  neither side English), near-identical sentences can still read as contradicting. M2M100 covers
-  100 languages; others fall back to opus-mt, which is weaker.
-- **Different events of one subject.** "Appointed Minister of Justice in 1936" vs "joined the
-  government in 1950" can still score as a contradiction when matched as one fact.
 
 ## Scaling to more languages
 
@@ -293,7 +234,6 @@ What needs work:
 |---|---|---|
 | Language list | `LANGS` in `compare.py`, the loader, the page | from the data |
 | Sentence splitter | `.!?` + an uppercase letter of any alphabet (Latin, Cyrillic) or an opening quote/bracket | per script: CJK `。`, Arabic `؟`, Thai has no sentence punctuation |
-| Translation | M2M100 from the edition's code, opus-mt for the rest | NLLB-200 covers 200 languages, with its own codes (`fin_Latn`): a mapping table |
 | Axis anchors | fi, sv, en | add anchors in each language; check each axis per language |
 | Passage lookups | 2 per passage | L−1 per passage, plus reverse lookups for mutuality |
 

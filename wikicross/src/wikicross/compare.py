@@ -1,4 +1,4 @@
-"""Where the language editions of one topic frame the same thing differently, or contradict each other.
+"""Where the language editions of one topic frame the same thing differently.
 
 No LLM: three levels of vectors, all in MariaDB.
 1. Article: the editions of a topic share a wikidata_id.
@@ -15,15 +15,10 @@ one group per fact, however many editions state it. Within a group:
   sentences, written in all three languages so that the language itself cancels out; a sentence's
   position is one VEC_DISTANCE_COSINE against it. With three or more editions, the furthest is the
   outlier; with two, it is just their difference.
-- contradictions: every matched sentence pair, both translated to English, goes through an NLI
-  model (a classifier, not an LLM) both ways round; a pair contradicts when both directions say
-  so. Figures, dates, names and outcomes alike: "126 875 dead" vs "167,976 dead". As a vote: an
-  edition contradicting most of the editions it is matched with is the outlier.
 
 See docs/how-it-works.md.
 """
 
-import os
 from functools import lru_cache
 from statistics import fmean
 
@@ -31,18 +26,11 @@ import numpy as np
 import pymysql
 
 from .db import LANGS
-from .embed_gpu import NLI, NLI_MULTI
-from .embeddings import contradiction, embed_cached, to_english
+from .embeddings import embed_cached
 
 ER_STATEMENT_TIMEOUT = 1969  # MariaDB: "Query execution was interrupted (max_statement_time exceeded)"
 
 PASSAGE_MAX = 0.40  # cosine distance for two parts to be about the same subject
-FACT_MAX = 0.40  # sentence pairs checked for contradictions
-CONTRADICTS = 0.9  # NLI contradiction probability, in both directions, for a pair to contradict
-CONSENSUS = 2 / 3  # share of its matched editions an edition must contradict to be the outlier
-ENGLISH = {"en", "simple"}  # editions whose sentences need no translation
-# Off by default: translating and judging every matched pair costs minutes on a topic's first load.
-CONTRADICTIONS = os.environ.get("CONTRADICTIONS") == "1"
 FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, tone is compared on one statement
 FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit on an axis
 MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
@@ -278,28 +266,8 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     return [(sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()] + between
 
 
-def vote(edges: dict[tuple[str, str], bool]) -> dict | None:
-    """A group's contradictions, from its matched sentence pairs ((lang, lang) -> whether they
-    contradict); None if none do. An edition matched with two or more others and contradicting at
-    least CONSENSUS of them is an outlier, while the outliers are at most a third of the group:
-    {"verdict": "outlier", "outliers": [...]}. Otherwise the editions just differ ("differs").
-    "pairs" lists the contradicting pairs."""
-    pairs = [list(e) for e, c in edges.items() if c]
-    if not pairs:
-        return None
-    matched: dict[str, list[bool]] = {}
-    for (a, b), c in edges.items():
-        matched.setdefault(a, []).append(c)
-        matched.setdefault(b, []).append(c)
-    outliers = [lang for lang, cs in matched.items() if len(cs) >= 2 and sum(cs) >= CONSENSUS * len(cs)]
-    if outliers and len(outliers) <= len(matched) / 3:
-        return {"verdict": "outlier", "outliers": sorted(outliers, key=lang_order), "pairs": pairs}
-    return {"verdict": "differs", "outliers": [], "pairs": pairs}
-
-
 def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], dict]:
-    """What the editions of a topic state differently, best first: contradictions ({"kind":
-    "contradiction", "verdict", "outliers", "pairs", "score"}), then framing ({"kind": "framing"}).
+    """What the editions of a topic state differently, best first ({"kind": "framing"}, by deviation).
     Each has members, one per language: the passage, its position (page_id, seq) and the sentence
     (n, sentence).
 
@@ -332,27 +300,6 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
     def member(i):  # a sentence (lang, page_id, seq, n)
         return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]}
 
-    checked = [(a, b) for a, b, d in edges if d <= FACT_MAX] if CONTRADICTIONS else []
-    # Two judges, both ways round; a pair contradicts only when all four say so (the lowest score):
-    # the English model on translations (misled by mistranslations) and the multilingual one on the
-    # originals (misled when neither side is English).
-    ids = sorted({i for e in checked for i in e})
-    original = {i: sentence[i][0] for i in ids}
-    foreign = [i for i in ids if i[0] not in ENGLISH]
-    english = original | dict(zip(foreign, to_english([(i[0], original[i]) for i in foreign])))
-    judged = [contradiction([(text[x], text[y]) for x, y in order], model)
-              for text, model in ((english, NLI), (original, NLI_MULTI))
-              for order in (checked, [(b, a) for a, b in checked])]
-    score = {e: min(ps) for e, *ps in zip(checked, *judged)}
-    contradictions = []
-    for ids, dist in groups(edges, FACT_MAX):
-        inside = set(ids)
-        scores = {(a, b): p for (a, b), p in score.items() if a in inside and b in inside}
-        if result := vote({(a[0], b[0]): p >= CONTRADICTS for (a, b), p in scores.items()}):
-            contradictions.append({"kind": "contradiction", "distance": dist, **result,
-                                   "score": max(scores.values()), "members": [member(i) for i in ids]})
-    # who is out of line first, then the surest
-    contradictions.sort(key=lambda f: (f["verdict"] != "outlier", -f["score"]))
     framing = []
     lean: dict[str, dict[str, list[float]]] = {}  # lang -> axis -> deviations in every group
     for ids, dist in groups(edges, FRAMING_MAX):
@@ -372,4 +319,4 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
     leaning = {"axes": {name: ends for name, (_, _, ends) in AXES.items()},
                "editions": {lang: {"groups": len(next(iter(by_axis.values()))),
                                    **{name: fmean(d) for name, d in by_axis.items()}} for lang, by_axis in lean.items()}}
-    return contradictions + framing, leaning
+    return framing, leaning

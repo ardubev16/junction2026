@@ -1,15 +1,14 @@
 # WikiCross
 
 Where do the Wikipedia editions of the same topic, in every Latin- or Cyrillic-script language, frame
-things differently or contradict each other? Built on dataset S of
+things differently? Built on dataset S of
 [mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) (fi, sv, en) and
 MariaDB Vector; the other editions are fetched live from Wikipedia the first time a topic is asked for.
 
 ## Run
 
 Needs Docker, uv and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
-sentences are embedded with bge-m3 on a Modal H100 (`src/wikicross/embed_gpu.py`), which also runs
-the translator to English and the NLI model that finds contradictions.
+sentences are embedded with bge-m3 on a Modal H100 (`src/wikicross/embed_gpu.py`).
 The embedder is looked up by name in the active Modal profile's workspace; to use one already
 deployed elsewhere (the team's is in `fabio-missagia`), add a token for that workspace instead of
 deploying: `uv run modal token new --profile fabio-missagia` (pick the workspace in the browser; it
@@ -51,13 +50,10 @@ translations show the same spinner.
 **Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
 work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article` /
 `article_vector` (`topic_editions` marks a topic fetched), the anchor sentences of the framing axes and
-of the appendix headings in `embedding_cache`, sentence translations in `translation_cache`, NLI scores
-in `nli_cache`, LLM answers in `llm_cache`, and each topic's computed differences in `diff_cache`,
-valid while its editions, the comparison code (`compare.py`) and the models (`embed_gpu.py`) are
-unchanged. Measured: Talvisota (66 editions) 43.9 s the first time, 0.29 s on
-reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. The contradiction check, when
-enabled, adds translation to English on a topic's first load (measured: 2,048 sentences in 58 s on
-the H100) and nothing after. A topic loaded later can change a
+of the appendix headings in `embedding_cache`, LLM answers in `llm_cache`, and each topic's computed
+differences in `diff_cache`, valid while its editions, the comparison code (`compare.py`) and the
+model (`embed_gpu.py`) are unchanged. Measured: Talvisota (66 editions) 43.9 s the first time, 0.29 s on
+reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. A topic loaded later can change a
 passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
 row to recompute.
 
@@ -117,23 +113,10 @@ A new provider with one of these APIs is a new preset; a new API is a `(request,
 
 No LLM is needed: articles, passages and sentences are matched across languages with bge-m3
 vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
-into one group per fact, and each group is checked for two kinds of finding:
-
-- **Discrepancy** (red), **off by default**: too slow for now (minutes on a topic's first load).
-  Start the server with `CONTRADICTIONS=1` to enable it; the translator and NLI models then load
-  on the GPU at the first check. Editions that contradict each other: each matched sentence pair is judged
-  by two NLI models (classifiers, not LLMs), in both directions: an English one
-  (`MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli`) on both sentences machine-translated
-  to English (`facebook/m2m100_1.2B`, from the edition's language), and a multilingual one
-  (`MoritzLaurer/mDeBERTa-v3-base-xnli-multilingual-nli-2mil7`) on the originals. A pair
-  contradicts when all four scores are at least 0.9. Figures, dates, names and outcomes alike,
-  with no rules about numbers. An edition contradicting at least two thirds of the editions it is
-  matched with is the outlier.
-- **Impartiality** (amber): the same thing described differently, by position on three axes:
-  praised ↔ condemned (evaluation), fact ↔ disputed (certainty), and loaded, emotive ↔ neutral,
-  matter-of-fact wording (wording). With AI summaries on, the AI checks discrepancies for a factual
-  contradiction and impartiality findings for a clear difference in tone or framing; findings it
-  does not confirm are collapsed.
+into one group per fact, and each group is checked for the same thing described differently, by
+position on three axes: praised ↔ condemned (evaluation), fact ↔ disputed (certainty), and loaded,
+emotive ↔ neutral, matter-of-fact wording (wording). With AI summaries on, the AI checks each finding
+for a clear difference in tone or framing; findings it does not confirm are collapsed.
 
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
@@ -142,9 +125,9 @@ all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 edition states, and can translate the quotes to English keeping the highlights. Cached in `llm_cache`.
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
-`GET /api/diff?title=Talvisota&limit=15` (`differences`: contradictions, then framing; `&focus=fi` puts the
+`GET /api/diff?title=Talvisota&limit=15` (`differences`, best first; `&focus=fi` puts the
 findings involving that edition first), `GET /api/progress?title=Talvisota` (stage of a running diff),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
-`POST /api/explain {"kind": "contradiction" | "framing", "passages": [{"lang", "heading", "text"}, …]}`
-(one finding: a factual contradiction, or a difference in tone or framing),
+`POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding: is the tone or
+framing clearly different?),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
