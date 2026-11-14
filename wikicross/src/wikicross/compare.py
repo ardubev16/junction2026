@@ -23,6 +23,7 @@ one group per fact, however many editions state it. Within a group:
 See docs/how-it-works.md.
 """
 
+import os
 from functools import lru_cache
 from statistics import fmean
 
@@ -40,6 +41,8 @@ FACT_MAX = 0.40  # sentence pairs checked for contradictions
 CONTRADICTS = 0.9  # NLI contradiction probability, in both directions, for a pair to contradict
 CONSENSUS = 2 / 3  # share of its matched editions an edition must contradict to be the outlier
 ENGLISH = {"en", "simple"}  # editions whose sentences need no translation
+# Off by default: translating and judging every matched pair costs minutes on a topic's first load.
+CONTRADICTIONS = os.environ.get("CONTRADICTIONS") == "1"
 FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, tone is compared on one statement
 FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit on an axis
 MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
@@ -329,7 +332,7 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
     def member(i):  # a sentence (lang, page_id, seq, n)
         return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]}
 
-    checked = [(a, b) for a, b, d in edges if d <= FACT_MAX]
+    checked = [(a, b) for a, b, d in edges if d <= FACT_MAX] if CONTRADICTIONS else []
     # Two judges, both ways round; a pair contradicts only when all four say so (the lowest score):
     # the English model on translations (misled by mistranslations) and the multilingual one on the
     # originals (misled when neither side is English).

@@ -271,7 +271,7 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
         # shortcut: passage matching also searches other topics' passages (HNSW over the corpus), so a
         # topic loaded later can change a match here without changing `state`; delete the topic's
         # diff_cache row to recompute. A precompute job would refresh affected topics instead.
-        state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
+        state = hashlib.sha256(json.dumps([CODE, compare.CONTRADICTIONS, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
         cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
         if row := cur.fetchone():
             found, leaning = json.loads(row[0])

@@ -156,6 +156,10 @@ majority.
 
 ### 4a. Flagging contradictions: discrepancy (`compare.py`, `embed_gpu.py`)
 
+**Off by default** (`CONTRADICTIONS=1` enables it): translating and judging every matched pair takes
+minutes on a topic's first load. With it off, no discrepancies are reported and the GPU container
+loads bge-m3 only.
+
 No rules about numbers, dates or names: whether two sentences contradict each other is decided by
 what they mean.
 

@@ -4,6 +4,8 @@
 Runs in Modal's cloud, not in the web app: `embeddings` looks the deployed class up by name.
 """
 
+from functools import cached_property
+
 import modal
 
 MODEL = "BAAI/bge-m3"  # the model the dataset's vectors were made with
@@ -35,20 +37,35 @@ class Embedder:
     @modal.enter()
     def load(self):
         import torch
-        from sentence_transformers import CrossEncoder, SentenceTransformer
+        from sentence_transformers import SentenceTransformer
 
         self.model = SentenceTransformer(MODEL, device="cuda", model_kwargs={"torch_dtype": torch.float16})
         self.model.max_seq_length = 8192  # bge-m3's limit; longer texts are truncated, as Ollama did
-        self.nli = {name: CrossEncoder(name, device="cuda", max_length=512) for name in (NLI, NLI_MULTI)}
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
-
-        self.mt = {name: (AutoTokenizer.from_pretrained(name),
-                          AutoModelForSeq2SeqLM.from_pretrained(name, dtype=torch.float16).to("cuda").eval())
-                   for name in (MT, MT_FALLBACK)}
         weights.commit()
         # The first encode of each batch shape is slow (~2.5 s for an article's sentences, then 0.2 s):
         # pay it here, before the container takes requests.
         self.model.encode([" ".join(["sana"] * n) for n in (4, 16, 64, 256, 1024) for _ in range(64)], batch_size=64)
+
+    # The contradiction check's models load on first use: with it off (the default) a cold start
+    # loads bge-m3 only.
+    @cached_property
+    def nli(self):
+        from sentence_transformers import CrossEncoder
+
+        models = {name: CrossEncoder(name, device="cuda", max_length=512) for name in (NLI, NLI_MULTI)}
+        weights.commit()
+        return models
+
+    @cached_property
+    def mt(self):
+        import torch
+        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
+        models = {name: (AutoTokenizer.from_pretrained(name),
+                         AutoModelForSeq2SeqLM.from_pretrained(name, dtype=torch.float16).to("cuda").eval())
+                  for name in (MT, MT_FALLBACK)}
+        weights.commit()
+        return models
 
     @modal.method()
     def embed(self, texts: list[str]) -> list[bytes]:

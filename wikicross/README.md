@@ -55,9 +55,9 @@ of the appendix headings in `embedding_cache`, sentence translations in `transla
 in `nli_cache`, LLM answers in `llm_cache`, and each topic's computed differences in `diff_cache`,
 valid while its editions, the comparison code (`compare.py`) and the models (`embed_gpu.py`) are
 unchanged. Measured: Talvisota (66 editions) 43.9 s the first time, 0.29 s on
-reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. The contradiction check adds
-translation to English on a topic's first load (measured: 2,048 sentences in 58 s on the H100) and
-nothing after. A topic loaded later can change a
+reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. The contradiction check, when
+enabled, adds translation to English on a topic's first load (measured: 2,048 sentences in 58 s on
+the H100) and nothing after. A topic loaded later can change a
 passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
 row to recompute.
 
@@ -119,7 +119,9 @@ No LLM is needed: articles, passages and sentences are matched across languages 
 vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
 into one group per fact, and each group is checked for two kinds of finding:
 
-- **Discrepancy** (red): editions that contradict each other. Each matched sentence pair is judged
+- **Discrepancy** (red), **off by default**: too slow for now (minutes on a topic's first load).
+  Start the server with `CONTRADICTIONS=1` to enable it; the translator and NLI models then load
+  on the GPU at the first check. Editions that contradict each other: each matched sentence pair is judged
   by two NLI models (classifiers, not LLMs), in both directions: an English one
   (`MoritzLaurer/DeBERTa-v3-large-mnli-fever-anli-ling-wanli`) on both sentences machine-translated
   to English (`facebook/m2m100_1.2B`, from the edition's language), and a multilingual one
