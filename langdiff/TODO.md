@@ -1,5 +1,12 @@
 # TODO
 
+## Recompute embeddings when articles change
+
+Nothing detects changed text today: `ensure_chunks()`/`ensure_sentences()` only check that rows
+exist, and `rev_id` is not loaded. After loading newer text, delete that article's `chunk` and
+`sentence` rows by hand. The incremental design (rev_id, content hashes, change feed, recomputing
+affected topics) is in [docs/how-it-works.md](docs/how-it-works.md#recomputing-embeddings-when-an-article-changes).
+
 ## Precompute the part and sentence embeddings
 
 Today an article's parts and sentences are embedded with bge-m3 the first time someone asks for it

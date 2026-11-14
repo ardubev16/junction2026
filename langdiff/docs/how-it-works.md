@@ -306,7 +306,66 @@ flowchart LR
   MariaDB vector index cache for it (not measured here).
 - **Framing statistics** (`axis_stats()`) are computed today by scanning every sentence once per
   process; at scale, compute them once per bulk load and store them in a table.
-- **Updates.** Every row keeps `rev_id`; re-embed and re-compare only topics where some edition has a
-  new revision.
+- **Updates.** Re-embed and re-compare only what changed: see the next section.
 - **The LLM stays optional.** At scale it is best used to verify the top findings per topic (a few
   per topic), not every matched pair.
+
+## Recomputing embeddings when an article changes
+
+Articles are edited all the time; the stored vectors describe the text they were made from.
+
+**Today nothing detects a change.** `ensure_chunks()` and `ensure_sentences()` only check whether an
+article has rows at all, and the loader keeps no revision (`rev_id` is in the dataset files but not
+loaded). Loading newer text with `langdiff-load` replaces `article` but leaves the old passages,
+sentences and vectors in place: findings would quote text that no longer exists. Until the steps
+below exist, after reloading changed text: `DELETE FROM chunk` / `sentence` for those articles (or
+`TRUNCATE` both).
+
+**What goes stale when one edition of a topic changes:**
+
+| What | Stale? | Why |
+|---|---|---|
+| That article's `chunk` and `sentence` rows | the edited passages | their text changed |
+| Findings of its topic | yes | they quote and compare the old text |
+| Findings of *other* topics | sometimes | a passage of this article may have been the cross-article counterpart of a passage elsewhere (HNSW search over the whole corpus) |
+| `article_vector` | yes, if used | one vector of the whole old text |
+| Framing statistics | negligibly | per-language means over millions of sentences barely move |
+| `llm_cache` | no action | keyed by the text: new text simply misses the cache |
+
+**Recompute incrementally, by content hash.** An edit usually touches a few paragraphs, so the cost
+should follow the size of the edit, not of the article:
+
+```mermaid
+flowchart TD
+  E[Change seen: new rev_id for lang, page_id] --> D{Debounce: last change > N minutes ago?}
+  D -->|no| W[wait: articles are often edited several times in a row]
+  D -->|yes| S[Fetch text, split into passages and sentences]
+  S --> H[sha256 of each passage and sentence text]
+  H --> R{Hash already stored for this article?}
+  R -->|yes| K[Reuse the stored vector]
+  R -->|no| M[Embed: only new or edited text]
+  K --> X[In one transaction: replace the article's chunk and sentence rows, store rev_id]
+  M --> X
+  X --> C[Re-run comparison for its topic]
+  X --> O[Re-run topics whose findings referenced this article's passages]
+  C --> F[(findings)]
+  O --> F
+```
+
+What that needs:
+
+1. **Store the revision**: a `rev_id` column in `article` (the dataset already has it) and the
+   `rev_id` each article's rows were made from, so "stale" is a comparison, not a guess.
+2. **Store a content hash** per passage and sentence (`sha256(text)`, `BINARY(32)`). Positions shift
+   when a paragraph is inserted, so rows are matched by hash, not by `seq`. Rewrite an article's rows
+   in one transaction (delete, insert with reused or new vectors) so a reader never sees half of it.
+3. **Track who used a passage**: findings store the `(lang, page_id, seq)` of every member, so the
+   topics to recompute after an edit are one query away, including cross-article matches.
+4. **A change feed**: Wikimedia's EventStreams (revision events, near real time) for live updates, or
+   a diff of `rev_id` between two dumps / FineWiki snapshots for periodic batches.
+
+Cost of one edit: embedding the changed passages and sentences (≈0.5 s per passage, ≈0.13 s per
+sentence on the measured CPU), a few HNSW lookups per changed passage, and one comparison of the
+topic (0.25–0.5 s measured). MariaDB keeps the HNSW index on `chunk` up to date on every insert and
+delete; whether heavy churn degrades its recall over time was not measured here; if it does, rebuild
+the index periodically.
