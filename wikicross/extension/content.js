@@ -73,7 +73,12 @@
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
     .card.locatable { cursor: pointer; } .card.locatable:hover { border-color: #36c; }
     .label { color: #a66200; font: bold 12px sans-serif; display: inline-flex; gap: .3rem; align-items: center; }
-    .label button { font-weight: normal; }
+    /* The "i" next to a finding's label: an icon in the label's colour, still a button for keyboards. */
+    .info { all: unset; display: inline-flex; cursor: pointer; color: inherit; }
+    .info:focus-visible { outline: 2px solid #36c; outline-offset: 2px; border-radius: 50%; }
+    /* Its popover sits under the icon and moves with it (anchor positioning); it flips if there is no room. */
+    .numbers[popover] { position: absolute; inset: auto; margin: .4rem 0 0; position-area: bottom span-right;
+                        position-try-fallbacks: flip-block, flip-inline; }
     /* The numbers popover: out of the label's bold, coloured text. */
     .numbers { max-width: 380px; padding: .8rem 1rem; border: 1px solid #a2a9b1; border-radius: 2px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
                color: #202122; font: 13px/1.5 sans-serif; }
@@ -222,6 +227,7 @@
 
   // The numbers behind a finding, in a small window (a popover: a click outside or Escape closes it).
   // Keep in sync with src/wikicross/index.html.
+  let anchors = 0;  // each "i" is the anchor its popover is placed by
   function numbers(f) {
     const sigma = (d) => { const r = Math.round(d * 10) / 10; return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r).toFixed(1)}σ`; };
     const rows = Object.entries(f.deviations || {}).sort((a, b) => b[1] - a[1]);
@@ -229,12 +235,17 @@
       $("h4", { textContent: `How far apart: the ${f.axis} axis` }),
       $("p", { textContent: `Each sentence has a position on this axis: towards +, an edition ${f.ends[0]}; towards −, it ${f.ends[1]}. `
         + "Positions are measured against the language's own sentences, so 1σ is a typical spread within that language." }),
-      $("p", { textContent: `${langName(f.lang)} sits ${sigma(f.deviation)} from the average of the others; a finding needs at least 1.2σ either way. Each edition, from its others' average:` }),
+      $("p", { textContent: `${langName(f.lang)} sits ${sigma(f.deviations?.[f.lang] ?? f.deviation)} from the average of the others; a finding needs at least 1.2σ either way. Each edition, from its others' average:` }),
       $("table", {}, ...rows.map(([l, d]) => $("tr", { className: l === f.lang ? "this" : "" },
         $("td", { textContent: langName(l) }), $("td", { className: "num", textContent: sigma(d) })))),
       $("p", { className: "muted", textContent: `The sentences are matched as one statement: their largest cosine distance is ${f.distance.toFixed(2)} `
         + "(0 is the same meaning; up to 0.35 counts)." }));
-    return [$("button", { className: "small", type: "button", popoverTargetElement: box, title: "The numbers behind this finding" }, icon("info"), "Details"), box];
+    const anchor = `--numbers-${++anchors}`;
+    box.style.positionAnchor = anchor;
+    const info = $("button", { className: "info", type: "button", popoverTargetElement: box, title: "The numbers behind this finding",
+                               ariaLabel: "The numbers behind this finding" }, icon("info"));
+    info.style.anchorName = anchor;
+    return [info, box];
   }
 
   function finding(f) {
