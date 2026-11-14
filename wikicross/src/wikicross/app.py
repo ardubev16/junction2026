@@ -1,4 +1,4 @@
-"""API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently or state very different figures."""
+"""API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently or contradict each other."""
 
 import hashlib
 import json
@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from . import compare, discrepancy, wiki
+from . import compare, embed_gpu, wiki
 from .compare import differences
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
@@ -21,8 +21,8 @@ from .llm import chat
 
 MIN_CHARS = 300  # merge paragraphs until a part is at least this long: tiny parts embed noisily
 TARGETS = {"en": "English"}  # languages the UI can translate into
-# The comparison code: cached differences computed by other code are not reused (diff_cache.state).
-CODE = hashlib.sha256(b"".join(Path(m.__file__).read_bytes() for m in (compare, discrepancy))).hexdigest()
+# The comparison code and models: cached differences computed by others are not reused (diff_cache.state).
+CODE = hashlib.sha256(b"".join(Path(m.__file__).read_bytes() for m in (compare, embed_gpu))).hexdigest()
 # Sections that are lists of sources and links, not content; they always "differ". fi, sv, en.
 SKIP = re.compile(
     r"\b(lähteet|viitteet|kirjallisuutta|aiheesta muualla|katso myös|huomautukset|"
@@ -279,7 +279,7 @@ def compare_editions(title: str, lang: str | None, progress) -> dict:
             def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
                 progress(f"Embedding the sentences of {len(pages)} matched articles")
                 ensure_sentences(cur, pages)
-                progress("Comparing sentences: figures and framing")
+                progress("Comparing sentences: contradictions and framing")
 
             progress("Matching passages across languages")
             found, leaning = differences(cur, wikidata_id, sentences_then_compare)
@@ -323,12 +323,12 @@ class Passage(BaseModel):
 
 class ExplainRequest(BaseModel):
     passages: list[Passage]  # parts about the same subject, one per language
-    kind: Literal["value", "framing"] = "value"  # a discrepancy (facts) or impartiality (tone, framing)
+    kind: Literal["contradiction", "framing"] = "contradiction"  # a discrepancy (facts) or impartiality (tone, framing)
 
 
 # What the AI checks for each kind of finding; the answer's `discrepancy` says whether it holds.
 CHECKS = {
-    "value": (
+    "contradiction": (
         "for factual discrepancies: statements about the same thing that disagree (numbers, dates, names, "
         "places, outcomes). Information that only one passage has is NOT a discrepancy, and neither are "
         "differences in wording or detail. discrepancy: whether there is at least one. title: in English, "
@@ -349,7 +349,7 @@ CHECKS = {
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
     """Whether passages about the same subject, one per language, contradict each other (kind
-    "value") or frame it differently (kind "framing"), and how."""
+    "contradiction") or frame it differently (kind "framing"), and how."""
     if len(req.passages) < 2:
         raise HTTPException(400, "need at least two passages")
     check, phrases = CHECKS[req.kind]

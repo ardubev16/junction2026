@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "WikiCross for Wikipedia",
   "version": "0.3.0",
-  "description": "On any Wikipedia article and its edit views, shows where the other language editions frame things differently or state very different figures.",
+  "description": "On any Wikipedia article and its edit views, shows where the other language editions contradict each other or frame things differently.",
   "host_permissions": ["http://127.0.0.1:8000/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [

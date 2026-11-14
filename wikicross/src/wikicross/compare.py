@@ -1,4 +1,4 @@
-"""Where the language editions of one topic frame the same thing differently, or state very different figures.
+"""Where the language editions of one topic frame the same thing differently, or contradict each other.
 
 No LLM: three levels of vectors, all in MariaDB.
 1. Article: the editions of a topic share a wikidata_id.
@@ -15,9 +15,10 @@ one group per fact, however many editions state it. Within a group:
   sentences, written in all three languages so that the language itself cancels out; a sentence's
   position is one VEC_DISTANCE_COSINE against it. With three or more editions, the furthest is the
   outlier; with two, it is just their difference.
-- values: a figure stated very differently (discrepancy.py, at least 20% apart), as a vote: the
-  editions against a clear consensus are outliers, a split without one is contested
-  ("126 875 (fi, sv, de) vs 167,976 (en)"). Groups that state the same figure are merged.
+- contradictions: every matched sentence pair, both translated to English, goes through an NLI
+  model (a classifier, not an LLM) both ways round; a pair contradicts when both directions say
+  so. Figures, dates, names and outcomes alike: "126 875 dead" vs "167,976 dead". As a vote: an
+  edition contradicting most of the editions it is matched with is the outlier.
 
 See docs/how-it-works.md.
 """
@@ -29,14 +30,17 @@ import numpy as np
 import pymysql
 
 from .db import LANGS
-from .discrepancy import anchored_conflicts, conflicts, figure_slots, tally, value
-from .embeddings import embed_cached
+from .embed_gpu import NLI, NLI_MULTI
+from .embeddings import contradiction, embed_cached, to_english
 
 ER_STATEMENT_TIMEOUT = 1969  # MariaDB: "Query execution was interrupted (max_statement_time exceeded)"
 
 PASSAGE_MAX = 0.40  # cosine distance for two parts to be about the same subject
-VALUES_MAX = 0.40  # sentence pairs compared for values
-FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, it has no anchor like a number
+FACT_MAX = 0.40  # sentence pairs checked for contradictions
+CONTRADICTS = 0.9  # NLI contradiction probability, in both directions, for a pair to contradict
+CONSENSUS = 2 / 3  # share of its matched editions an edition must contradict to be the outlier
+ENGLISH = {"en", "simple"}  # editions whose sentences need no translation
+FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, tone is compared on one statement
 FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit on an axis
 MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
 
@@ -242,7 +246,7 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     closest first, and only when the two groups have no language in common, so a chain that would
     reach a second sentence of one language stops there instead of breaking the group up. A pair
     left between two groups is kept as a group of its own, after the groups: its two sentences
-    still match (merge_values folds its figure into the group's vote when they agree)."""
+    still match."""
     parent: dict = {}
     langs: dict = {}  # group root -> its languages
 
@@ -271,46 +275,30 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     return [(sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()] + between
 
 
-def merge_values(findings: list[dict]) -> list[dict]:
-    """One finding per fact: a finding joins an earlier one when each of its figures states values
-    that one of the earlier one's states too (or the other way round), with at least one edition
-    stating the same value in both and none a different one ("350 (hu) vs 366 (lt)" and "366 (da)
-    vs 350 (hu)" become one vote). Those come from separate groups: another sentence, or a passage,
-    in one of the languages, or a pair left between two groups."""
-    def stated(slot):
-        return {lang: value(w) for lang, w in slot["values"].items()}
-
-    def same(s, t):
-        a, b = stated(s), stated(t)
-        shared = a.keys() & b.keys()
-        va, vb = set(a.values()), set(b.values())
-        return (va <= vb or vb <= va) and bool(shared) and all(a[lang] == b[lang] for lang in shared)
-
-    out: list[dict] = []
-    for g in findings:
-        for f in out:
-            match = [next((s for s in f["slots"] if same(s, t)), None) for t in g["slots"]]
-            if all(match):
-                for s, t in zip(match, g["slots"]):
-                    both = {**t["values"], **s["values"]}
-                    s.update(tally({lang: both[lang] for lang in sorted(both, key=lang_order)}))
-                have = {m["lang"] for m in f["members"]}
-                f["members"] = sorted(f["members"] + [m for m in g["members"] if m["lang"] not in have],
-                                      key=lambda m: lang_order(m["lang"]))
-                f["distance"] = max(f["distance"], g["distance"])
-                break
-        else:
-            out.append(g)
-    return out
+def vote(edges: dict[tuple[str, str], bool]) -> dict | None:
+    """A group's contradictions, from its matched sentence pairs ((lang, lang) -> whether they
+    contradict); None if none do. An edition matched with two or more others and contradicting at
+    least CONSENSUS of them is an outlier, while the outliers are at most a third of the group:
+    {"verdict": "outlier", "outliers": [...]}. Otherwise the editions just differ ("differs").
+    "pairs" lists the contradicting pairs."""
+    pairs = [list(e) for e, c in edges.items() if c]
+    if not pairs:
+        return None
+    matched: dict[str, list[bool]] = {}
+    for (a, b), c in edges.items():
+        matched.setdefault(a, []).append(c)
+        matched.setdefault(b, []).append(c)
+    outliers = [lang for lang, cs in matched.items() if len(cs) >= 2 and sum(cs) >= CONSENSUS * len(cs)]
+    if outliers and len(outliers) <= len(matched) / 3:
+        return {"verdict": "outlier", "outliers": sorted(outliers, key=lang_order), "pairs": pairs}
+    return {"verdict": "differs", "outliers": [], "pairs": pairs}
 
 
 def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], dict]:
-    """What the editions of a topic state differently, best first: values ({"kind": "value"}), then
-    framing ({"kind": "framing"}). Each has members, one per language: the passage, its position
-    (page_id, seq) and the sentence (n, sentence) or None when whole passages were compared.
-
-    Matched sentences are grouped across languages, one sentence per language and group; each value
-    slot is a vote ({"votes", "verdict": "outlier" | "contested" | "differs", "outliers"}).
+    """What the editions of a topic state differently, best first: contradictions ({"kind":
+    "contradiction", "verdict", "outliers", "pairs", "score"}), then framing ({"kind": "framing"}).
+    Each has members, one per language: the passage, its position (page_id, seq) and the sentence
+    (n, sentence).
 
     Also each edition's leaning: {"axes": {axis: ends}, "editions": {lang: {"groups": n, axis: mean
     deviation}}}, its average distance from the other editions on each axis over every matched group,
@@ -338,32 +326,30 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
         sentence[sa], sentence[sb] = (atext, pos[0::2]), (btext, pos[1::2])
         edges.append((sa, sb, dist))
 
-    def member(i):  # a sentence (lang, page_id, seq, n) or a whole passage (lang, page_id, seq)
-        return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]} if len(i) == 4 \
-            else {**passages[i], "n": None, "sentence": None}
+    def member(i):  # a sentence (lang, page_id, seq, n)
+        return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]}
 
-    def change(slots):  # the largest relative difference among a finding's figures
-        return max(1 - min(vs) / max(vs) for s in slots if (vs := [value(w) for w in s["values"].values()]))
-
-    values = []
-    for ids, dist in groups(edges, VALUES_MAX):
-        text = {i[0]: sentence[i][0] for i in ids}
-        if slots := figure_slots(text, lambda a, b: conflicts(text[a], text[b])):
-            values.append({"kind": "value", "distance": dist, "slots": slots, "change": change(slots),
-                           "members": [member(i) for i in ids]})
-    # Then whole passages, for figures the sentence matching missed (a table row against a sentence).
-    seen = {(lang, value(w)) for f in values for s in f["slots"] for lang, w in s["values"].items()}
-    for ids, dist in groups(pairs, PASSAGE_MAX):
-        text = {i[0]: passages[i]["text"] for i in ids}
-        slots = [s for s in figure_slots(text, lambda a, b: anchored_conflicts(text[a], text[b]))
-                 if not {(lang, value(w)) for lang, w in s["values"].items()} <= seen]
-        if slots:
-            values.append({"kind": "value", "distance": dist, "slots": slots, "change": change(slots),
-                           "members": [member(i) for i in ids]})
-    values = merge_values(values)
-    # facts three or more editions vote on first (they show who is out of line), then by how far apart
-    values.sort(key=lambda f: (max(len(s["values"]) for s in f["slots"]) < 3, -f["change"]))
-
+    checked = [(a, b) for a, b, d in edges if d <= FACT_MAX]
+    # Two judges, both ways round; a pair contradicts only when all four say so (the lowest score):
+    # the English model on translations (misled by mistranslations) and the multilingual one on the
+    # originals (misled when neither side is English).
+    ids = sorted({i for e in checked for i in e})
+    original = {i: sentence[i][0] for i in ids}
+    foreign = [i for i in ids if i[0] not in ENGLISH]
+    english = original | dict(zip(foreign, to_english([(i[0], original[i]) for i in foreign])))
+    judged = [contradiction([(text[x], text[y]) for x, y in order], model)
+              for text, model in ((english, NLI), (original, NLI_MULTI))
+              for order in (checked, [(b, a) for a, b in checked])]
+    score = {e: min(ps) for e, *ps in zip(checked, *judged)}
+    contradictions = []
+    for ids, dist in groups(edges, FACT_MAX):
+        inside = set(ids)
+        scores = {(a, b): p for (a, b), p in score.items() if a in inside and b in inside}
+        if result := vote({(a[0], b[0]): p >= CONTRADICTS for (a, b), p in scores.items()}):
+            contradictions.append({"kind": "contradiction", "distance": dist, **result,
+                                   "score": max(scores.values()), "members": [member(i) for i in ids]})
+    # who is out of line first, then the surest
+    contradictions.sort(key=lambda f: (f["verdict"] != "outlier", -f["score"]))
     framing = []
     lean: dict[str, dict[str, list[float]]] = {}  # lang -> axis -> deviations in every group
     for ids, dist in groups(edges, FRAMING_MAX):
@@ -383,4 +369,4 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], di
     leaning = {"axes": {name: ends for name, (_, _, ends) in AXES.items()},
                "editions": {lang: {"groups": len(next(iter(by_axis.values()))),
                                    **{name: fmean(d) for name, d in by_axis.items()}} for lang, by_axis in lean.items()}}
-    return values + framing, leaning
+    return contradictions + framing, leaning

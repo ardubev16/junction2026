@@ -1,5 +1,5 @@
 // WikiCross on Wikipedia: where the other language editions frame the same thing differently, or
-// state a figure very differently. In the article view and the edit views. All page text goes in
+// contradict this one. In the article view and the edit views. All page text goes in
 // through textContent, never innerHTML. Keep in sync with src/wikicross/index.html (see AGENTS.md).
 (() => {
   const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
@@ -30,13 +30,6 @@
     const el = Object.assign(document.createElement(tag), attrs);
     el.append(...kids);
     return el;
-  };
-  // Text with the given phrases wrapped in <mark>, as DOM nodes.
-  const marked = (text, phrases = []) => {
-    const found = [...new Set(phrases)].filter(Boolean);
-    if (!found.length) return [text];
-    const re = new RegExp(`(${found.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`, "g");
-    return text.split(re).map((piece, i) => (i % 2 ? $("mark", { textContent: piece }) : piece));
   };
   const get = (path, query) => new Promise((resolve, reject) => {
     chrome.runtime.sendMessage({ type: "get", path, params: query }, (reply) => {
@@ -136,22 +129,12 @@
     return null;
   }
 
-  // Where one of a finding's figures lies in `text`, as written or with any separator ("126&nbsp;875").
-  function figureSpan(text, numbers, near) {
-    for (const n of numbers) {
-      const re = new RegExp(n.replace(/\D/g, "").split("").join("(?:[\\s\\u00a0\\u202f,.]|&nbsp;)?"), "g");
-      const hit = [...text.matchAll(re)].sort((a, b) => Math.abs(a.index - near) - Math.abs(b.index - near))[0];
-      if (hit && Math.abs(hit.index - near) < 1500) return [hit.index, hit.index + hit[0].length];
-    }
-    return null;
-  }
-
-  // Find the evidence in the wikitext, which adds [[links]], '''bold''' and <ref>s to the dataset's
-  // plain text: the place where most of its longer words occur together is the anchor. Then select the
-  // sentence there, or the figure (whole-passage evidence), or else the whole line.
-  function findInSource(text, sentence, numbers) {
+  // Find the evidence sentence in the wikitext, which adds [[links]], '''bold''' and <ref>s to the
+  // dataset's plain text: the place where most of its longer words occur together is the anchor. Then
+  // select the sentence there, or else the whole line.
+  function findInSource(sentence) {
     const src = textarea.value;
-    const all = words(text);
+    const all = words(sentence);
     const anchors = [...all].sort((a, b) => b.length - a.length).slice(0, 3);
     const lower = src.toLowerCase();
     let best = null;
@@ -163,7 +146,7 @@
       }
     }
     if (!best) return false;
-    const range = (sentence && sentenceSpan(src, sentence, best.start)) || figureSpan(src, numbers, best.start) || (() => {
+    const range = sentenceSpan(src, sentence, best.start) || (() => {
       const end = src.indexOf("\n", best.start);
       return [src.lastIndexOf("\n", best.start) + 1, end === -1 ? src.length : end];
     })();
@@ -192,24 +175,20 @@
   }
 
   // Find the paragraph (or list item, table cell) of the rendered page, in the article view or
-  // VisualEditor, holding most of the evidence's longer words, and the figure in question if any (a
-  // whole passage spans several paragraphs: the figure picks the right one); then highlight just the
-  // sentence in it, or the figure, or else the paragraph, and scroll to it.
-  function findOnPage(text, sentence, numbers) {
+  // VisualEditor, holding most of the evidence sentence's longer words; then highlight just the
+  // sentence in it, or else the paragraph, and scroll to it.
+  function findOnPage(sentence) {
     const page = document.querySelector(".ve-ce-surface") || document.getElementById("mw-content-text");
-    const all = words(text);
-    const figures = numbers.map((n) => new RegExp(`(?<!\\d)${n.replace(/\D/g, "")}(?!\\d)`));
+    const all = words(sentence);
     let best = null;
     for (const el of page?.querySelectorAll("p, li, dd, td, th, blockquote, figcaption") || []) {
       const text = el.textContent.toLowerCase();
-      const plain = text.replace(/(\d)[\s\u00a0\u202f,.](?=\d{3}(?!\d))/g, "$1");  // "95 348" -> "95348"
-      const score = all.filter((w) => text.includes(w)).length + (figures.some((re) => re.test(plain)) ? 100 : 0);
+      const score = all.filter((w) => text.includes(w)).length;
       // ties go to the shorter element: the cell, not the row's nested list holding it
       if (score && (!best || score > best.score || (score === best.score && text.length < best.length))) best = { el, score, length: text.length };
     }
     if (!best || best.score < Math.max(2, all.length * 0.4)) return false;
-    const content = best.el.textContent;
-    const span = (sentence && sentenceSpan(content, sentence, 0)) || figureSpan(content, numbers, 0);
+    const span = sentenceSpan(best.el.textContent, sentence, 0);
     let range = span && rangeAt(best.el, ...span);
     if (!range) { range = new Range(); range.selectNodeContents(best.el); }
     CSS.highlights.set("wikicross", new Highlight(range));
@@ -217,38 +196,35 @@
     return true;
   }
 
-  const showOnPage = (m, numbers) => (textarea && textarea.offsetParent
-    ? findInSource(m.sentence ?? m.text, m.sentence, numbers) : findOnPage(m.sentence ?? m.text, m.sentence, numbers));
+  const showOnPage = (m) => (textarea && textarea.offsetParent ? findInSource(m.sentence) : findOnPage(m.sentence));
 
   function finding(f, articles) {
     const urls = Object.fromEntries(articles.map((a) => [a.lang, a.url]));
-    const outliers = f.kind === "value" ? new Set(f.slots.flatMap((s) => s.outliers)) : new Set(f.outlier ? [f.lang] : []);
+    // Contradictions: the outliers, else every edition in a contradicting pair; framing: its outlier.
+    const outliers = new Set(f.kind === "contradiction" ? (f.outliers.length ? f.outliers : f.pairs.flat()) : f.outlier ? [f.lang] : []);
     const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
     let what, label;
-    if (f.kind === "value") {
-      // Each figure as a vote, most stated first: "126 875 (fi, sv, de) vs 167,976 (en)"; long lists counted.
-      const who = (langs) => langs.length > 6 ? `${langs.length} editions` : langs.join(", ");
-      what = f.slots.map((s) => s.votes.map((v) => `${v.value} (${who(v.langs)})`).join(" vs ")).join(" · ");
-      const verdicts = f.slots.map((s) => s.verdict);
-      const editions = new Set(f.slots.flatMap((s) => Object.keys(s.values))).size;
+    if (f.kind === "contradiction") {
+      const each = f.pairs.map(([a, b]) => `${langName(a)} and ${langName(b)}`);
+      const n = f.outliers.length;
+      what = n ? (n > 3 ? `${n} editions contradict the others.` : `The ${f.outliers.map(langName).join(" and ")} edition${n > 1 ? "s contradict" : " contradicts"} the others.`)
+        : each.length === 1 ? `The ${each[0]} editions contradict each other.` : `Contradicting editions: ${each.length > 3 ? `${each.length} pairs` : each.join("; ")}.`;
       label = $("span", { className: "label" }, $("span", { className: "tag discrepancy", textContent: "Discrepancy" }), icon("alert"),
-        `${verdicts.includes("outlier") ? (outliers.size > 3 ? `Outliers: ${outliers.size} editions` : `Outlier: ${names([...outliers])}`)
-          : verdicts.includes("contested") ? `Contested among ${editions} editions` : "Different value"} · ${Math.round(f.change * 100)}% apart`);
+        `${n ? (n > 3 ? `Outliers: ${n} editions` : `Outlier: ${names(f.outliers)}`) : "Contradiction"} · ${Math.round(f.score * 100)}% sure`);
     } else {
       const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
       what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
       label = $("span", { className: "label" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
         `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
     }
-    const values = (l) => (f.kind === "value" ? f.slots.map((s) => s.values[l]).filter(Boolean) : []);
-    const card = $("div", { className: `card ${f.kind === "value" ? "discrepancy" : "impartiality"}` }, label, $("div", { className: "what", textContent: what }));
+    const card = $("div", { className: `card ${f.kind === "contradiction" ? "discrepancy" : "impartiality"}` }, label, $("div", { className: "what", textContent: what }));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);
     const members = [...f.members].sort((a, b) => rank(a) - rank(b));
     const member = (m) => {
-      const text = m.sentence ?? m.text;
+      const tag = !outliers.has(m.lang) ? "" : f.kind === "contradiction" && !f.outliers.length ? " · contradicting" : " · outlier";
       const who = $("div", { className: "who" }, $("b", { textContent: m.lang === lang ? `This edition (${m.lang})` : `${langName(m.lang)} (${m.lang})` }),
-        ` ${m.title} § ${m.heading || "(intro)"}`, outliers.has(m.lang) ? " · outlier" : "");
+        ` ${m.title} § ${m.heading || "(intro)"}`, tag);
       if (m.lang !== lang && /^https?:\/\//.test(urls[m.lang] || "")) {
         who.append($("a", { href: urls[m.lang], target: "_blank", rel: "noopener" }, "open", icon("link")));
       }
@@ -256,7 +232,7 @@
         const source = textarea && textarea.offsetParent;
         const find = $("button", { className: "small", type: "button", title: source ? "Select this in the wikitext" : "Highlight this on the page" },
           icon("find"), source ? "Find in source" : "Show on page");
-        const locate = () => { if (!showOnPage(m, values(m.lang))) find.replaceChildren(icon("find"), "Not found on this page"); };
+        const locate = () => { if (!showOnPage(m)) find.replaceChildren(icon("find"), "Not found on this page"); };
         find.addEventListener("click", locate);
         // The whole card shows it too; its links and buttons keep their own action.
         card.classList.add("locatable");
@@ -264,7 +240,7 @@
         who.append(find);
       }
       return $("div", { className: `member${m.lang === lang ? " here" : ""}${outliers.has(m.lang) ? " outlier" : ""}` }, who,
-        $("div", {}, ...marked(text, values(m.lang))));
+        $("div", { textContent: m.sentence }));
     };
     card.append(...members.slice(0, SHOWN).map(member));
     if (members.length > SHOWN) {
@@ -309,7 +285,7 @@
     if (lean) body.append(lean);
     if (!data.articles.some((a) => a.lang === lang)) {
       body.append($("p", { className: "muted", textContent: `This edition (${langName(lang)}) is not compared: only Latin- and Cyrillic-script editions are. Below, what the others state differently.` }));
-    } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently or states a figure very differently from the other editions." }));
+    } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition contradicts the other editions or is framed differently from them." }));
     body.append(...mine.map((f) => finding(f, data.articles)));
     if (elsewhere.length) {
       body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),

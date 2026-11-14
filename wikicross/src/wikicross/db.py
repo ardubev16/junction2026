@@ -68,6 +68,16 @@ SCHEMA = [
       k         BINARY(32)   PRIMARY KEY,
       embedding VECTOR(1024) NOT NULL
     )""",
+    # NLI contradiction probabilities of sentence pairs, and English machine translations of
+    # sentences, keyed by sha256 of model + text(s): recomputing a topic costs no GPU call.
+    """CREATE TABLE IF NOT EXISTS nli_cache (
+      k BINARY(32) PRIMARY KEY,
+      p FLOAT      NOT NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS translation_cache (
+      k    BINARY(32) PRIMARY KEY,
+      text TEXT       NOT NULL
+    ) CHARACTER SET utf8mb4""",
     # A topic's computed differences, for reloads: valid while `state` (sha256 of the comparison code
     # and the topic's editions) is unchanged.
     """CREATE TABLE IF NOT EXISTS diff_cache (

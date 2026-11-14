@@ -34,7 +34,7 @@
   .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
   .card.dismissed { opacity: .6; }
   /* Findings the AI check finds no contradiction in: header, title and verdict only, until reopened. */
-  .card.collapsed .votes, .card.collapsed .quotes, .card.collapsed .tools, .card.collapsed .summary { display: none; }
+  .card.collapsed .quotes, .card.collapsed .tools, .card.collapsed .summary { display: none; }
   .card.collapsed h3 { font-size: 1rem; }
   .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; }
   .meta .pair { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
@@ -47,7 +47,6 @@
   .card.discrepancy { border-left: 4px solid var(--bad); } .card.impartiality { border-left: 4px solid var(--warn); }
   .card.discrepancy .score { color: var(--bad); }
   .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
-  .card h3 .vs { color: var(--muted); font-weight: normal; }
   .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
   .summary:empty { display: none; }
   .pending { color: var(--muted); font-style: italic; }
@@ -72,14 +71,7 @@
   .expand:hover { background: #d5e6ff; }
   .expand:disabled { opacity: .5; cursor: default; }
   mark { background: #fef6e7; border-bottom: 2px solid #edab00; padding: 0 1px; }
-  .odd { color: var(--warn); }
   .quote.outlier blockquote { border-left-color: var(--warn); }
-  .votes table { border-collapse: collapse; margin: .4rem 0; font-size: .9rem; }
-  .votes tr { cursor: pointer; }
-  .votes tr:hover td, .votes tr.picked td { background: #eaf3ff; }
-  .votes td { padding: .15rem .6rem .15rem 0; vertical-align: top; }
-  .votes td.value { font-weight: bold; white-space: nowrap; padding-left: .3rem; }
-  .votes td.count { color: var(--muted); white-space: nowrap; }
 </style>
 </head>
 <body>
@@ -271,20 +263,16 @@ function card(finding) {
   const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
   const state = { highlights: {}, english: null, showEnglish: false, context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
-  let title, label, outliers = [], votes = "";
-  if (finding.kind === "value") {
-    for (const s of finding.slots) for (const [lang, w] of Object.entries(s.values)) (state.highlights[lang] ||= []).push(w);
-    outliers = [...new Set(finding.slots.flatMap((s) => s.outliers))];
-    // Each figure: its values, most stated first ("126 875 vs 167,976"); the vote table below says who states which.
-    title = $("h3", {}, ...finding.slots.flatMap((s, i) => [i ? " · " : "", ...s.votes.flatMap((v, j) => [
-      j ? $("span", { className: "vs", textContent: " vs " }) : "",
-      $("span", { className: s.outliers.includes(v.langs[0]) ? "odd" : "", textContent: v.value })])]));
-    votes = $("div", { className: "votes" });
-    const verdicts = finding.slots.map((s) => s.verdict);
-    const editions = new Set(finding.slots.flatMap((s) => Object.keys(s.values))).size;
+  let title, label, outliers = [];
+  if (finding.kind === "contradiction") {
+    // The outliers against the rest; else every edition in a contradicting pair goes first.
+    outliers = finding.outliers.length ? finding.outliers : [...new Set(finding.pairs.flat())];
+    const each = finding.pairs.map(([a, b]) => `${langName(a)} and ${langName(b)}`);
+    const n = finding.outliers.length;
+    title = $("h3", { textContent: n ? (n > 3 ? `${n} editions contradict the others.` : `The ${finding.outliers.map(langName).join(" and ")} edition${n > 1 ? "s contradict" : " contradicts"} the others.`)
+      : each.length === 1 ? `The ${each[0]} editions contradict each other.` : `Contradicting editions: ${each.length > 3 ? `${each.length} pairs` : each.join("; ")}.` });
     label = $("span", { className: "score" }, $("span", { className: "tag discrepancy", textContent: "Discrepancy" }), icon("alert"),
-      `${verdicts.includes("outlier") ? (outliers.length > 3 ? `Outliers: ${outliers.length} editions` : `Outlier: ${names(outliers)}`)
-        : verdicts.includes("contested") ? `Contested among ${editions} editions` : "Different value"} · ${Math.round(finding.change * 100)}% apart`);
+      `${n ? (n > 3 ? `Outliers: ${n} editions` : `Outlier: ${names(finding.outliers)}`) : "Contradiction"} · ${Math.round(finding.score * 100)}% sure`);
   } else {
     const others = finding.members.map((m) => m.lang).filter((l) => l !== finding.lang);
     const toward = finding.deviation > 0 ? finding.ends[0] : finding.ends[1];
@@ -300,14 +288,12 @@ function card(finding) {
   const summary = $("p", { className: "summary" });
   const verdict = $("p", { className: "summary" });  // AI only; empty and hidden otherwise
   const quotes = $("div", { className: "quotes" });
-  const article = $("article", { className: `card ${finding.kind === "value" ? "discrepancy" : "impartiality"}` });
-  // A finding is a pair of sentences, or of whole passages when the sentences did not pair up.
-  const quoteOf = (p) => p.sentence ?? p.text;
+  const article = $("article", { className: `card ${finding.kind === "contradiction" ? "discrepancy" : "impartiality"}` });
+  const quoteOf = (p) => p.sentence;
 
   const more = members.length > SHOWN ? $("button", { className: "btn small", type: "button" }) : null;
-  // A value picked in the vote table shows only the editions stating it.
   const renderQuotes = () => {
-    const pool = state.pick ? members.filter((m) => state.pick.langs.includes(m.lang)) : members;
+    const pool = members;
     if (more) {
       more.hidden = pool.length <= SHOWN;
       more.replaceChildren(state.all ? "Show fewer" : `Show all ${pool.length} editions`, icon("chevron"));
@@ -331,17 +317,6 @@ function card(finding) {
     }));
   };
   renderQuotes();
-  const renderVotes = () => votes && votes.replaceChildren(...finding.slots.map((s) => $("table", {}, ...s.votes.map((v) => {
-    const picked = state.pick === v;
-    const row = $("tr", { className: `${s.outliers.includes(v.langs[0]) ? "odd" : ""}${picked ? " picked" : ""}`,
-                          title: picked ? "Show every edition again" : "Show the editions stating this value" },
-      $("td", { className: "value", textContent: v.value }),
-      $("td", { className: "count", textContent: `${v.langs.length} edition${v.langs.length === 1 ? "" : "s"}` }),
-      $("td", { textContent: v.langs.map(langName).join(", ") }));
-    row.addEventListener("click", () => { state.pick = picked ? null : v; renderVotes(); renderQuotes(); });
-    return row;
-  }))));
-  renderVotes();
 
   const tools = $("div", { className: "tools" });
   if (more) {
@@ -365,7 +340,7 @@ function card(finding) {
       .then((x) => {
         verdict.className = "muted";
         verdict.textContent = x.discrepancy ? `AI: ${x.title}`
-          : finding.kind === "value" ? "AI: these passages do not contradict each other." : "AI: no clear difference in tone or framing.";
+          : finding.kind === "contradiction" ? "AI: these passages do not contradict each other." : "AI: no clear difference in tone or framing.";
         if (!x.discrepancy) {
           article.classList.add("dismissed", "collapsed");
           const reopen = $("button", { className: "btn small", type: "button", ariaExpanded: "false" }, "Show anyway", icon("chevron"));
@@ -408,7 +383,7 @@ function card(finding) {
         $("span", { className: "chip" }, $("b", { textContent: `${m.lang}.wikipedia` }), ` § ${m.heading || "(intro)"}`)]),
         members.length > SHOWN ? ` + ${members.length - SHOWN} more` : ""),
       label),
-    title, votes, verdict, summary, quotes, tools);
+    title, verdict, summary, quotes, tools);
   return article;
 }
 </script>
