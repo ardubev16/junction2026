@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>langdiff — cross-language differences</title>
+<style>
+  :root { --link: #36c; --border: #c8ccd1; --muted: #54595d; --chip: #eaecf0; --serif: "Linux Libertine", "Georgia", "Times", serif; }
+  body { margin: 0; background: #f8f9fa; color: #202122; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
+  header { background: #fff; border-bottom: 1px solid var(--border); padding: .6rem 1.5rem; display: flex; gap: 1.5rem; align-items: center; }
+  .wordmark { font-family: var(--serif); font-size: 1.5rem; white-space: nowrap; }
+  .wordmark small { display: block; font: .7rem/1 sans-serif; color: var(--muted); letter-spacing: .05em; }
+  form { display: flex; flex: 1; max-width: 640px; }
+  form input { flex: 1; padding: .45rem .6rem; font-size: 1rem; border: 1px solid #a2a9b1; border-radius: 2px 0 0 2px; }
+  main { max-width: 1000px; margin: 0 auto; padding: .5rem 1.5rem 3rem; }
+  h1, h2 { font-family: var(--serif); font-weight: normal; }
+  h1 { font-size: 1.9rem; margin: 1rem 0 .3rem; border-bottom: 1px solid #a2a9b1; }
+  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .muted { color: var(--muted); }
+  .editions { font-size: .9rem; margin-bottom: 1rem; }
+  .btn { display: inline-flex; gap: .4rem; align-items: center; font: bold .9rem sans-serif; padding: .4rem .8rem; border-radius: 2px;
+         border: 1px solid #a2a9b1; background: #f8f9fa; color: #202122; cursor: pointer; }
+  .btn.primary { background: var(--link); border-color: var(--link); color: #fff; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  form .btn { border-radius: 0 2px 2px 0; }
+  .box, .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .box h2 { margin: 0; font: bold 1.3rem sans-serif; display: flex; gap: .5rem; align-items: center; }
+  .pill { font: bold .8rem sans-serif; background: #eaf3ff; color: var(--link); border-radius: 1em; padding: .1rem .6rem; }
+  .box p { font-family: var(--serif); margin: .3rem 0 0; }
+  .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; font-size: .85rem; }
+  .chip { background: var(--chip); border-radius: 2px; padding: .1rem .45rem; }
+  .score { color: var(--link); font-weight: bold; white-space: nowrap; }
+  .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
+  .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
+  .pending { color: var(--muted); font-style: italic; }
+  .error { color: #d33; }
+  details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
+  details[open] > summary { margin-bottom: .8rem; }
+  .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-top: .8rem; }
+  .quote h4 { margin: 0 0 .3rem; font-size: .85rem; font-weight: normal; }
+  .quote blockquote { margin: 0; padding: .5rem .8rem; border-left: 4px solid var(--chip); font-family: var(--serif);
+                      white-space: pre-wrap; max-height: 24em; overflow: auto; }
+  .quote.divergent blockquote { border-left-color: var(--link); }
+  mark { background: #fef6e7; border-bottom: 2px solid #edab00; padding: 0 1px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wordmark">langdiff<small>FI · SV · EN WIKIPEDIA</small></div>
+  <form id="f">
+    <input type="search" id="q" list="titles" placeholder="Search an article: Talvisota, Winter War, Urho Kekkonen…" autocomplete="off" required>
+    <datalist id="titles"></datalist>
+    <button class="btn primary">Compare</button>
+  </form>
+</header>
+<main id="out"><p class="muted">Pick an article that exists in Finnish, Swedish or English Wikipedia to see what its language editions tell differently.</p></main>
+
+<script>
+const LANGS = { fi: "Finnish", sv: "Swedish", en: "English" };
+const $ = (tag, attrs = {}, ...kids) => {
+  const el = Object.assign(document.createElement(tag), attrs);
+  el.append(...kids);
+  return el;
+};
+const q = document.getElementById("q"), out = document.getElementById("out");
+const post = async (url, body) => {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.detail);
+  return data;
+};
+
+// Text with every highlighted phrase wrapped in <mark>…</mark>, as a string (sent to the translator).
+const withMarks = (text, phrases = []) =>
+  phrases.reduce((t, p) => t.split(p).join(`<mark>${p}</mark>`), text);
+// That string as DOM nodes; never innerHTML, so article text cannot inject markup.
+const marked = (s) => {
+  let inMark = false;
+  return s.split(/(<\/?mark>)/).flatMap((piece) => {
+    if (piece === "<mark>" || piece === "</mark>") { inMark = piece === "<mark>"; return []; }
+    return piece ? [inMark ? $("mark", { textContent: piece }) : piece] : [];
+  });
+};
+
+let timer;
+q.addEventListener("input", () => {
+  clearTimeout(timer);
+  if (q.value.length < 2) return;
+  timer = setTimeout(async () => {
+    const r = await fetch(`/api/titles?q=${encodeURIComponent(q.value)}`);
+    document.getElementById("titles").replaceChildren(
+      ...(await r.json()).map((t) => $("option", { value: t.title, label: t.lang })));
+  }, 200);
+});
+
+document.getElementById("f").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  out.replaceChildren($("p", { className: "pending", textContent: "Comparing the editions… the first time an article is asked for, its passages are embedded: this may take a minute." }));
+  const r = await fetch(`/api/diff?title=${encodeURIComponent(q.value)}&limit=10`);
+  const data = await r.json();
+  if (!r.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
+  render(data);
+});
+
+function render(data) {
+  const langs = data.articles.map((a) => a.lang);
+  const head = data.articles.find((a) => a.lang === "en") || data.articles[0];
+  out.replaceChildren(
+    $("h1", { textContent: head.title }),
+    $("div", { className: "editions muted" }, "Editions: ",
+      ...data.articles.flatMap((a, i) => [i ? " · " : "", $("a", { href: a.url, target: "_blank", textContent: `${a.lang}: ${a.title}` })]),
+      $("br"), "Whole-article distance: ",
+      data.similarity.map((s) => `${s.a}↔${s.b} ${s.distance.toFixed(3)}`).join(" · ")),
+    $("section", { className: "box" },
+      $("h2", {}, $("span", { textContent: "文A" }), "Cross-language differences", $("span", { className: "pill", textContent: `${data.parts.length} found` })),
+      $("p", { textContent: `Comparison of the ${langs.map((l) => `${LANGS[l]} (${l})`).join(", ")} editions found ${data.parts.length} passages with no close counterpart in at least one other edition.` })),
+    ...data.parts.map(card));
+}
+
+function card(part) {
+  const passages = [part, ...part.nearest];
+  const state = { highlights: {}, english: null, showEnglish: false };
+  const title = $("h3", { className: "pending", textContent: "Analysing the difference…" });
+  const summary = $("p", { className: "summary" });
+  const quotes = $("div", { className: "quotes" });
+  const toggle = $("button", { className: "btn primary", type: "button", disabled: true, textContent: "View quotes in English" });
+
+  const renderQuotes = () => quotes.replaceChildren(...passages.map((p, i) => {
+    const en = state.showEnglish && state.english;
+    const heading = (en ? en[`${p.lang}-heading`] : p.heading) || "(intro)";
+    const text = en ? en[p.lang] : withMarks(p.text, state.highlights[p.lang]);
+    return $("div", { className: `quote${i ? "" : " divergent"}` },
+      $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: `${p.lang}.wikipedia` }), ` § ${heading}`), " ",
+        $("span", { className: "muted", textContent: i ? `closest match, distance ${p.distance.toFixed(3)}` : "the divergent passage" })),
+      $("blockquote", {}, ...marked(text)));
+  }));
+  renderQuotes();
+
+  post("/api/explain", { passages: passages.map(({ lang, heading, text }) => ({ lang, heading, text })) })
+    .then((x) => {
+      title.className = ""; title.textContent = x.title;
+      summary.textContent = x.summary;
+      state.highlights = x.highlights;
+      renderQuotes();
+    })
+    .catch((err) => { title.className = "pending"; title.textContent = "Analysis unavailable"; summary.className = "summary error"; summary.textContent = err.message; })
+    .finally(() => { toggle.disabled = false; });
+
+  toggle.addEventListener("click", async () => {
+    if (!state.english && !state.showEnglish) {
+      toggle.disabled = true; toggle.textContent = "Translating…";
+      const texts = {};
+      for (const p of passages) {
+        texts[p.lang] = withMarks(p.text, state.highlights[p.lang]);
+        if (p.heading) texts[`${p.lang}-heading`] = p.heading;
+      }
+      try { state.english = await post("/api/translate", { texts, target: "en" }); }
+      catch (err) { toggle.disabled = false; toggle.textContent = `Translation failed (${err.message}): retry`; return; }
+      toggle.disabled = false;
+    }
+    state.showEnglish = !state.showEnglish;
+    toggle.textContent = state.showEnglish ? "View original quotes" : "View quotes in English";
+    renderQuotes();
+  });
+
+  return $("article", { className: "card" },
+    $("div", { className: "meta" },
+      $("span", { className: "chip" }, "Found in: ", $("b", { textContent: `${part.lang}.wikipedia` }), ` § ${part.heading || "(intro)"}`),
+      $("span", { className: "score", textContent: `◆ difference ${part.score.toFixed(2)}` })),
+    title, summary,
+    $("details", {}, $("summary", { className: "btn", textContent: "Compare quotes ▾" }), toggle, quotes));
+}
+</script>
+</body>
+</html>
