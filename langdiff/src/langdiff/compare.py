@@ -25,10 +25,13 @@ from functools import lru_cache
 from statistics import fmean
 
 import numpy as np
+import pymysql
 
 from .db import LANGS
 from .discrepancy import anchored_conflicts, conflicts, figure_slots, value
 from .embeddings import embed
+
+ER_STATEMENT_TIMEOUT = 1969  # MariaDB: "Query execution was interrupted (max_statement_time exceeded)"
 
 PASSAGE_MAX = 0.40  # cosine distance for two parts to be about the same subject
 VALUES_MAX = 0.40  # sentence pairs compared for values
@@ -105,13 +108,24 @@ def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]
     }
 
 
+HNSW_TIMEOUT = 2  # seconds; a lookup normally takes milliseconds
+
+
 def nearest_part(cur, lang: str, embedding: bytes):
-    """(page_id, seq, distance) of the closest part in `lang`, anywhere in the corpus: HNSW."""
-    cur.execute(
-        "SELECT page_id, seq, VEC_DISTANCE_COSINE(embedding, %s) FROM chunk WHERE lang = %s "
-        "ORDER BY VEC_DISTANCE_COSINE(embedding, %s) LIMIT 1",
-        (embedding, lang, embedding),
-    )
+    """(page_id, seq, distance) of the closest part in `lang`, anywhere in the corpus: HNSW.
+
+    MariaDB 12.3 can loop on a filtered HNSW search with LIMIT 1, growing memory until the server is
+    killed (seen for one en passage of Urho Kekkonen searched in fi; LIMIT 10 and the exact search
+    answer at once). So the index lookup is time-limited and falls back to the exact search."""
+    query = ("SELECT page_id, seq, VEC_DISTANCE_COSINE(embedding, %s) FROM chunk {} WHERE lang = %s "
+             "ORDER BY VEC_DISTANCE_COSINE(embedding, %s) LIMIT 1")
+    try:
+        cur.execute(f"SET STATEMENT max_statement_time={HNSW_TIMEOUT} FOR " + query.format(""), (embedding, lang, embedding))
+    except pymysql.err.OperationalError as e:
+        if e.args[0] != ER_STATEMENT_TIMEOUT:
+            raise
+        # shortcut: a full scan of the language's parts; fine per lookup, slow if it happens often at scale
+        cur.execute(query.format("IGNORE INDEX (embedding)"), (embedding, lang, embedding))
     return cur.fetchone()
 
 

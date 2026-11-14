@@ -9,6 +9,10 @@ MariaDB Vector; the other editions are fetched live from Wikipedia the first tim
 
 Needs Docker, uv and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
 sentences are embedded with bge-m3 on a Modal H100 (`src/langdiff/embed_gpu.py`).
+The embedder is looked up by name in the active Modal profile's workspace; to use one already
+deployed elsewhere (the team's is in `fabio-missagia`), add a token for that workspace instead of
+deploying: `uv run modal token new --profile fabio-missagia` (pick the workspace in the browser; it
+becomes the active profile), or set `MODAL_PROFILE=fabio-missagia` when starting the server.
 
 ```bash
 docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the langdiff-data volume
