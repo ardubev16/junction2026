@@ -1,7 +1,8 @@
-"""API: where the Latin-script Wikipedia editions of one topic frame things differently or state very different figures."""
+"""API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently or state very different figures."""
 
 import json
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -177,8 +178,42 @@ def titles(q: str):
     return out
 
 
+# What each running /api/diff is doing, for the page's loading view: title asked for -> (stage, start).
+# shortcut: in this process only, and two requests for one title share an entry; with several server
+# processes, keep it in a table.
+PROGRESS: dict[str, tuple[str, float]] = {}
+
+
 @app.get("/api/diff")
-def diff(title: str, limit: int = 10, lang: str = "en"):
+def diff(title: str, limit: int = 10, lang: str = "en", focus: str | None = None):
+    """What a topic's editions state differently, best first; `lang` is the Wikipedia to look the
+    title up on if the database does not have it, `focus` an edition whose findings go first."""
+    start = time.monotonic()
+
+    def progress(stage: str) -> None:
+        PROGRESS[title] = (stage, start)
+
+    progress("Looking the topic up")
+    try:
+        data = compare_editions(title, lang, progress)
+        # findings involving the focus edition first, each group in its own order, then the limit
+        data["differences"].sort(key=lambda f: focus is not None and all(m["lang"] != focus for m in f["members"]))
+        data["differences"] = data["differences"][:limit]
+        return data
+    finally:
+        PROGRESS.pop(title, None)
+
+
+@app.get("/api/progress")
+def progress_of(title: str):
+    """The stage of a running /api/diff for this title and its seconds so far; stage null if none runs."""
+    if (entry := PROGRESS.get(title)) is None:
+        return {"stage": None, "seconds": 0}
+    stage, start = entry
+    return {"stage": stage, "seconds": round(time.monotonic() - start)}
+
+
+def compare_editions(title: str, lang: str, progress) -> dict:
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT wikidata_id FROM article WHERE title = %s AND wikidata_id IS NOT NULL "
@@ -203,7 +238,7 @@ def diff(title: str, limit: int = 10, lang: str = "en"):
                 raise HTTPException(404, f"no article titled {title!r} here or on {lang}.wikipedia.org")
             wikidata_id = p["wikidata_id"]
             seed_host, seed_title, seed_lang = f"{lang}.wikipedia.org", p["title"], lang
-        wiki.ensure_editions(cur, wikidata_id, seed_host, seed_title, seed_lang)
+        wiki.ensure_editions(cur, wikidata_id, seed_host, seed_title, seed_lang, progress)
         cur.execute(
             "SELECT lang, page_id, title, url, text FROM article WHERE wikidata_id = %s "
             "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang",
@@ -212,6 +247,7 @@ def diff(title: str, limit: int = 10, lang: str = "en"):
         articles = cur.fetchall()
         if len(articles) < 2:
             raise HTTPException(404, f"{title!r} exists in one language only")
+        progress(f"Splitting {len(articles)} editions into passages and embedding the new ones")
         ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in articles])
 
         # Whole-article distance between languages, from the dataset's own vectors.
@@ -225,13 +261,19 @@ def diff(title: str, limit: int = 10, lang: str = "en"):
         )
         similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall()]
 
-        found = differences(cur, wikidata_id, ensure_sentences)
+        def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
+            progress(f"Embedding the sentences of {len(pages)} matched articles")
+            ensure_sentences(cur, pages)
+            progress("Comparing sentences: figures and framing")
+
+        progress("Matching passages across languages")
+        found = differences(cur, wikidata_id, sentences_then_compare)
 
     return {
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
         "similarity": similarity,
-        "differences": found[:limit],
+        "differences": found,
     }
 
 

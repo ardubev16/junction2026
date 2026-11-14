@@ -53,11 +53,14 @@ SCHEMA = [
       k        BINARY(32) PRIMARY KEY,
       response MEDIUMTEXT NOT NULL
     ) CHARACTER SET utf8mb4""",
-    # A row means: every Latin-script edition of this topic has been fetched (or ruled out).
+    # A row means: every edition of this topic in `scripts` (wiki.SCRIPTS) has been fetched (or ruled out).
     """CREATE TABLE IF NOT EXISTS topic_editions (
-      wikidata_id VARCHAR(20) PRIMARY KEY,
-      fetched_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+      wikidata_id VARCHAR(20)  PRIMARY KEY,
+      fetched_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      scripts     VARCHAR(100) NOT NULL DEFAULT 'LATIN'
     )""",
+    # Tables made before Cyrillic was added: their rows covered Latin only.
+    "ALTER TABLE topic_editions ADD COLUMN IF NOT EXISTS scripts VARCHAR(100) NOT NULL DEFAULT 'LATIN'",
 ]
 
 

@@ -29,3 +29,13 @@ def test_sentences_split_before_capitals_of_any_latin_alphabet():
         "Za vlády Hitlera byl v roce 1941 zatčen.",
         "Často se o tom dodnes mluví v Česku.",
     ]
+
+
+def test_sentences_split_before_cyrillic_capitals_and_guillemets():
+    part = ("Кекконен родился в 1900 году в Пиелавеси. «Ночные заморозки» начались в 1958 году. "
+            "Это было давно, но до сих пор важно для Финляндии.")
+    assert sentences(part) == [
+        "Кекконен родился в 1900 году в Пиелавеси.",
+        "«Ночные заморозки» начались в 1958 году.",
+        "Это было давно, но до сих пор важно для Финляндии.",
+    ]

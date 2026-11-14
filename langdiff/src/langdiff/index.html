@@ -40,6 +40,15 @@
   .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
   .summary:empty { display: none; }
   .pending { color: var(--muted); font-style: italic; }
+  /* Keep in sync with the spinner in extension/content.js. */
+  .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid var(--chip); border-top-color: var(--link); border-radius: 50%;
+             animation: spin .8s linear infinite; vertical-align: -.15em; margin-right: .4em; flex: none; }
+  .btn.primary .spinner { border-color: rgba(255, 255, 255, .4); border-top-color: #fff; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+  .loading { display: flex; gap: 1rem; align-items: center; margin: 2rem 0; }
+  .loading .spinner { width: 2.2rem; height: 2.2rem; border-width: 3px; }
+  .loading .stage { font-size: 1.1rem; }
   .error { color: #d33; }
   .tools { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
   .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .8rem; }
@@ -58,7 +67,7 @@
 </head>
 <body>
 <header>
-  <div class="wordmark">langdiff<small>ALL LATIN-SCRIPT WIKIPEDIAS</small></div>
+  <div class="wordmark">langdiff<small>LATIN- AND CYRILLIC-SCRIPT WIKIPEDIAS</small></div>
   <form id="f">
     <input type="search" id="q" list="titles" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
     <datalist id="titles"></datalist>
@@ -66,7 +75,7 @@
   </form>
   <label class="toggle" title="Check each pair with an LLM, summarise it, and allow English translation"><input type="checkbox" id="ai"> AI summaries</label>
 </header>
-<main id="out"><p class="muted">Pick an article to see where its Latin-script Wikipedia editions state different facts.</p></main>
+<main id="out"><p class="muted">Pick an article to see where its Latin- and Cyrillic-script Wikipedia editions state different facts.</p></main>
 
 <script>
 const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
@@ -94,6 +103,7 @@ const icon = (name) => {
   t.innerHTML = `<svg class="icon" viewBox="0 0 20 20" aria-hidden="true">${ICONS[name]}</svg>`;
   return t.content.firstChild;
 };
+const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
 const q = document.getElementById("q"), out = document.getElementById("out"), ai = document.getElementById("ai");
 const post = async (url, body) => {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -134,11 +144,31 @@ async function search(title, push) {
   document.title = `${title} — langdiff`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
   shown = null;
-  out.replaceChildren($("p", { className: "pending", textContent: "Comparing the editions… the first time a topic is asked for, every Latin-script edition is fetched from Wikipedia and embedded: this may take a few minutes." }));
-  const r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: 15 })}`);
-  const data = await r.json();
+  // Loading view: the server's current stage (fetching editions, embedding, comparing), polled each
+  // second, and the time so far. Only the stage is announced to screen readers, not every second.
+  const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
+  out.replaceChildren($("div", { className: "loading" }, spinner(),
+    $("div", {}, $("div", { className: "stage", role: "status" }, stage, " ", seconds),
+      $("div", { className: "muted", textContent: "The first time a topic is asked for, its Latin- and Cyrillic-script editions are fetched from Wikipedia and embedded: this may take a few minutes." }))));
+  const poll = setInterval(async () => {
+    try {
+      const p = await (await fetch(`/api/progress?${new URLSearchParams({ title })}`)).json();
+      if (mine !== current || !p.stage) return;
+      if (stage.textContent !== `${p.stage}…`) stage.textContent = `${p.stage}…`;
+      seconds.textContent = `${p.seconds} s`;
+    } catch { /* the result itself reports errors */ }
+  }, 1000);
+  let r, data;
+  try {
+    r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: 15 })}`);
+    data = await r.json().catch(() => ({ detail: `Server error ${r.status}` }));
+  } catch (err) {
+    data = { detail: `langdiff server not reachable: ${err.message}` };
+  } finally {
+    clearInterval(poll);
+  }
   if (mine !== current) return;
-  if (!r.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
+  if (!r?.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
   shown = data;
   render(data);
 }
@@ -315,7 +345,7 @@ function card(finding) {
   if (ai.checked) {
     const toggle = $("button", { className: "btn small primary", type: "button", disabled: true, textContent: "View quotes in English" });
     verdict.className = "pending";
-    verdict.textContent = "Checking with AI…";
+    verdict.replaceChildren(spinner(), "Checking with AI…");
     post("/api/explain", { passages: first.map(({ lang, heading, text }) => ({ lang, heading, text })) })
       .then((x) => {
         verdict.className = "muted";
@@ -329,7 +359,7 @@ function card(finding) {
       .finally(() => { toggle.disabled = false; });
     toggle.addEventListener("click", async () => {
       if (!state.english && !state.showEnglish) {
-        toggle.disabled = true; toggle.textContent = "Translating…";
+        toggle.disabled = true; toggle.replaceChildren(spinner(), "Translating…");
         const texts = {};
         for (const p of first) {
           texts[p.lang] = withMarks(quoteOf(p), state.highlights[p.lang]);

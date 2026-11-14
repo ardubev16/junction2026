@@ -1,4 +1,4 @@
-"""Live Wikipedia: a topic's Latin-script editions that the dataset (fi, sv, en) does not have.
+"""Live Wikipedia: a topic's Latin- and Cyrillic-script editions that the dataset (fi, sv, en) does not have.
 
 Fetched once per topic through the MediaWiki API (plain-text extracts), converted to the dataset's
 Markdown with appendix sections (bibliography, links) removed, embedded and stored like the dataset's
@@ -17,7 +17,8 @@ import numpy as np
 from .embeddings import embed, token_counts
 
 UA = "langdiff/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.github.com)"
-LATIN_SHARE = 0.9  # letters that must be Latin for an edition to be compared
+SCRIPTS = ("LATIN", "CYRILLIC")  # Unicode script names of the editions compared
+SCRIPT_SHARE = 0.9  # letters that must be in SCRIPTS for an edition to be compared
 RETRIES = 3
 MAX_TOKENS = 8192  # bge-m3's limit: longer articles are embedded truncated
 # An appendix line (a citation, a link) is shorter than this; a section with a longer line holds prose.
@@ -31,11 +32,14 @@ APPENDIX = [
     "källor", "fotnoter", "noter", "referenser", "litteratur", "externa länkar", "se även", "vidare läsning",
     "references", "notes", "sources", "bibliography", "citations", "further reading", "external links", "see also",
     "links", "literature", "footnotes", "other projects", "related articles",
+    "примечания", "литература", "ссылки", "см. также", "источники", "примітки", "джерела", "посилання",
+    "бележки", "извори", "литература и извори",
 ]
 CONTENT = [
     "Early life", "Biography", "Career", "Political activity", "Death", "Legacy", "History", "Background",
     "Assessment", "Commemoration", "Varhaiset vuodet", "Elämäkerta", "Ura", "Kuolema", "Perintö", "Historia",
     "Tausta", "Tidiga år", "Biografi", "Karriär", "Död", "Eftermäle", "Historia", "Bakgrund",
+    "Биография", "Ранние годы", "Смерть", "История", "Біографія", "Життєпис",
 ]
 HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1$")
 
@@ -44,11 +48,12 @@ class WikiError(Exception):
     pass
 
 
-def is_latin(text: str) -> bool:
-    """At least LATIN_SHARE of the text's letters (and at least one) are Latin."""
+def in_scripts(text: str) -> bool:
+    """At least SCRIPT_SHARE of the text's letters (and at least one) are in SCRIPTS: a Cyrillic article
+    may quote Latin names, but Greek, Arabic or CJK editions are left out."""
     letters = [c for c in text if c.isalpha()]
-    latin = sum(unicodedata.name(c, "").startswith("LATIN") for c in letters)
-    return bool(letters) and latin >= LATIN_SHARE * len(letters)
+    known = sum(unicodedata.name(c, "").startswith(SCRIPTS) for c in letters)
+    return bool(letters) and known >= SCRIPT_SHARE * len(letters)
 
 
 def api(host: str, **params) -> dict:
@@ -161,11 +166,15 @@ def resolve(lang: str, title: str) -> dict | None:
     return p if p and p["wikidata_id"] else None
 
 
-def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed_lang: str) -> None:
-    """Fetch, embed and store every Latin-script edition of the topic not in the DB yet, once per topic."""
-    cur.execute("SELECT 1 FROM topic_editions WHERE wikidata_id = %s", (wikidata_id,))
+def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed_lang: str,
+                    progress=lambda message: None) -> None:
+    """Fetch, embed and store every edition of the topic in SCRIPTS not in the DB yet, once per topic
+    and set of scripts (a topic fetched before Cyrillic was added fetches its Cyrillic editions once).
+    `progress(message)` is told what is happening, for the page's loading view."""
+    cur.execute("SELECT 1 FROM topic_editions WHERE wikidata_id = %s AND scripts = %s", (wikidata_id, ",".join(SCRIPTS)))
     if cur.fetchone():
         return
+    progress("Looking up the other language editions on Wikipedia")
     try:
         seed = page(seed_host, seed_title, text=False)
         reason = "seed page missing" if not seed else (
@@ -180,22 +189,23 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
     have = {lang for (lang,) in cur.fetchall()}
     candidates = [(lang, url, title) for lang, url, title in seed["langlinks"] + [(seed_lang, seed["url"], seed["title"])]
                   if lang not in have]
-    skipped = sum(not is_latin(title) for _, _, title in candidates)
+    skipped = sum(not in_scripts(title) for _, _, title in candidates)
+    wanted = [c for c in candidates if in_scripts(c[2])]
     fetched, failed = [], False
-    for lang, url, title in candidates:
-        if not is_latin(title):
-            continue
+    for i, (lang, url, title) in enumerate(wanted, 1):
+        progress(f"Fetching edition {i} of {len(wanted)} from Wikipedia ({lang}.wikipedia.org)")
         try:
             p = page(urlparse(url).netloc, title, text=True)
         except WikiError as e:
             print(f"editions of {wikidata_id}: {e}", flush=True)
             failed = True
             continue
-        if not p or p["wikidata_id"] != wikidata_id or not is_latin(p["extract"][:3000]):
+        if not p or p["wikidata_id"] != wikidata_id or not in_scripts(p["extract"][:3000]):
             skipped += 1
             continue
         fetched.append({**p, "lang": lang})
 
+    progress(f"Embedding {len(fetched)} new editions on the GPU")
     classified = appendix_headings(sorted({h for e in fetched for _, h in headings(e["extract"])}))
     dropped = [trailing_appendix(e["extract"], classified) for e in fetched]
     texts = [markdown(e["title"], e["extract"], drop) for e, drop in zip(fetched, dropped)]
@@ -207,7 +217,9 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
         cur.execute("INSERT IGNORE INTO article_vector VALUES (%s, %s, %s, %s)",
                     (e["lang"], e["page_id"], n > MAX_TOKENS, v))
     if not failed:
-        cur.execute("INSERT IGNORE INTO topic_editions (wikidata_id) VALUES (%s)", (wikidata_id,))
+        cur.execute("INSERT INTO topic_editions (wikidata_id, scripts) VALUES (%s, %s) "
+                    "ON DUPLICATE KEY UPDATE scripts = VALUES(scripts), fetched_at = CURRENT_TIMESTAMP",
+                    (wikidata_id, ",".join(SCRIPTS)))
     cur.connection.commit()
     print(f"editions of {wikidata_id}: {len(fetched)} fetched, {skipped} skipped, "
           f"{'some failed' if failed else 'complete'}", flush=True)

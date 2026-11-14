@@ -2,7 +2,7 @@
 
 langdiff finds where the Wikipedia editions of one topic **frame the same thing differently** or
 **state a figure very differently** (at least 20% apart): Finnish, Swedish and English from dataset
-S, every other Latin-script edition fetched live from Wikipedia on the first request (`wiki.py`). It
+S, every other Latin- or Cyrillic-script edition fetched live from Wikipedia on the first request (`wiki.py`). It
 needs no LLM: only bge-m3 vectors, compared inside MariaDB. An optional LLM step (off by default) can
 summarise and translate.
 
@@ -263,7 +263,7 @@ What needs work:
 | Piece | Today | With more languages |
 |---|---|---|
 | Language list | `LANGS` in `compare.py`, the loader, the page | from the data |
-| Sentence splitter | `.!?` + Latin capital | per script: CJK `。`, Arabic `؟`, Thai has no sentence punctuation |
+| Sentence splitter | `.!?` + an uppercase letter of any alphabet (Latin, Cyrillic) or an opening quote/bracket | per script: CJK `。`, Arabic `؟`, Thai has no sentence punctuation |
 | Numbers | Western digits; space/comma/dot thousands | Arabic-Indic and Devanagari digits, Indian grouping `1,23,456`, Swiss `1'000`, decimal commas, non-Gregorian years (Thai Buddhist era, Persian calendar) |
 | Axis anchors | fi, sv, en | add anchors in each language; check each axis per language |
 | Passage lookups | 2 per passage | L−1 per passage, plus reverse lookups for mutuality |

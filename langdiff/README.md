@@ -1,7 +1,7 @@
 # langdiff
 
-Where do the Wikipedia editions of the same topic, in every Latin-script language, frame things
-differently or state very different figures? Built on dataset S of
+Where do the Wikipedia editions of the same topic, in every Latin- or Cyrillic-script language, frame
+things differently or state very different figures? Built on dataset S of
 [mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) (fi, sv, en) and
 MariaDB Vector; the other editions are fetched live from Wikipedia the first time a topic is asked for.
 
@@ -30,13 +30,21 @@ then 0.3 s from the database. A cold container first loads the model: ~30–50 s
 match Ollama's `bge-m3` (cosine 0.99999), so they are comparable with the dataset's.
 
 **Live editions** (`src/langdiff/wiki.py`): the first request for a topic follows its language links
-and fetches every edition whose title and text are Latin script (≥90 % of letters), one MediaWiki API
-request at a time (Wikimedia answers bursts with 429), converts the plain-text extract to Markdown
-without its closing appendix (references, bibliography, links: headings classified by bge-m3 against
-anchor names, only in the trailing run of sections without prose), and embeds them all in one batch.
-`topic_editions` remembers finished topics. Measured: Stepan Bandera (not in S) 47 editions in 49 s,
-then 4.4 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s. Titles not in the
-database are looked up on English Wikipedia (`/api/diff?lang=` picks another).
+and fetches every edition whose title and text are in Latin or Cyrillic script (≥90 % of letters;
+`SCRIPTS`), one MediaWiki API request at a time (Wikimedia answers bursts with 429), converts the
+plain-text extract to Markdown without its closing appendix (references, bibliography, links:
+headings classified by bge-m3 against anchor names in Latin and Cyrillic languages, only in the
+trailing run of sections without prose), and embeds them all in one batch. `topic_editions`
+remembers finished topics and which scripts they covered, so a topic fetched before Cyrillic was
+added fetches its Cyrillic editions once. Measured: Stepan Bandera (not in S) 47 editions in 49 s,
+then 4.4 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s; adding Cyrillic,
+Urho Kekkonen gained 8 editions (be, be-tarask, mn, os, ru, sr, uk, …) and Talvisota went to 66.
+Titles not in the database are looked up on English Wikipedia (`/api/diff?lang=` picks another).
+
+**Loading feedback**: while `/api/diff` works, `/api/progress?title=` gives its current stage
+("Fetching edition 12 of 63 from Wikipedia (ru.wikipedia.org)", embedding, matching, comparing) and
+the seconds so far; the web app and the extension poll it each second under a spinner. AI checks and
+translations show the same spinner.
 
 ### Chrome extension
 
@@ -54,7 +62,8 @@ selected in the wikitext.
 
 In the article view the extension asks the backend only when the button is clicked, so reading
 Wikipedia does not fetch and embed every topic visited; a page whose topic has no other edition loses
-its button. Findings cover every Latin-script edition; a card shows four, the rest on "Show all".
+its button. Findings cover every Latin- and Cyrillic-script edition, those involving the page's own
+edition first (`/api/diff?focus=fi`); a card shows four editions, the rest on "Show all".
 It calls the backend from its service worker (host permission, no CORS change needed); for another
 backend address, change `BACKEND` in `extension/background.js` and `host_permissions` in
 `extension/manifest.json`. Findings come from the dataset snapshot (fi, sv, en) and from when the
@@ -103,7 +112,8 @@ all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 edition states, and can translate the quotes to English keeping the highlights. Cached in `llm_cache`.
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
-`GET /api/diff?title=Talvisota&limit=15` (`differences`: values, then framing),
+`GET /api/diff?title=Talvisota&limit=15` (`differences`: values, then framing; `&focus=fi` puts the
+findings involving that edition first), `GET /api/progress?title=Talvisota` (stage of a running diff),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
 `POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.

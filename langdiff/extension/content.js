@@ -81,6 +81,13 @@
     .close { border: 0; background: none; cursor: pointer; color: #54595d; padding: 0; }
     .muted { color: #54595d; } .error { color: #d33; }
     details summary { cursor: pointer; color: #36c; margin-top: .8rem; }
+    /* Keep in sync with the spinner in src/langdiff/index.html. */
+    .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid #eaecf0; border-top-color: #36c; border-radius: 50%;
+               animation: spin .8s linear infinite; vertical-align: -.15em; flex: none; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
+    .loading { display: flex; gap: .7rem; align-items: center; }
+    .loading .spinner { width: 1.6rem; height: 1.6rem; border-width: 3px; }
   ` }));
   const toggle = $("button", { className: "toggle quiet", type: "button" }, "langdiff");
   const panel = $("section", { className: "panel", hidden: true });
@@ -242,13 +249,23 @@
   let requested = false;
   function load() {
     requested = true;
-    toggle.replaceChildren("langdiff …");
-    showMessage("Comparing the editions… the first time a topic is asked for, every Latin-script edition is fetched and embedded: this can take a few minutes.");
-    get("/api/diff", { title, lang, limit: 30 }).then(render).catch((err) => {
+    const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
+    toggle.replaceChildren(spinner(), "langdiff");
+    // The server's current stage, polled each second while it works; only the stage is announced.
+    const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
+    panel.replaceChildren($("div", { className: "body" }, $("div", { className: "loading" }, spinner(),
+      $("div", {}, $("div", { role: "status" }, stage, " ", seconds),
+        $("p", { className: "muted", textContent: "The first time a topic is asked for, its Latin- and Cyrillic-script editions are fetched and embedded: this can take a few minutes." })))));
+    const poll = setInterval(() => get("/api/progress", { title }).then((p) => {
+      if (!p.stage) return;
+      if (stage.textContent !== `${p.stage}…`) stage.textContent = `${p.stage}…`;
+      seconds.textContent = `${p.seconds} s`;
+    }).catch(() => {}), 1000);
+    get("/api/diff", { title, lang, focus: lang, limit: 30 }).then(render).catch((err) => {
       if (!editing && err.status === 404) return host.remove();  // no other edition: stay out of the way
       toggle.replaceChildren(err.status ? "langdiff · –" : "langdiff · ?");
       showMessage(err.message, true);
-    });
+    }).finally(() => clearInterval(poll));
   }
   toggle.addEventListener("click", () => {
     panel.hidden = !panel.hidden;
