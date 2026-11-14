@@ -74,10 +74,10 @@ so keys for several providers can sit in `.env` together.
 
 | `LLM_PRESET` | API | Model | Key | Measured |
 |---|---|---|---|---|
-| `gemini` (default) | Gemini `generateContent` | `gemini-4-hydrogen`, thinking `low` | `GEMINI_API_KEY` | free tier: 5 requests/min, 20/day; frequent 503 "high demand" |
+| `verda` (default) | OpenAI-compatible (`inference.verda.com`) | `kimi-k3-1-pro` | `VERDA_API_KEY` | one summary in 23 s, one translation in 4 s |
+| `gemini` | Gemini `generateContent` | `gemini-4-hydrogen`, thinking `low` | `GEMINI_API_KEY` | free tier: 5 requests/min, 20/day; frequent 503 "high demand" |
 | `minimax` | OpenAI-compatible (OpenRouter) | `minimax/minimax-m3.1-flash` (paid; `:free` retired) | `OPENROUTER_API_KEY` | 10 summaries in 15 s |
 | `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` | `OPENROUTER_API_KEY` | free: 50 requests/day |
-| `verda` | OpenAI-compatible | `nemotron-3.5-super-vl` on DataCrunch | `VERDA_API_KEY` | cold start ~5 min |
 
 ```bash
 LLM_PRESET=minimax uv run --env-file .env langdiff

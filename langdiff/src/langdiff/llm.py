@@ -1,6 +1,6 @@
 """JSON-answering LLM calls, swappable between providers.
 
-Pick a preset with LLM_PRESET (default: gemini); LLM_API, LLM_URL, LLM_MODEL override single fields.
+Pick a preset with LLM_PRESET (default: verda); LLM_API, LLM_URL, LLM_MODEL override single fields.
 Each preset reads its key from its own variable (`key`), falling back to AI_API_KEY, so keys for
 several providers can sit in .env together. To add a provider speaking an API already here, add a
 preset; for a new API, add a (request, text) pair to APIS.
@@ -26,11 +26,11 @@ PRESETS = {
         # low | medium | high | xhigh: low is enough for summaries and translations, and fastest.
         "extra": {"thinkingConfig": {"thinkingLevel": "low"}},
     },
-    "verda": {  # serverless container: the first call after idle waits ~5 minutes for a cold start
+    "verda": {
         "api": "openai",
         "key": "VERDA_API_KEY",
-        "url": "https://containers.datacrunch.io/nemotron-3-5-super-vl-b300/v1",
-        "model": "nemotron-3.5-super-vl",
+        "url": "https://inference.verda.com/v1",
+        "model": "kimi-k3-1-pro",
         "extra": {},
     },
     "openrouter": {
@@ -48,7 +48,7 @@ PRESETS = {
         "extra": {},
     },
 }
-LLM = PRESETS[os.environ.get("LLM_PRESET", "gemini")] | {
+LLM = PRESETS[os.environ.get("LLM_PRESET", "verda")] | {
     field: value for field in ("api", "url", "model") if (value := os.environ.get(f"LLM_{field.upper()}"))
 }
 
