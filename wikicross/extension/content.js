@@ -203,8 +203,16 @@
 
   const showOnPage = (m) => (textarea && textarea.offsetParent ? findInSource(m.sentence) : findOnPage(m.sentence));
 
-  function finding(f, articles) {
-    const urls = Object.fromEntries(articles.map((a) => [a.lang, a.url]));
+  // A quote's place on its Wikipedia page, as a text fragment the browser scrolls to and highlights. Only
+  // its first and last words: the rendered page puts footnote marks ([12]) inside sentences. Keep in sync
+  // with src/wikicross/index.html.
+  const snippetUrl = (m) => {
+    const words = m.sentence.trim().split(/\s+/), enc = (w) => encodeURIComponent(w.join(" ")).replace(/-/g, "%2D");
+    const text = words.length <= 6 ? enc(words) : `${enc(words.slice(0, 3))},${enc(words.slice(-3))}`;
+    return `https://${m.lang}.wikipedia.org/wiki/${encodeURIComponent(m.title.replace(/ /g, "_"))}#:~:text=${text}`;
+  };
+
+  function finding(f) {
     const outliers = new Set(f.outlier ? [f.lang] : []);
     const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
     const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
@@ -218,8 +226,8 @@
     const member = (m) => {
       const who = $("div", { className: "who" }, $("b", { textContent: m.lang === lang ? `This edition (${m.lang})` : `${langName(m.lang)} (${m.lang})` }),
         ` ${m.title} § ${m.heading || "(intro)"}`, outliers.has(m.lang) ? " · outlier" : "");
-      if (m.lang !== lang && /^https?:\/\//.test(urls[m.lang] || "")) {
-        who.append($("a", { href: urls[m.lang], target: "_blank", rel: "noopener" }, "open", icon("link")));
+      if (m.lang !== lang) {
+        who.append($("a", { href: snippetUrl(m), target: "_blank", rel: "noopener", title: "Open this quote on Wikipedia" }, "open", icon("link")));
       }
       if (m.lang === lang) {
         const source = textarea && textarea.offsetParent;
@@ -278,11 +286,11 @@
     if (lean) body.append(lean);
     if (!data.articles.some((a) => a.lang === lang)) {
       body.append($("p", { className: "muted", textContent: `This edition (${langName(lang)}) is not compared: only Latin- and Cyrillic-script editions are. Below, what the others state differently.` }));
-    } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition contradicts the other editions or is framed differently from them." }));
-    body.append(...mine.map((f) => finding(f, data.articles)));
+    } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently from the other editions." }));
+    body.append(...mine.map((f) => finding(f)));
     if (elsewhere.length) {
       body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
-        ...elsewhere.map((f) => finding(f, data.articles))));
+        ...elsewhere.map((f) => finding(f))));
     }
     panel.replaceChildren($("header", {}, $("h2", {}, logo(), "WikiCross"), close), body);
   }

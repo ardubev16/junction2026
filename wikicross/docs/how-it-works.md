@@ -27,7 +27,7 @@ flowchart TD
   S --> G[Group matched sentences across languages: one group per fact]
   G --> F2[Framing: position on semantic axes, furthest edition → outlier]
   F2 --> R[JSON: differences, best first]
-  R --> UI[Web page and Chrome extension: quotes side by side, copy, optional AI]
+  R --> UI[Web page and Chrome extension: quotes side by side, each linked to its place on Wikipedia, optional AI]
 ```
 
 Two different questions are answered by two different mechanisms:
