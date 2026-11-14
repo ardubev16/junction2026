@@ -11,13 +11,31 @@ Needs Docker, uv and [Ollama](https://ollama.com) with `bge-m3` (`ollama pull bg
 ```bash
 docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the langdiff-data volume
 uv run langdiff-load          # download S (articles + bge-m3 vectors, fi/sv/en) into MariaDB
-uv run --env-file .env langdiff   # http://127.0.0.1:8000; .env holds OPENROUTER_API_KEY
+uv run --env-file .env langdiff   # http://127.0.0.1:8000; .env holds AI_API_KEY
 ```
 
 `langdiff-load` keeps its downloads in `data/` (checked against the release's `SHA256SUMS`) and
 can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
-`DB_NAME`, `OLLAMA_URL`, `LLM_URL`, `LLM_MODEL` (OpenAI-compatible; default: OpenRouter's
-`nvidia/nemotron-3.5-super-vl:free`), `OPENROUTER_API_KEY`.
+`DB_NAME`, `OLLAMA_URL`.
+
+### LLM
+
+`AI_API_KEY` is the key for whichever provider is selected. `LLM_PRESET` picks one of the presets
+in `src/langdiff/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL` override single fields of it.
+
+| `LLM_PRESET` | API | Model |
+|---|---|---|
+| `gemini` (default) | Gemini `generateContent` | `gemini-4-hydrogen`, thinking level `low` |
+| `verda` | OpenAI-compatible | `nemotron-3.5-super-vl` on DataCrunch (cold start: ~5 min) |
+| `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` |
+
+```bash
+LLM_PRESET=verda uv run --env-file .env langdiff
+LLM_PRESET=openrouter LLM_MODEL=nvidia/nemotron-3.5-super-vl uv run --env-file .env langdiff
+```
+
+A new provider with one of these APIs is a new preset; a new API is a `(request, text)` pair in
+`APIS`. Answers are cached per preset in the `llm_cache` table.
 
 ## How
 
@@ -33,7 +51,7 @@ can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_
   (no suggested edits), and picks the verbatim phrases carrying the difference; the UI marks them
   in the side-by-side quotes. "View quotes in English" translates a card's quotes in one LLM call,
   keeping the marks. Only English for now (`TARGETS` in `app.py`). LLM answers are cached in the
-  `llm_cache` table: the free model allows 50 requests a day (1,000 with 10 credits on the account).
+  `llm_cache` table.
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=10`,
 `POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (divergent part first),

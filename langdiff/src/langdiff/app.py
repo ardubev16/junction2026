@@ -1,6 +1,5 @@
 """API: given an article title, the parts of the article that differ the most between fi, sv and en."""
 
-import hashlib
 import json
 import os
 import re
@@ -14,13 +13,11 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from .db import SCHEMA, connect
+from .llm import chat
 
 OLLAMA = os.environ.get("OLLAMA_URL", "http://localhost:11434")
 MODEL = "bge-m3"  # the model the dataset's vectors were made with
 MIN_CHARS = 300  # merge paragraphs until a part is at least this long: tiny parts embed noisily
-# OpenAI-compatible chat endpoint for translations; the key comes from the environment (.env).
-LLM_URL = os.environ.get("LLM_URL", "https://openrouter.ai/api/v1")
-LLM_MODEL = os.environ.get("LLM_MODEL", "nvidia/nemotron-3.5-super-vl:free")
 TARGETS = {"en": "English"}  # languages the UI can translate into
 # Sections that are lists of sources and links, not content; they always "differ". fi, sv, en.
 SKIP = re.compile(
@@ -176,43 +173,9 @@ def diff(title: str, limit: int = 10):
     }
 
 
-def chat(system: str, user: str) -> dict:
-    """One JSON-answering LLM call, cached in MariaDB (the free tier allows 20 requests a minute)."""
-    key = hashlib.sha256(json.dumps([LLM_MODEL, system, user]).encode()).digest()
-    with connect() as conn, conn.cursor() as cur:
-        cur.execute("SELECT response FROM llm_cache WHERE k = %s", (key,))
-        if row := cur.fetchone():
-            return json.loads(row[0])
-        if "OPENROUTER_API_KEY" not in os.environ:
-            raise HTTPException(503, "OPENROUTER_API_KEY not set: start with  uv run --env-file .env langdiff")
-        try:
-            r = httpx.post(
-                f"{LLM_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}"},
-                json={
-                    "model": LLM_MODEL,
-                    "max_tokens": 8192,
-                    "temperature": 0,
-                    "reasoning": {"enabled": False},  # OpenRouter: same quality here, ~0.8 s instead of ~7 s
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-                },
-                timeout=300,
-            )
-        except httpx.HTTPError as e:
-            raise HTTPException(502, f"LLM request failed: {e}") from e
-        if r.is_error:  # e.g. OpenRouter's free-model daily limit: pass its message on
-            try:
-                message = r.json()["error"]["message"]
-            except (ValueError, KeyError, TypeError):
-                message = r.text[:300]
-            raise HTTPException(502, f"LLM error {r.status_code}: {message}")
-        content = r.json()["choices"][0]["message"]["content"] or ""
-        try:  # the model may wrap the JSON in a code fence
-            answer = json.loads(content[content.find("{") : content.rfind("}") + 1])
-        except ValueError as e:
-            raise HTTPException(502, f"LLM did not answer with JSON: {content[:200]!r}") from e
-        cur.execute("REPLACE INTO llm_cache VALUES (%s, %s)", (key, json.dumps(answer)))
-        return answer
+def strings(keys) -> dict:
+    """JSON schema: an object with a string for each key."""
+    return {"type": "object", "properties": {k: {"type": "string"} for k in keys}, "required": list(keys)}
 
 
 class Passage(BaseModel):
@@ -237,11 +200,22 @@ def explain(req: ExplainRequest):
         f"The first passage, from {first.lang}.wikipedia, has no close counterpart in the other editions; "
         "each other passage is the closest one its edition has. Describe in English what differs: "
         "facts, details or emphasis one edition has and the others lack, or where they disagree. "
-        "Do not suggest edits or actions. Reply with JSON only:\n"
-        '{"title": "<headline, at most 8 words>", "summary": "<1-2 sentences>", '
-        '"highlights": {"<language code>": ["<short phrase copied verbatim from that passage>", ...]}}\n'
-        "Highlights: the 1-4 phrases per passage (at most 12 words each) that carry the core difference.",
+        "Do not suggest edits or actions. title: a headline of at most 8 words. summary: 1-2 sentences. "
+        "highlights: for each passage's language code, the 1-4 short phrases (at most 12 words each, "
+        "copied verbatim from that passage) that carry the core difference.",
         "\n\n".join(f"[{p.lang}] section: {p.heading or '(intro)'}\n{p.text}" for p in req.passages),
+        {
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "summary": {"type": "string"},
+                "highlights": {
+                    "type": "object",
+                    "properties": {p.lang: {"type": "array", "items": {"type": "string"}} for p in req.passages},
+                },
+            },
+            "required": ["title", "summary", "highlights"],
+        },
     )
     texts = {p.lang: p.text for p in req.passages}
     highlights = answer.get("highlights") if isinstance(answer.get("highlights"), dict) else {}
@@ -275,8 +249,9 @@ def translate(req: TranslateRequest):
         f"Translate each value of the user's JSON object to {TARGETS[req.target]}; each key starts with the "
         "value's source language code. Keep line breaks and Markdown list markers. Text between <mark> and </mark> is highlighted: "
         "put <mark> and </mark> around the words of your translation that correspond. "
-        "Reply with a JSON object with the same keys, values translated, nothing else.",
+        "Reply with an object with the same keys, values translated.",
         json.dumps(todo, ensure_ascii=False),
+        strings(todo),
     )
     return {lang: str(answer.get(lang, t)) if lang in todo else t for lang, t in req.texts.items()}
 
