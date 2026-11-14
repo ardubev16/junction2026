@@ -1,21 +1,30 @@
-import os
+from functools import cache
 
-import httpx
-import numpy as np
+import modal
 
-OLLAMA = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-MODEL = "bge-m3"  # the model the dataset's vectors were made with
+from .embed_gpu import APP
+
+BATCH = 512  # texts per call: keeps each payload around 2 MB
+
+
+@cache
+def _embedder():
+    return modal.Cls.from_name(APP, "Embedder")()
+
+
+def _batches(texts: list[str]) -> list[list[str]]:
+    return [texts[i : i + BATCH] for i in range(0, len(texts), BATCH)]
 
 
 def embed(texts: list[str]) -> list[bytes]:
-    """bge-m3 vectors as MariaDB VECTOR values (little-endian float32)."""
-    out = []
-    for i in range(0, len(texts), 32):
-        r = httpx.post(
-            f"{OLLAMA}/api/embed",
-            json={"model": MODEL, "input": texts[i : i + 32], "truncate": True},
-            timeout=600,
-        )
-        r.raise_for_status()
-        out += [np.asarray(v, "<f4").tobytes() for v in r.json()["embeddings"]]
-    return out
+    """bge-m3 vectors as MariaDB VECTOR values (little-endian float32), computed on a Modal H100."""
+    if not texts:
+        return []
+    return [v for batch in _embedder().embed.map(_batches(texts)) for v in batch]
+
+
+def token_counts(texts: list[str]) -> list[int]:
+    """bge-m3 tokens per text, special tokens included: more than 8192 means the model truncates it."""
+    if not texts:
+        return []
+    return [n for batch in _embedder().token_counts.map(_batches(texts)) for n in batch]

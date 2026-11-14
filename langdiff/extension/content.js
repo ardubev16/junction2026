@@ -2,12 +2,15 @@
 // state a figure very differently. In the article view and the edit views. All page text goes in
 // through textContent, never innerHTML. Keep in sync with src/langdiff/index.html (see AGENTS.md).
 (() => {
-  const LANGS = { fi: "Finnish", sv: "Swedish", en: "English" };
+  const HOSTS = ["fi", "sv", "en"];  // the editions the extension runs on (manifest.json matches)
+  const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
+  const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
+  const SHOWN = 4;  // editions per card before "Show all", as in the web app
   const lang = location.hostname.split(".")[0];
   const params = new URLSearchParams(location.search);
   const action = params.get("action") || "view";
   const editing = /^(edit|submit)$/.test(action) || /^(edit|editsource)$/.test(params.get("veaction") || "");
-  if (!(lang in LANGS) || !(editing || action === "view")) return;
+  if (!HOSTS.includes(lang) || !(editing || action === "view")) return;
   const title = (params.get("title") || decodeURIComponent(location.pathname.replace(/^\/wiki\//, ""))).replace(/_/g, " ");
 
   // Icons as SVG: font glyphs show as empty squares where the font lacks them. Constant markup only.
@@ -156,6 +159,7 @@
   function finding(f, articles) {
     const urls = Object.fromEntries(articles.map((a) => [a.lang, a.url]));
     const outliers = f.kind === "value" ? new Set(f.slots.flatMap((s) => s.outliers)) : new Set(f.outlier ? [f.lang] : []);
+    const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
     let what, label;
     if (f.kind === "value") {
       what = f.slots.map((s) => {
@@ -167,19 +171,20 @@
         return [...byValue.values()].map(({ w, langs }) => `${w} (${langs.join(", ")})`).join(" vs ");
       }).join(" · ");
       label = $("span", { className: "label" }, icon("alert"),
-        `${outliers.size ? `Outlier: ${[...outliers].map((l) => LANGS[l]).join(", ")}` : "Different value"} · ${Math.round(f.change * 100)}% apart`);
+        `${outliers.size > 3 ? `Outliers: ${outliers.size} editions` : outliers.size ? `Outlier: ${names([...outliers])}` : "Different value"} · ${Math.round(f.change * 100)}% apart`);
     } else {
-      const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang).map((l) => LANGS[l]).join(" and ");
-      what = `The ${LANGS[f.lang]} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than the ${others} edition${f.members.length > 2 ? "s" : ""}.`;
-      label = $("span", { className: "label" }, icon("scale"), `${f.outlier ? `Outlier: ${LANGS[f.lang]}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
+      const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
+      what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
+      label = $("span", { className: "label" }, icon("scale"), `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
     }
     const values = (l) => (f.kind === "value" ? f.slots.map((s) => s.values[l]).filter(Boolean) : []);
     const card = $("div", { className: "card" }, label, $("div", { className: "what", textContent: what }));
-    // This edition first: it is the one on the page.
-    const members = [...f.members].sort((a, b) => (b.lang === lang) - (a.lang === lang));
-    for (const m of members) {
+    // This edition first (it is the one on the page), then outliers, then the API's order.
+    const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);
+    const members = [...f.members].sort((a, b) => rank(a) - rank(b));
+    const member = (m) => {
       const text = m.sentence ?? m.text;
-      const who = $("div", { className: "who" }, $("b", { textContent: m.lang === lang ? `This edition (${m.lang})` : `${LANGS[m.lang]} (${m.lang})` }),
+      const who = $("div", { className: "who" }, $("b", { textContent: m.lang === lang ? `This edition (${m.lang})` : `${langName(m.lang)} (${m.lang})` }),
         ` ${m.title} § ${m.heading || "(intro)"}`, outliers.has(m.lang) ? " · outlier" : "");
       if (m.lang !== lang && /^https?:\/\//.test(urls[m.lang] || "")) {
         who.append($("a", { href: urls[m.lang], target: "_blank", rel: "noopener" }, "open", icon("link")));
@@ -195,8 +200,14 @@
         card.addEventListener("click", (e) => { if (!e.target.closest("a, button")) locate(); });
         who.append(find);
       }
-      card.append($("div", { className: `member${m.lang === lang ? " here" : ""}${outliers.has(m.lang) ? " outlier" : ""}` }, who,
-        $("div", {}, ...marked(text, values(m.lang)))));
+      return $("div", { className: `member${m.lang === lang ? " here" : ""}${outliers.has(m.lang) ? " outlier" : ""}` }, who,
+        $("div", {}, ...marked(text, values(m.lang))));
+    };
+    card.append(...members.slice(0, SHOWN).map(member));
+    if (members.length > SHOWN) {
+      const all = $("button", { className: "small", type: "button" }, `Show all ${members.length} editions`);
+      all.addEventListener("click", () => all.replaceWith(...members.slice(SHOWN).map(member)));
+      card.append(all);
     }
     return card;
   }
@@ -204,7 +215,8 @@
   function render(data) {
     const mine = data.differences.filter((f) => f.members.some((m) => m.lang === lang));
     const elsewhere = data.differences.filter((f) => !mine.includes(f));
-    const others = data.articles.filter((a) => a.lang !== lang).map((a) => a.lang).join(", ");
+    const others = data.articles.length > 4 ? `${data.articles.length - 1} other editions`
+      : data.articles.filter((a) => a.lang !== lang).map((a) => a.lang).join(", ");
     const n = mine.length;
     toggle.replaceChildren(icon(n ? "alert" : "scale"), `langdiff · ${n}`);
     toggle.className = n ? "toggle" : "toggle quiet";
@@ -219,7 +231,7 @@
     }
     panel.replaceChildren(
       $("header", {}, $("div", {}, $("h2", { textContent: "Where other editions disagree" }),
-        $("p", { textContent: `${title}: compared with ${others || "no other edition"}. Based on the dataset snapshot (August 2025), not the text on this page. Click a finding to show it on the page.` })), close),
+        $("p", { textContent: `${title}: compared with ${others || "no other edition"}. Not the text on this page: fi, sv and en come from the dataset snapshot (August 2025), other editions from when the topic was first asked for. Click a finding to show it on the page.` })), close),
       body);
   }
 
@@ -231,9 +243,9 @@
   function load() {
     requested = true;
     toggle.replaceChildren("langdiff …");
-    showMessage("Comparing the editions… the first time an article is asked for, it is embedded: this can take a few minutes.");
-    get("/api/diff", { title, limit: 30 }).then(render).catch((err) => {
-      if (!editing && err.status === 404) return host.remove();  // not an article in the dataset: stay out of the way
+    showMessage("Comparing the editions… the first time a topic is asked for, every Latin-script edition is fetched and embedded: this can take a few minutes.");
+    get("/api/diff", { title, lang, limit: 30 }).then(render).catch((err) => {
+      if (!editing && err.status === 404) return host.remove();  // no other edition: stay out of the way
       toggle.replaceChildren(err.status ? "langdiff · –" : "langdiff · ?");
       showMessage(err.message, true);
     });

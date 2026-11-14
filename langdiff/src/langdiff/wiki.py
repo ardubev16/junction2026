@@ -1,0 +1,214 @@
+"""Live Wikipedia: a topic's Latin-script editions that the dataset (fi, sv, en) does not have.
+
+Fetched once per topic through the MediaWiki API (plain-text extracts), converted to the dataset's
+Markdown with appendix sections (bibliography, links) removed, embedded and stored like the dataset's
+articles. Wikimedia rate-limits bursts (HTTP 429 with Retry-After), so requests go one at a time.
+"""
+
+import re
+import time
+import unicodedata
+from functools import lru_cache
+from urllib.parse import urlparse
+
+import httpx
+import numpy as np
+
+from .embeddings import embed, token_counts
+
+UA = "langdiff/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.github.com)"
+LATIN_SHARE = 0.9  # letters that must be Latin for an edition to be compared
+RETRIES = 3
+MAX_TOKENS = 8192  # bge-m3's limit: longer articles are embedded truncated
+# An appendix line (a citation, a link) is shorter than this; a section with a longer line holds prose.
+# Measured on Stepan Bandera's 47 editions: appendix lines at most 306 chars, closing content 450+.
+PROSE = 400
+
+# Section names that are lists of sources and links, not content (app.SKIP's words, plus generic ones
+# small editions use); any language's heading is classified by its nearest anchor among these and CONTENT.
+APPENDIX = [
+    "lähteet", "viitteet", "kirjallisuutta", "aiheesta muualla", "katso myös", "huomautukset",
+    "källor", "fotnoter", "noter", "referenser", "litteratur", "externa länkar", "se även", "vidare läsning",
+    "references", "notes", "sources", "bibliography", "citations", "further reading", "external links", "see also",
+    "links", "literature", "footnotes", "other projects", "related articles",
+]
+CONTENT = [
+    "Early life", "Biography", "Career", "Political activity", "Death", "Legacy", "History", "Background",
+    "Assessment", "Commemoration", "Varhaiset vuodet", "Elämäkerta", "Ura", "Kuolema", "Perintö", "Historia",
+    "Tausta", "Tidiga år", "Biografi", "Karriär", "Död", "Eftermäle", "Historia", "Bakgrund",
+]
+HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1$")
+
+
+class WikiError(Exception):
+    pass
+
+
+def is_latin(text: str) -> bool:
+    """At least LATIN_SHARE of the text's letters (and at least one) are Latin."""
+    letters = [c for c in text if c.isalpha()]
+    latin = sum(unicodedata.name(c, "").startswith("LATIN") for c in letters)
+    return bool(letters) and latin >= LATIN_SHARE * len(letters)
+
+
+def api(host: str, **params) -> dict:
+    """One MediaWiki API call; waits out 429 and 5xx answers (Retry-After) up to RETRIES times."""
+    params |= {"format": "json", "formatversion": 2}
+    for attempt in range(RETRIES + 1):
+        try:
+            r = httpx.get(f"https://{host}/w/api.php", params=params, headers={"User-Agent": UA},
+                          timeout=30, follow_redirects=True)
+        except httpx.HTTPError as e:
+            raise WikiError(f"{host}: {e!r}") from e
+        if r.status_code == 200:
+            return r.json()
+        if (r.status_code == 429 or r.status_code >= 500) and attempt < RETRIES:
+            retry_after = r.headers.get("retry-after", "")
+            time.sleep(min(int(retry_after) if retry_after.isdigit() else 5, 30))
+            continue
+        raise WikiError(f"{host}: HTTP {r.status_code}")
+    raise AssertionError("unreachable")
+
+
+def page(host: str, title: str, text: bool) -> dict | None:
+    """A page with its Wikidata id and language links (and plain text if asked), or None if missing."""
+    data = api(
+        host, action="query", titles=title, redirects=1,
+        prop="pageprops|info|langlinks" + ("|extracts" if text else ""),
+        ppprop="wikibase_item", inprop="url", lllimit="max", llprop="url", explaintext=1, exsectionformat="wiki",
+    )
+    pages = data.get("query", {}).get("pages", [])
+    if not pages or pages[0].get("missing") or pages[0].get("invalid"):
+        return None
+    p = pages[0]
+    return {
+        "page_id": p["pageid"],
+        "title": p["title"],
+        "url": p["fullurl"],
+        "wikidata_id": p.get("pageprops", {}).get("wikibase_item"),
+        "langlinks": [(link["lang"], link["url"], link["title"]) for link in p.get("langlinks", [])],
+        "extract": p.get("extract") or "",
+    }
+
+
+def headings(extract: str) -> list[tuple[int, str]]:
+    """(level, text) of each `== H ==` heading line."""
+    return [(len(m.group(1)), m.group(2)) for line in extract.splitlines() if (m := HEADING.match(line.strip()))]
+
+
+def markdown(title: str, extract: str, appendix: set[str]) -> str:
+    """The extract in the dataset's Markdown, without the sections whose heading is in `appendix`."""
+    out, skip_level = [f"# {title}"], 0
+    for line in extract.splitlines():
+        line = line.strip()
+        if m := HEADING.match(line):
+            level, heading = len(m.group(1)), m.group(2)
+            if skip_level and level <= skip_level:
+                skip_level = 0
+            if not skip_level and heading in appendix:
+                skip_level = level
+            if not skip_level:
+                out.append("#" * level + " " + heading)
+        elif line and not skip_level:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _unit(vectors: list[bytes]) -> np.ndarray:
+    v = np.stack([np.frombuffer(b, "<f4") for b in vectors])
+    return v / np.linalg.norm(v, axis=-1, keepdims=True)
+
+
+@lru_cache
+def _anchors() -> tuple[np.ndarray, int]:
+    """Unit vectors of APPENDIX + CONTENT, and how many of them are appendix names."""
+    return _unit(embed(APPENDIX + CONTENT)), len(APPENDIX)
+
+
+def appendix_headings(texts: list[str]) -> set[str]:
+    """Headings whose nearest anchor is an appendix name: one embed() call for all of them."""
+    if not texts:
+        return set()
+    anchors, n = _anchors()
+    nearest = (_unit(embed(texts)) @ anchors.T).argmax(1)
+    return {t for t, i in zip(texts, nearest) if i < n}
+
+
+def trailing_appendix(extract: str, appendix: set[str]) -> set[str]:
+    """Headings of the article's closing appendix: walking back from the end, the top-level sections
+    classified as appendix and without prose (empty sections pass), with everything under and after
+    them. Wikipedia keeps references and links last; the classifier alone mistakes some content
+    headings ("Views", "Peringatan", "Eftirmæli") for appendix names."""
+    lines = [line.strip() for line in extract.splitlines()]
+    heads = [(i, len(m.group(1)), m.group(2)) for i, line in enumerate(lines) if (m := HEADING.match(line))]
+    if not heads:
+        return set()
+    top = min(level for _, level, _ in heads)
+    sections = [(i, h) for i, level, h in heads if level == top] + [(len(lines), "")]
+    cut = None
+    for (start, heading), (end, _) in reversed(list(zip(sections, sections[1:]))):
+        text = [line for line in lines[start + 1 : end] if line and not HEADING.match(line)]
+        if heading in appendix and max(map(len, text), default=0) < PROSE:
+            cut = start
+        elif text:
+            break
+    return set() if cut is None else {h for i, _, h in heads if i >= cut}
+
+
+def resolve(lang: str, title: str) -> dict | None:
+    """The page titled `title` on lang.wikipedia.org, if it exists and has a Wikidata id."""
+    p = page(f"{lang}.wikipedia.org", title, text=False)
+    return p if p and p["wikidata_id"] else None
+
+
+def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed_lang: str) -> None:
+    """Fetch, embed and store every Latin-script edition of the topic not in the DB yet, once per topic."""
+    cur.execute("SELECT 1 FROM topic_editions WHERE wikidata_id = %s", (wikidata_id,))
+    if cur.fetchone():
+        return
+    try:
+        seed = page(seed_host, seed_title, text=False)
+        reason = "seed page missing" if not seed else (
+            f"seed is {seed['wikidata_id']}" if seed["wikidata_id"] != wikidata_id else None)
+    except WikiError as e:
+        reason = str(e)
+    if reason:
+        print(f"editions of {wikidata_id}: {reason}", flush=True)
+        return
+
+    cur.execute("SELECT lang FROM article WHERE wikidata_id = %s", (wikidata_id,))
+    have = {lang for (lang,) in cur.fetchall()}
+    candidates = [(lang, url, title) for lang, url, title in seed["langlinks"] + [(seed_lang, seed["url"], seed["title"])]
+                  if lang not in have]
+    skipped = sum(not is_latin(title) for _, _, title in candidates)
+    fetched, failed = [], False
+    for lang, url, title in candidates:
+        if not is_latin(title):
+            continue
+        try:
+            p = page(urlparse(url).netloc, title, text=True)
+        except WikiError as e:
+            print(f"editions of {wikidata_id}: {e}", flush=True)
+            failed = True
+            continue
+        if not p or p["wikidata_id"] != wikidata_id or not is_latin(p["extract"][:3000]):
+            skipped += 1
+            continue
+        fetched.append({**p, "lang": lang})
+
+    classified = appendix_headings(sorted({h for e in fetched for _, h in headings(e["extract"])}))
+    dropped = [trailing_appendix(e["extract"], classified) for e in fetched]
+    texts = [markdown(e["title"], e["extract"], drop) for e, drop in zip(fetched, dropped)]
+    vectors, tokens = embed(texts), token_counts(texts)
+    cur.connection.begin()
+    for e, md, v, n in zip(fetched, texts, vectors, tokens):
+        cur.execute("INSERT IGNORE INTO article VALUES (%s, %s, %s, %s, %s, %s)",
+                    (e["lang"], e["page_id"], wikidata_id, e["title"], e["url"], md))
+        cur.execute("INSERT IGNORE INTO article_vector VALUES (%s, %s, %s, %s)",
+                    (e["lang"], e["page_id"], n > MAX_TOKENS, v))
+    if not failed:
+        cur.execute("INSERT IGNORE INTO topic_editions (wikidata_id) VALUES (%s)", (wikidata_id,))
+    cur.connection.commit()
+    print(f"editions of {wikidata_id}: {len(fetched)} fetched, {skipped} skipped, "
+          f"{'some failed' if failed else 'complete'}", flush=True)
+    print(f"appendix headings: {sorted(set().union(*dropped))}", flush=True)
