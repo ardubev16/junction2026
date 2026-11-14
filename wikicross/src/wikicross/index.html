@@ -37,19 +37,16 @@
   form .btn { border-radius: 0 2px 2px 0; }
   .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
   .card.dismissed { opacity: .6; }
-  /* Findings the AI check finds no contradiction in: header, title and verdict only, until reopened. */
+  /* Findings the AI check finds no clear difference in: header, title and "Show anyway" only, until reopened. */
   .card.collapsed .quotes, .card.collapsed .tools, .card.collapsed .summary { display: none; }
+  .verdict:empty { display: none; } .verdict { margin: 0 0 .6rem; }
   .card.collapsed h3 { font-size: 1rem; }
-  .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; }
+  .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; position: relative; }
   .meta .pair { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
+  /* A card's "+N more" opens across the card's width, not the page's. */
+  .meta .editions { margin: 0; position: static; } .meta .editions .langs { left: 0; top: 100%; width: 100%; box-sizing: border-box; }
   .chip { background: var(--chip); border-radius: 2px; padding: .1rem .45rem; }
   .score { color: var(--warn); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .3rem; align-items: center; }
-  /* Keep in sync with extension/content.js: a discrepancy (facts disagree) is red, impartiality (tone,
-     wording, certainty) amber. */
-  .tag { font: bold .7rem/1.4 sans-serif; text-transform: uppercase; letter-spacing: .05em; color: #fff; border-radius: 2px; padding: 0 .4rem; }
-  .tag.discrepancy { background: var(--bad); } .tag.impartiality { background: var(--warn); }
-  .card.discrepancy { border-left: 4px solid var(--bad); } .card.impartiality { border-left: 4px solid var(--warn); }
-  .card.discrepancy .score { color: var(--bad); }
   .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
   .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
   .summary:empty { display: none; }
@@ -99,7 +96,7 @@
 <script>
 const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
 const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
-const SHOWN = 4;  // quotes per card before "Show all"
+const SHOWN = 3;  // articles named and quoted per card; the rest in "+N more" and "Show all"
 const $ = (tag, attrs = {}, ...kids) => {
   const el = Object.assign(document.createElement(tag), attrs);
   el.append(...kids);
@@ -115,6 +112,10 @@ const ICONS = {
   up: '<path d="m5 12 5-5 5 5"/>',
   copy: '<rect x="7" y="7" width="10" height="11" rx="1"/><path d="M13 7V3H3v11h4"/>',
   check: '<path d="m4 10 4 4 8-8"/>',
+  list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
+  paragraph: '<path d="M10 3v14M14 3v14M16 3H8.5a3.5 3.5 0 0 0 0 7H10"/>',
+  translate: '<path d="M3 5h8M7 3v2M5 5c0 4 3 7 6 8M9 5c0 3-2 6-6 8M11 17l3.5-8 3.5 8M12.2 14.5h4.6"/>',
+  eye: '<path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/>',
 };
 const icon = (name) => {
   const t = document.createElement("template");
@@ -214,7 +215,7 @@ function render(data) {
   out.replaceChildren(
     $("h1", { textContent: head.title }),
     editionsMenu(data.articles),
-    ...(data.differences.length ? [$("h2", { textContent: `${data.differences.length} differences` }), ...data.differences.map(card)]
+    ...(data.differences.length ? [$("h2", { textContent: `${data.differences.length} differences` }), ...data.differences.map((f) => card(f, data.articles))]
       : [$("p", { className: "muted", textContent: "The editions state nothing differently that WikiCross can find." })]));
 }
 
@@ -269,7 +270,8 @@ function expandable(m, ctx, quote) {
   return wrap;
 }
 
-function card(finding) {
+function card(finding, articles) {
+  const urls = Object.fromEntries(articles.map((a) => [a.lang, /^https?:\/\//.test(a.url) ? a.url : "#"]));
   const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
   const state = { highlights: {}, english: null, showEnglish: false, context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
@@ -278,15 +280,15 @@ function card(finding) {
   const than = others.length > 3 ? names(others) : `the ${names(others)}`;
   const title = $("h3", { textContent: `The ${langName(finding.lang)} edition ${toward} than ${than} edition${others.length > 1 ? "s" : ""}.` });
   const outliers = finding.outlier ? [finding.lang] : [];
-  const label = $("span", { className: "score" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
+  const label = $("span", { className: "score" }, icon("scale"),
     `${finding.outlier ? `Outlier: ${langName(finding.lang)}` : "Different framing"} · ${Math.abs(finding.deviation).toFixed(1)}σ`);
   // Outliers first, then the API's order; a card shows the first SHOWN unless expanded.
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
   const first = members.slice(0, SHOWN);
   const summary = $("p", { className: "summary" });
-  const verdict = $("p", { className: "summary" });  // AI only; empty and hidden otherwise
+  const verdict = $("p", { className: "verdict" });  // AI only: its progress, or "Show anyway"; empty and hidden otherwise
   const quotes = $("div", { className: "quotes" });
-  const article = $("article", { className: "card impartiality" });
+  const article = $("article", { className: "card" });
   const quoteOf = (p) => p.sentence;
 
   const more = members.length > SHOWN ? $("button", { className: "btn small", type: "button" }) : null;
@@ -294,7 +296,7 @@ function card(finding) {
     const pool = members;
     if (more) {
       more.hidden = pool.length <= SHOWN;
-      more.replaceChildren(state.all ? "Show fewer" : `Show all ${pool.length} editions`, icon("chevron"));
+      more.replaceChildren(icon("list"), state.all ? "Show fewer" : `Show all ${pool.length} editions`, icon(state.all ? "up" : "chevron"));
     }
     quotes.replaceChildren(...(state.all ? pool : pool.slice(0, SHOWN)).map((p) => {
     const en = state.showEnglish && state.english && p.lang in state.english;
@@ -310,7 +312,7 @@ function card(finding) {
       setTimeout(() => copy.replaceChildren(icon("copy"), "Copy"), 1500);
     });
     return $("div", { className: outliers.includes(p.lang) ? "quote outlier" : "quote" },
-      $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: `${p.lang}.wikipedia` }), ` ${p.title} § ${heading}`), copy),
+      $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: langName(p.lang) }), ` ${p.title} § ${heading}`), copy),
       quote);
     }));
   };
@@ -322,31 +324,33 @@ function card(finding) {
     tools.append(more);
   }
   if (members[0].sentence) {
-    const context = $("button", { className: "btn small", type: "button" }, "Show paragraphs", icon("chevron"));
+    const context = $("button", { className: "btn small", type: "button" }, icon("paragraph"), "Show paragraphs", icon("chevron"));
     context.addEventListener("click", () => {
       state.context = !state.context;
-      context.replaceChildren(state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
+      context.replaceChildren(icon("paragraph"), state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
       renderQuotes();
     });
     tools.append(context);
   }
   if (ai.checked) {
-    const toggle = $("button", { className: "btn small primary", type: "button", disabled: true, textContent: "View quotes in English" });
+    const toggle = $("button", { className: "btn small primary", type: "button", disabled: true }, icon("translate"), "View quotes in English");
+    const setToggle = (text) => toggle.replaceChildren(icon("translate"), text);
     verdict.className = "pending";
     verdict.replaceChildren(spinner(), "Checking with AI…");
     post("/api/explain", { passages: first.map(({ lang, heading, text }) => ({ lang, heading, text })) })
       .then((x) => {
-        verdict.className = "muted";
-        verdict.textContent = x.discrepancy ? `AI: ${x.title}` : "AI: no clear difference in tone or framing.";
+        verdict.className = "verdict";
+        verdict.replaceChildren();
         if (!x.discrepancy) {
           article.classList.add("dismissed", "collapsed");
-          const reopen = $("button", { className: "btn small", type: "button", ariaExpanded: "false" }, "Show anyway", icon("chevron"));
+          const reopen = $("button", { className: "btn small", type: "button", ariaExpanded: "false",
+                                       title: "The AI check found no clear difference in tone or framing" }, icon("eye"), "Show anyway", icon("chevron"));
           reopen.addEventListener("click", () => {
             const open = !article.classList.toggle("collapsed");
             reopen.ariaExpanded = String(open);
-            reopen.replaceChildren(open ? "Collapse" : "Show anyway", icon(open ? "up" : "chevron"));
+            reopen.replaceChildren(icon("eye"), open ? "Collapse" : "Show anyway", icon(open ? "up" : "chevron"));
           });
-          verdict.append(" ", reopen);
+          verdict.append(reopen);
         }
         summary.textContent = x.summary;
         for (const [lang, phrases] of Object.entries(x.highlights)) state.highlights[lang] = [...(state.highlights[lang] || []), ...phrases];
@@ -363,22 +367,26 @@ function card(finding) {
           if (p.heading) texts[`${p.lang}-heading`] = p.heading;
         }
         try { state.english = await post("/api/translate", { texts, target: "en" }); }
-        catch (err) { toggle.disabled = false; toggle.textContent = `Translation failed (${err.message}): retry`; return; }
+        catch (err) { toggle.disabled = false; setToggle(`Translation failed (${err.message}): retry`); return; }
         toggle.disabled = false;
       }
       state.showEnglish = !state.showEnglish;
-      toggle.textContent = state.showEnglish ? "View original quotes" : "View quotes in English";
+      setToggle(state.showEnglish ? "View original quotes" : "View quotes in English");
       renderQuotes();
     });
     tools.append(toggle);
   }
 
+  // The most important articles named (outliers first), the others in a "+N more" menu like the editions'.
+  const rest = members.slice(SHOWN);
   article.append(
     $("div", { className: "meta" },
       $("span", { className: "pair" }, ...first.flatMap((m, i) => [
         i ? icon("pair") : "",
-        $("span", { className: "chip" }, $("b", { textContent: `${m.lang}.wikipedia` }), ` § ${m.heading || "(intro)"}`)]),
-        members.length > SHOWN ? ` + ${members.length - SHOWN} more` : ""),
+        $("span", { className: "chip" }, $("b", { textContent: langName(m.lang) }), ` § ${m.heading || "(intro)"}`)]),
+        rest.length ? $("details", { className: "editions" }, $("summary", { textContent: `+${rest.length} more` }),
+          $("div", { className: "langs" }, ...rest.map((m) => $("a", { href: urls[m.lang] || "#", target: "_blank", rel: "noopener" },
+            $("b", { textContent: langName(m.lang) }), ` · ${m.title} § ${m.heading || "(intro)"}`)))) : ""),
       label),
     title, verdict, summary, quotes, tools);
   return article;

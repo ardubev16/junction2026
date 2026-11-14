@@ -4,7 +4,7 @@
 (() => {
   const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
   const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
-  const SHOWN = 4;  // editions per card before "Show all", as in the web app
+  const SHOWN = 3;  // editions per card before "Show all", as in the web app
   const lang = location.hostname.split(".")[0];
   const params = new URLSearchParams(location.search);
   const action = params.get("action") || "view";
@@ -20,6 +20,7 @@
     close: '<path d="m5 5 10 10M15 5 5 15"/>',
     find: '<circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/>',
     link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
+    list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
   };
   const icon = (name) => {
     const t = document.createElement("template");
@@ -69,11 +70,6 @@
     .lean b { display: block; font-size: 14px; }
     .body { padding: .4rem .8rem .8rem; }
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
-    /* Keep in sync with src/wikicross/index.html: a discrepancy (facts disagree) is red, impartiality amber. */
-    .card.discrepancy { border-left: 4px solid #d33; } .card.impartiality { border-left: 4px solid #a66200; }
-    .tag { font: bold 10px/1.5 sans-serif; text-transform: uppercase; letter-spacing: .05em; color: #fff; border-radius: 2px; padding: 0 .35rem; }
-    .tag.discrepancy { background: #d33; } .tag.impartiality { background: #a66200; }
-    .card.discrepancy .label { color: #d33; }
     .card.locatable { cursor: pointer; } .card.locatable:hover { border-color: #36c; }
     .label { color: #a66200; font: bold 12px sans-serif; display: inline-flex; gap: .3rem; align-items: center; }
     .what { font-weight: bold; margin: .2rem 0 .4rem; }
@@ -213,9 +209,9 @@
     const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
     const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
     const what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
-    const label = $("span", { className: "label" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
+    const label = $("span", { className: "label" }, icon("scale"),
       `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
-    const card = $("div", { className: "card impartiality" }, label, $("div", { className: "what", textContent: what }));
+    const card = $("div", { className: "card" }, label, $("div", { className: "what", textContent: what }));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);
     const members = [...f.members].sort((a, b) => rank(a) - rank(b));
@@ -241,7 +237,7 @@
     };
     card.append(...members.slice(0, SHOWN).map(member));
     if (members.length > SHOWN) {
-      const all = $("button", { className: "small", type: "button" }, `Show all ${members.length} editions`);
+      const all = $("button", { className: "small", type: "button" }, icon("list"), `Show all ${members.length} editions`);
       all.addEventListener("click", () => all.replaceWith(...members.slice(SHOWN).map(member)));
       card.append(all);
     }
