@@ -194,7 +194,10 @@ Limitations).
 Values are listed first, by largest difference, then framing by deviation: a figure 20%+ apart is
 concrete, framing is a degree.
 
-### 4b. Flagging framing (`compare.py`)
+### 4b. Flagging framing: impartiality (`compare.py`)
+
+Findings from 4a are **discrepancies** (facts disagree, marked red); findings from here are
+**impartiality** findings (the same thing described differently, marked amber).
 
 An **axis** is the difference between the mean vectors of two groups of anchor sentences, written in
 all three languages so that the language cancels out:
@@ -203,6 +206,13 @@ all three languages so that the language cancels out:
 |---|---|---|
 | evaluation | "a great success, widely praised", "heroic and admirable" | "a disastrous failure, widely condemned", "brutal and shameful" |
 | certainty | "a well-documented fact", "confirmed by the records" | "an unconfirmed, disputed claim", "according to some sources … allegedly" |
+| wording | "the ruthless aggressor savagely crushed the heroic defenders", "this shameful betrayal" | "the army attacked the positions and both sides suffered casualties", "the agreement was signed in 1940" |
+
+The wording axis is about how, not which side: emotive words in either direction against neutral,
+matter-of-fact ones. Urho Kekkonen, its strongest finding: et "Kekkonen võitles Nurmi osalemise eest
+visalt ja isegi **ärritavalt jonnakalt**" (tenaciously and even irritatingly stubbornly) against fi's
+plain "Kekkonen taisteli Nurmen osallistumisen puolesta", 3.4σ; the AI check, asked about tone,
+agreed ("Estonian portrays Kekkonen as irritatingly stubborn").
 
 A sentence's position is $p = 1 - d_{\cos}(s, \text{axis})$, computed in SQL. Languages sit at
 slightly different places on every axis, so positions become z-scores against the language's own mean
@@ -212,6 +222,11 @@ $$\Delta_\ell = z_\ell - \frac{1}{|G|-1}\sum_{k \in G,\,k \neq \ell} z_k$$
 
 With two editions this is just their difference. The largest $|\Delta|$ over editions and axes is
 reported when it is at least 1.2σ; with three or more editions, that edition is the outlier.
+
+**Leaning** (shown by the extension for the page's edition): an edition's mean $\Delta$ per axis over
+every matched group it is in, reported or not. Below 0.2σ on every axis it reads as neutral; the
+editions with the nearest and furthest such profiles (Euclidean, editions in at least 5 groups) are
+the ones it is framed most and least like. Urho Kekkonen, fi: −0.01, −0.06 and +0.17σ, neutral.
 
 ### 5. Worked examples (real output)
 
@@ -258,8 +273,9 @@ Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vecto
   not found without the LLM.
 - **Framing is noisier than figures.** Strong hits (≥2σ) are usually real; around 1.2–1.5σ, many are
   wording differences (Urho Kekkonen: 11 framing findings, the top 3 convincing).
-- **Two axes.** Others (blame/agency, nationalist vs neutral wording) would need their own anchors and
-  checking.
+- **Three axes.** Others (blame/agency, nationalist vs neutral framing) would need their own anchors
+  and checking. The wording axis also fires on sentences that differ in a fact rather than in tone
+  ("largest" vs "second largest" national park).
 - **Thresholds are tuned on two articles** (Winter War, Urho Kekkonen).
 - **Coincidences.** A number can match a different fact (en 35,000 French soldiers vs sv 22,000 troops
   in a different plan; fi 95 348 dead vs sv 158 863 wounded in the same casualty passage).

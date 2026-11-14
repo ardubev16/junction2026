@@ -60,6 +60,22 @@ AXES = {
          "Enligt vissa källor ska detta ha hänt.", "Joidenkin lähteiden mukaan näin olisi tapahtunut."],
         ("states it more firmly as fact", "presents it as more uncertain or disputed"),
     ),
+    # How something is described, whichever side: loaded, emotive wording vs neutral, matter-of-fact.
+    "wording": (
+        ["The ruthless aggressor savagely crushed the heroic defenders in a horrific bloodbath.",
+         "Den hänsynslösa angriparen krossade brutalt de heroiska försvararna i ett fruktansvärt blodbad.",
+         "Häikäilemätön hyökkääjä murskasi raa'asti sankarilliset puolustajat kauhistuttavassa verilöylyssä.",
+         "This shameful betrayal was an outrageous and disgraceful act.",
+         "Detta skamliga svek var en upprörande och vanhedrande handling.",
+         "Tämä häpeällinen petos oli törkeä ja halveksittava teko."],
+        ["The army attacked the defensive positions and both sides suffered casualties.",
+         "Armén anföll försvarsställningarna och båda sidor led förluster.",
+         "Armeija hyökkäsi puolustusasemiin, ja molemmat osapuolet kärsivät tappioita.",
+         "The agreement was signed in 1940 and changed the border.",
+         "Avtalet undertecknades 1940 och ändrade gränsen.",
+         "Sopimus allekirjoitettiin vuonna 1940, ja se muutti rajaa."],
+        ("uses more loaded, emotive wording", "uses more neutral, matter-of-fact wording"),
+    ),
 }
 
 
@@ -288,13 +304,17 @@ def merge_values(findings: list[dict]) -> list[dict]:
     return out
 
 
-def differences(cur, wikidata_id: str, ensure_sentences) -> list[dict]:
+def differences(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], dict]:
     """What the editions of a topic state differently, best first: values ({"kind": "value"}), then
     framing ({"kind": "framing"}). Each has members, one per language: the passage, its position
     (page_id, seq) and the sentence (n, sentence) or None when whole passages were compared.
 
     Matched sentences are grouped across languages, one sentence per language and group; each value
     slot is a vote ({"votes", "verdict": "outlier" | "contested" | "differs", "outliers"}).
+
+    Also each edition's leaning: {"axes": {axis: ends}, "editions": {lang: {"groups": n, axis: mean
+    deviation}}}, its average distance from the other editions on each axis over every matched group,
+    flagged or not (positive: towards the axis's first end).
     """
     pairs = passage_pairs(cur, wikidata_id)
     ensure_sentences(cur, sorted({(lang, page_id) for a, b, _ in pairs for lang, page_id, _ in (a, b)}))
@@ -345,6 +365,7 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> list[dict]:
     values.sort(key=lambda f: (max(len(s["values"]) for s in f["slots"]) < 3, -f["change"]))
 
     framing = []
+    lean: dict[str, dict[str, list[float]]] = {}  # lang -> axis -> deviations in every group
     for ids, dist in groups(edges, FRAMING_MAX):
         best = None
         for k, (name, (_, _, ends)) in enumerate(AXES.items()):
@@ -352,10 +373,14 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> list[dict]:
             for lang, zl in z.items():
                 # how far this edition sits from the others' average: with two, just their difference
                 deviation = zl - fmean(v for other, v in z.items() if other != lang)
+                lean.setdefault(lang, {}).setdefault(name, []).append(deviation)
                 if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
                     best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation}
         if best:
             framing.append({"kind": "framing", "distance": dist, **best, "outlier": len(ids) >= 3,
                             "members": [member(i) for i in ids]})
     framing.sort(key=lambda f: -abs(f["deviation"]))
-    return values + framing
+    leaning = {"axes": {name: ends for name, (_, _, ends) in AXES.items()},
+               "editions": {lang: {"groups": len(next(iter(by_axis.values()))),
+                                   **{name: fmean(d) for name, d in by_axis.items()}} for lang, by_axis in lean.items()}}
+    return values + framing, leaning

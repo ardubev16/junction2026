@@ -61,11 +61,17 @@
              background: #fff; color: #202122; border: 1px solid #a2a9b1; border-radius: 2px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
              font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
     .panel[hidden] { display: none; }
-    header { position: sticky; top: 0; background: #f8f9fa; border-bottom: 1px solid #c8ccd1; padding: .6rem .8rem; display: flex; justify-content: space-between; gap: .5rem; }
+    header { position: sticky; top: 0; background: #f8f9fa; border-bottom: 1px solid #c8ccd1; padding: .4rem .8rem; display: flex; justify-content: space-between; align-items: center; }
     header h2 { margin: 0; font: bold 15px/1.3 sans-serif; }
-    header p { margin: .2rem 0 0; color: #54595d; font-size: 12px; }
+    .lean { background: #f8f9fa; border: 1px solid #eaecf0; border-radius: 2px; padding: .5rem .7rem; margin: .5rem 0; font-size: 13px; }
+    .lean b { display: block; font-size: 14px; }
     .body { padding: .4rem .8rem .8rem; }
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
+    /* Keep in sync with src/langdiff/index.html: a discrepancy (facts disagree) is red, impartiality amber. */
+    .card.discrepancy { border-left: 4px solid #d33; } .card.impartiality { border-left: 4px solid #a66200; }
+    .tag { font: bold 10px/1.5 sans-serif; text-transform: uppercase; letter-spacing: .05em; color: #fff; border-radius: 2px; padding: 0 .35rem; }
+    .tag.discrepancy { background: #d33; } .tag.impartiality { background: #a66200; }
+    .card.discrepancy .label { color: #d33; }
     .card.locatable { cursor: pointer; } .card.locatable:hover { border-color: #36c; }
     .label { color: #a66200; font: bold 12px sans-serif; display: inline-flex; gap: .3rem; align-items: center; }
     .what { font-weight: bold; margin: .2rem 0 .4rem; }
@@ -93,19 +99,59 @@
   const panel = $("section", { className: "panel", hidden: true });
   root.append(toggle, panel);
   document.body.append(host);
-  // The page highlight: a CSS Custom Highlight over the paragraph, so the page's DOM (and VisualEditor's
+  // The page highlight: a CSS Custom Highlight over the evidence, so the page's DOM (and VisualEditor's
   // model of it) is never touched.
   document.head.append($("style", { textContent: "::highlight(langdiff) { background-color: #fef6e7; text-decoration: underline 2px #edab00; }" }));
 
   const textarea = document.getElementById("wpTextbox1");
   const words = (text) => [...new Set(text.toLowerCase().match(/[\p{L}\d]{4,}/gu) || [])];
+  const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  // Find a sentence from the dataset (plain text) in the wikitext, which adds [[links]], '''bold''' and
-  // <ref>s: the place where most of the sentence's longer words occur together wins. Then select the
-  // figure in question near it, or else the whole line (a wikitext paragraph).
-  function findInSource(sentence, numbers) {
+  // Where a sentence from the dataset (plain text) lies in `text` (wikitext, or a paragraph's text):
+  // [start, end] from its first two words to its last two, each pair allowed markup between them
+  // ([[links|…]], <ref>s, footnote marks); the start nearest `near` wins. null if not found.
+  function sentenceSpan(text, sentence, near) {
+    const t = sentence.match(/[\p{L}\p{N}]{3,}/gu) || [];
+    if (t.length < 2) return null;
+    const pair = (a, b) => new RegExp(`${escape(a)}[\\s\\S]{0,60}?${escape(b)}`, "giu");
+    for (let i = 0; i + 1 < Math.min(t.length, 5); i++) {  // later word pairs if the first ones were reworded
+      const starts = [...text.matchAll(pair(t[i], t[i + 1]))].sort((a, b) => Math.abs(a.index - near) - Math.abs(b.index - near));
+      if (!starts.length) continue;
+      let start = starts[0].index;
+      if (i > 0) {  // its first words are not there as written ("[[Noottikriisi]]n", a long <ref>): back to the sentence's start
+        const before = text.slice(Math.max(0, start - 150), start);
+        const cut = [...before.matchAll(/[.!?]\s+|\n|\/>\s*|<\/ref>\s*/g)].at(-1);
+        if (cut) start -= before.length - (cut.index + cut[0].length);
+      }
+      const tail = text.slice(start, start + sentence.length * 2 + 200);
+      for (let j = t.length - 1; j > i + 1; j--) {
+        const last = pair(t[j - 1], t[j]).exec(tail);
+        if (last) {
+          const end = start + last.index + last[0].length;
+          return [start, /[.!?]/.test(text[end] || "") ? end + 1 : end];
+        }
+      }
+      return [start, starts[0].index + starts[0][0].length];
+    }
+    return null;
+  }
+
+  // Where one of a finding's figures lies in `text`, as written or with any separator ("126&nbsp;875").
+  function figureSpan(text, numbers, near) {
+    for (const n of numbers) {
+      const re = new RegExp(n.replace(/\D/g, "").split("").join("(?:[\\s\\u00a0\\u202f,.]|&nbsp;)?"), "g");
+      const hit = [...text.matchAll(re)].sort((a, b) => Math.abs(a.index - near) - Math.abs(b.index - near))[0];
+      if (hit && Math.abs(hit.index - near) < 1500) return [hit.index, hit.index + hit[0].length];
+    }
+    return null;
+  }
+
+  // Find the evidence in the wikitext, which adds [[links]], '''bold''' and <ref>s to the dataset's
+  // plain text: the place where most of its longer words occur together is the anchor. Then select the
+  // sentence there, or the figure (whole-passage evidence), or else the whole line.
+  function findInSource(text, sentence, numbers) {
     const src = textarea.value;
-    const all = words(sentence);
+    const all = words(text);
     const anchors = [...all].sort((a, b) => b.length - a.length).slice(0, 3);
     const lower = src.toLowerCase();
     let best = null;
@@ -117,17 +163,10 @@
       }
     }
     if (!best) return false;
-    let range = null;
-    for (const n of numbers) {  // the number nearest the anchor, as written or with any separator ("126&nbsp;875")
-      const re = new RegExp(n.replace(/\D/g, "").split("").join("(?:[\\s\\u00a0\\u202f,.]|&nbsp;)?"), "g");
-      let hit = null;
-      for (const m of src.matchAll(re)) if (!hit || Math.abs(m.index - best.start) < Math.abs(hit.index - best.start)) hit = m;
-      if (hit && Math.abs(hit.index - best.start) < 1500) { range = [hit.index, hit.index + hit[0].length]; break; }
-    }
-    if (!range) {
+    const range = (sentence && sentenceSpan(src, sentence, best.start)) || figureSpan(src, numbers, best.start) || (() => {
       const end = src.indexOf("\n", best.start);
-      range = [src.lastIndexOf("\n", best.start) + 1, end === -1 ? src.length : end];
-    }
+      return [src.lastIndexOf("\n", best.start) + 1, end === -1 ? src.length : end];
+    })();
     // Put the caret there first so the browser scrolls the textarea to it, then select.
     textarea.focus();
     textarea.setSelectionRange(range[0], range[0]);
@@ -138,12 +177,27 @@
     return true;
   }
 
+  // A Range over characters start..end of an element's text.
+  function rangeAt(el, start, end) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const range = new Range();
+    let pos = 0, started = false;
+    for (let node; (node = walker.nextNode());) {
+      const next = pos + node.data.length;
+      if (!started && start < next) { range.setStart(node, start - pos); started = true; }
+      if (started && end <= next) { range.setEnd(node, end - pos); return range; }
+      pos = next;
+    }
+    return null;
+  }
+
   // Find the paragraph (or list item, table cell) of the rendered page, in the article view or
-  // VisualEditor, holding most of the sentence's longer words, and the figure in question if any
-  // (a whole passage spans several paragraphs: the figure picks the right one); highlight and scroll to it.
-  function findOnPage(sentence, numbers) {
+  // VisualEditor, holding most of the evidence's longer words, and the figure in question if any (a
+  // whole passage spans several paragraphs: the figure picks the right one); then highlight just the
+  // sentence in it, or the figure, or else the paragraph, and scroll to it.
+  function findOnPage(text, sentence, numbers) {
     const page = document.querySelector(".ve-ce-surface") || document.getElementById("mw-content-text");
-    const all = words(sentence);
+    const all = words(text);
     const figures = numbers.map((n) => new RegExp(`(?<!\\d)${n.replace(/\D/g, "")}(?!\\d)`));
     let best = null;
     for (const el of page?.querySelectorAll("p, li, dd, td, th, blockquote, figcaption") || []) {
@@ -154,14 +208,17 @@
       if (score && (!best || score > best.score || (score === best.score && text.length < best.length))) best = { el, score, length: text.length };
     }
     if (!best || best.score < Math.max(2, all.length * 0.4)) return false;
-    const range = new Range();
-    range.selectNodeContents(best.el);
+    const content = best.el.textContent;
+    const span = (sentence && sentenceSpan(content, sentence, 0)) || figureSpan(content, numbers, 0);
+    let range = span && rangeAt(best.el, ...span);
+    if (!range) { range = new Range(); range.selectNodeContents(best.el); }
     CSS.highlights.set("langdiff", new Highlight(range));
-    best.el.scrollIntoView({ block: "center", behavior: "smooth" });
+    (range.startContainer.parentElement || best.el).scrollIntoView({ block: "center", behavior: "smooth" });
     return true;
   }
 
-  const showOnPage = (text, numbers) => (textarea && textarea.offsetParent ? findInSource(text, numbers) : findOnPage(text, numbers));
+  const showOnPage = (m, numbers) => (textarea && textarea.offsetParent
+    ? findInSource(m.sentence ?? m.text, m.sentence, numbers) : findOnPage(m.sentence ?? m.text, m.sentence, numbers));
 
   function finding(f, articles) {
     const urls = Object.fromEntries(articles.map((a) => [a.lang, a.url]));
@@ -174,16 +231,17 @@
       what = f.slots.map((s) => s.votes.map((v) => `${v.value} (${who(v.langs)})`).join(" vs ")).join(" · ");
       const verdicts = f.slots.map((s) => s.verdict);
       const editions = new Set(f.slots.flatMap((s) => Object.keys(s.values))).size;
-      label = $("span", { className: "label" }, icon("alert"),
+      label = $("span", { className: "label" }, $("span", { className: "tag discrepancy", textContent: "Discrepancy" }), icon("alert"),
         `${verdicts.includes("outlier") ? (outliers.size > 3 ? `Outliers: ${outliers.size} editions` : `Outlier: ${names([...outliers])}`)
           : verdicts.includes("contested") ? `Contested among ${editions} editions` : "Different value"} · ${Math.round(f.change * 100)}% apart`);
     } else {
       const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
       what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
-      label = $("span", { className: "label" }, icon("scale"), `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
+      label = $("span", { className: "label" }, $("span", { className: "tag impartiality", textContent: "Impartiality" }), icon("scale"),
+        `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
     }
     const values = (l) => (f.kind === "value" ? f.slots.map((s) => s.values[l]).filter(Boolean) : []);
-    const card = $("div", { className: "card" }, label, $("div", { className: "what", textContent: what }));
+    const card = $("div", { className: `card ${f.kind === "value" ? "discrepancy" : "impartiality"}` }, label, $("div", { className: "what", textContent: what }));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);
     const members = [...f.members].sort((a, b) => rank(a) - rank(b));
@@ -196,9 +254,9 @@
       }
       if (m.lang === lang) {
         const source = textarea && textarea.offsetParent;
-        const find = $("button", { className: "small", type: "button", title: source ? "Select this in the wikitext" : "Highlight this paragraph on the page" },
+        const find = $("button", { className: "small", type: "button", title: source ? "Select this in the wikitext" : "Highlight this on the page" },
           icon("find"), source ? "Find in source" : "Show on page");
-        const locate = () => { if (!showOnPage(text, values(m.lang))) find.replaceChildren(icon("find"), "Not found on this page"); };
+        const locate = () => { if (!showOnPage(m, values(m.lang))) find.replaceChildren(icon("find"), "Not found on this page"); };
         find.addEventListener("click", locate);
         // The whole card shows it too; its links and buttons keep their own action.
         card.classList.add("locatable");
@@ -217,27 +275,45 @@
     return card;
   }
 
+  // Where this edition leans: its average distance from the other editions on each framing axis over
+  // every matched group, and the editions whose profile is closest and furthest from its own.
+  const NEUTRAL = 0.2;  // σ: below this on every axis the edition reads as neutral
+  const MIN_GROUPS = 5;  // editions matched in fewer groups have no meaningful profile
+  function leaning(data) {
+    const eds = data.leaning?.editions || {}, me = eds[lang];
+    if (!me || me.groups < MIN_GROUPS) return null;
+    const axes = Object.entries(data.leaning.axes);
+    const leans = axes.filter(([a]) => Math.abs(me[a]) >= NEUTRAL).map(([a, ends]) => `${me[a] > 0 ? ends[0] : ends[1]} (${me[a] > 0 ? "+" : "−"}${Math.abs(me[a]).toFixed(1)}σ)`);
+    const others = Object.entries(eds).filter(([l, e]) => l !== lang && e.groups >= MIN_GROUPS)
+      .map(([l, e]) => ({ l, d: Math.hypot(...axes.map(([a]) => e[a] - me[a])) })).sort((x, y) => x.d - y.d);
+    const box = $("div", { className: "lean" }, $("b", { textContent: leans.length ? "This edition leans" : "This edition is neutral" }),
+      leans.length ? `It ${leans.join(", and ")} than the other editions on average.` : "Its tone, wording and certainty are close to the other editions' average.");
+    if (others.length >= 2) {
+      const k = Math.min(3, Math.floor(others.length / 2));
+      box.append($("div", { className: "muted", textContent: `Framed most like: ${others.slice(0, k).map((o) => langName(o.l)).join(", ")}` }),
+        $("div", { className: "muted", textContent: `Least like: ${others.slice(-k).reverse().map((o) => langName(o.l)).join(", ")}` }));
+    }
+    return box;
+  }
+
   function render(data) {
     const mine = data.differences.filter((f) => f.members.some((m) => m.lang === lang));
     const elsewhere = data.differences.filter((f) => !mine.includes(f));
-    const others = data.articles.length > 4 ? `${data.articles.length - 1} other editions`
-      : data.articles.filter((a) => a.lang !== lang).map((a) => a.lang).join(", ");
     const n = mine.length;
     toggle.replaceChildren(icon(n ? "alert" : "scale"), `langdiff · ${n}`);
     toggle.className = n ? "toggle" : "toggle quiet";
-    const close = $("button", { className: "close", type: "button", title: "Close" }, icon("close"));
+    const close = $("button", { className: "close", type: "button", title: "Close", ariaLabel: "Close" }, icon("close"));
     close.addEventListener("click", () => { panel.hidden = true; });
     const body = $("div", { className: "body" });
+    const lean = leaning(data);
+    if (lean) body.append(lean);
     if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently or states a figure very differently from the other editions." }));
     body.append(...mine.map((f) => finding(f, data.articles)));
     if (elsewhere.length) {
       body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
         ...elsewhere.map((f) => finding(f, data.articles))));
     }
-    panel.replaceChildren(
-      $("header", {}, $("div", {}, $("h2", { textContent: "Where other editions disagree" }),
-        $("p", { textContent: `${title}: compared with ${others || "no other edition"}. Not the text on this page: fi, sv and en come from the dataset snapshot (August 2025), other editions from when the topic was first asked for. Click a finding to show it on the page.` })), close),
-      body);
+    panel.replaceChildren($("header", {}, $("h2", { textContent: "langdiff" }), close), body);
   }
 
   function showMessage(text, error) {

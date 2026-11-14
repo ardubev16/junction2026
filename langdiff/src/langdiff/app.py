@@ -271,7 +271,7 @@ def compare_editions(title: str, lang: str, progress) -> dict:
         state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
         cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
         if row := cur.fetchone():
-            found = json.loads(row[0])
+            found, leaning = json.loads(row[0])
         else:
             def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
                 progress(f"Embedding the sentences of {len(pages)} matched articles")
@@ -279,14 +279,15 @@ def compare_editions(title: str, lang: str, progress) -> dict:
                 progress("Comparing sentences: figures and framing")
 
             progress("Matching passages across languages")
-            found = differences(cur, wikidata_id, sentences_then_compare)
-            cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps(found)))
+            found, leaning = differences(cur, wikidata_id, sentences_then_compare)
+            cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps([found, leaning])))
 
     return {
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
         "similarity": similarity,
         "differences": found,
+        "leaning": leaning,
     }
 
 
@@ -319,22 +320,41 @@ class Passage(BaseModel):
 
 class ExplainRequest(BaseModel):
     passages: list[Passage]  # parts about the same subject, one per language
+    kind: Literal["value", "framing"] = "value"  # a discrepancy (facts) or impartiality (tone, framing)
+
+
+# What the AI checks for each kind of finding; the answer's `discrepancy` says whether it holds.
+CHECKS = {
+    "value": (
+        "for factual discrepancies: statements about the same thing that disagree (numbers, dates, names, "
+        "places, outcomes). Information that only one passage has is NOT a discrepancy, and neither are "
+        "differences in wording or detail. discrepancy: whether there is at least one. title: in English, "
+        "at most 8 words, naming what disagrees.",
+        "the disagreeing facts",
+    ),
+    "framing": (
+        "for differences in impartiality: describing the same thing in a clearly different tone, with "
+        "loaded or emotive words where another is neutral, more favourably or critically, or presenting "
+        "as settled what another presents as disputed. Different facts, length or detail alone do not "
+        "count. discrepancy: whether such a difference is clear. title: in English, at most 8 words, "
+        "naming how the framing differs.",
+        "the differently framed wording",
+    ),
+}
 
 
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
-    """Whether passages about the same subject, one per language, contradict each other, and how."""
+    """Whether passages about the same subject, one per language, contradict each other (kind
+    "value") or frame it differently (kind "framing"), and how."""
     if len(req.passages) < 2:
         raise HTTPException(400, "need at least two passages")
+    check, phrases = CHECKS[req.kind]
     answer = chat(
-        "You check passages about the same subject from different language editions of Wikipedia "
-        "for factual discrepancies: statements about the same thing that disagree (numbers, dates, names, "
-        "places, outcomes). Information that only one passage has is NOT a discrepancy, and neither are "
-        "differences in wording or detail. discrepancy: whether there is at least one. title: in English, "
-        "at most 8 words, naming what disagrees. summary: in English, 1-2 sentences saying what each "
-        "edition states. Do not suggest edits or actions. highlights: for each passage's language code, "
-        "the 1-4 short phrases (at most 12 words each, copied verbatim from that passage) that state "
-        "the disagreeing facts.",
+        f"You check passages about the same subject from different language editions of Wikipedia {check} "
+        "summary: in English, 1-2 sentences saying what each edition states and how. Do not suggest edits "
+        "or actions. highlights: for each passage's language code, the 1-4 short phrases (at most 12 words "
+        f"each, copied verbatim from that passage) that state {phrases}.",
         "\n\n".join(f"[{p.lang}] section: {p.heading or '(intro)'}\n{p.text}" for p in req.passages),
         {
             "type": "object",

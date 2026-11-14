@@ -60,10 +60,12 @@ row to recompute.
 
 `extension/` shows the same findings on Wikipedia itself (fi, sv, en): a "langdiff · N" button opens
 a panel listing what this edition states differently from the others, with the other editions'
-sentences and links to them. **Clicking a finding
-shows it on the page**: in the article view and VisualEditor its paragraph is highlighted and
-scrolled to; in the source editor the figure (for a value) or the whole paragraph (for framing) is
-selected in the wikitext.
+sentences and links to them. At its top, where this edition **leans**: on each framing axis its
+average distance from the other editions over every matched sentence group, read as neutral below
+0.2σ on all of them, and the editions framed most and least like it. **Clicking a finding shows its
+evidence on the page**: in the article view and VisualEditor just that sentence is highlighted (or
+the figure, for evidence that is a whole passage) and scrolled to; in the source editor it is
+selected in the wikitext, link markup and `<ref>`s included.
 
 1. Start the backend (above) on `http://127.0.0.1:8000`.
 2. `chrome://extensions` → Developer mode → **Load unpacked** → select `langdiff/extension`.
@@ -110,10 +112,16 @@ A new provider with one of these APIs is a new preset; a new API is a `(request,
 
 No LLM is needed: articles, passages and sentences are matched across languages with bge-m3
 vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
-into one group per fact, and each group is checked for **different framing** (position on "fact ↔
-disputed" and "praised ↔ condemned" axes) and **very different figures** (at least 20% apart; small
-differences and years are left out). Each figure is a vote across the editions stating it: those
-against a two-thirds consensus are outliers, a split without one is contested.
+into one group per fact, and each group is checked for two kinds of finding:
+
+- **Discrepancy** (red): a figure stated very differently (at least 20% apart; small differences
+  and years are left out). Each figure is a vote across the editions stating it: those against a
+  two-thirds consensus are outliers, a split without one is contested.
+- **Impartiality** (amber): the same thing described differently, by position on three axes:
+  praised ↔ condemned (evaluation), fact ↔ disputed (certainty), and loaded, emotive ↔ neutral,
+  matter-of-fact wording (wording). With AI summaries on, the AI checks discrepancies for a factual
+  contradiction and impartiality findings for a clear difference in tone or framing; findings it
+  does not confirm are collapsed.
 
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
@@ -125,5 +133,6 @@ API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia
 `GET /api/diff?title=Talvisota&limit=15` (`differences`: values, then framing; `&focus=fi` puts the
 findings involving that edition first), `GET /api/progress?title=Talvisota` (stage of a running diff),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
-`POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding),
+`POST /api/explain {"kind": "value" | "framing", "passages": [{"lang", "heading", "text"}, …]}` (one
+finding: a factual contradiction for "value", a difference in tone or framing for "framing"),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
