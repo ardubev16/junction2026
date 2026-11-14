@@ -128,7 +128,8 @@ confirm move under a "Show N findings the AI marked as irrelevant" button, each 
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
 `GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, and
-their `total`; `&focus=fi` puts the findings involving that edition first; `&dialects=false` leaves
+their `total`; each finding has every edition's `deviations` on its axis, shown under its "Details"
+button; `&focus=fi` puts the findings involving that edition first; `&dialects=false` leaves
 out editions without a two-letter ISO 639-1 code, i.e. regional languages and varieties such as
 Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian Taraškievica
 `be-tarask`), `GET /api/progress?title=Talvisota` (stage of a running diff),

@@ -21,6 +21,7 @@
     find: '<circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/>',
     link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
     list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
+    info: '<circle cx="10" cy="10" r="7.5"/><path d="M10 9v5M10 6.2v.1"/>',
   };
   const icon = (name) => {
     const t = document.createElement("template");
@@ -72,6 +73,13 @@
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
     .card.locatable { cursor: pointer; } .card.locatable:hover { border-color: #36c; }
     .label { color: #a66200; font: bold 12px sans-serif; display: inline-flex; gap: .3rem; align-items: center; }
+    .label button { font-weight: normal; }
+    /* The numbers popover: out of the label's bold, coloured text. */
+    .numbers { max-width: 380px; padding: .8rem 1rem; border: 1px solid #a2a9b1; border-radius: 2px; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+               color: #202122; font: 13px/1.5 sans-serif; }
+    .numbers h4 { margin: 0 0 .4rem; font-size: 14px; } .numbers p { margin: .3rem 0; }
+    .numbers table { border-collapse: collapse; } .numbers td { padding: 0 1rem 0 0; }
+    .numbers td.num { text-align: right; font-variant-numeric: tabular-nums; } .numbers tr.this td { font-weight: bold; }
     .what { font-weight: bold; margin: .2rem 0 .4rem; }
     .member { border-left: 3px solid #eaecf0; padding: .2rem .5rem; margin: .35rem 0; font-family: "Linux Libertine", Georgia, serif; }
     .member.here { border-left-color: #36c; background: #f8f9fa; }
@@ -212,13 +220,30 @@
     return `https://${m.lang}.wikipedia.org/wiki/${encodeURIComponent(m.title.replace(/ /g, "_"))}#:~:text=${text}`;
   };
 
+  // The numbers behind a finding, in a small window (a popover: a click outside or Escape closes it).
+  // Keep in sync with src/wikicross/index.html.
+  function numbers(f) {
+    const sigma = (d) => { const r = Math.round(d * 10) / 10; return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r).toFixed(1)}σ`; };
+    const rows = Object.entries(f.deviations || {}).sort((a, b) => b[1] - a[1]);
+    const box = $("div", { className: "numbers", popover: "auto" },
+      $("h4", { textContent: `How far apart: the ${f.axis} axis` }),
+      $("p", { textContent: `Each sentence has a position on this axis: towards +, an edition ${f.ends[0]}; towards −, it ${f.ends[1]}. `
+        + "Positions are measured against the language's own sentences, so 1σ is a typical spread within that language." }),
+      $("p", { textContent: `${langName(f.lang)} sits ${sigma(f.deviation)} from the average of the others; a finding needs at least 1.2σ either way. Each edition, from its others' average:` }),
+      $("table", {}, ...rows.map(([l, d]) => $("tr", { className: l === f.lang ? "this" : "" },
+        $("td", { textContent: langName(l) }), $("td", { className: "num", textContent: sigma(d) })))),
+      $("p", { className: "muted", textContent: `The sentences are matched as one statement: their largest cosine distance is ${f.distance.toFixed(2)} `
+        + "(0 is the same meaning; up to 0.35 counts)." }));
+    return [$("button", { className: "small", type: "button", popoverTargetElement: box, title: "The numbers behind this finding" }, icon("info"), "Details"), box];
+  }
+
   function finding(f) {
     const outliers = new Set(f.outlier ? [f.lang] : []);
     const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
     const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
     const what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
     const label = $("span", { className: "label" }, icon("scale"),
-      `${f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing"} · ${Math.abs(f.deviation).toFixed(1)}σ`);
+      f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing", ...numbers(f));
     const card = $("div", { className: "card" }, label, $("div", { className: "what", textContent: what }));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);

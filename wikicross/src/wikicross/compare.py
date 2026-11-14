@@ -268,8 +268,10 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
 
 def differences(cur, wikidata_id: str, ensure_sentences, langs: set[str]) -> list[dict]:
     """What the editions of a topic (those in `langs`) state differently, best first ({"kind": "framing"},
-    by deviation). Each has members, one per language: the passage, its position (page_id, seq) and the
-    sentence (n, sentence).
+    by deviation): the axis and its `ends`, the edition `lang` furthest from the others' average by
+    `deviation` σ, every edition's `deviations` on that axis, `outlier` (three or more editions) and
+    `distance` (the largest cosine distance of a matched pair in the group). Each has members, one per
+    language: the passage, its position (page_id, seq) and the sentence (n, sentence).
     """
     # Matching is mutual per language pair, so leaving editions out does not change the other pairs.
     pairs = [p for p in passage_pairs(cur, wikidata_id) if p[0][0] in langs and p[1][0] in langs]
@@ -302,11 +304,12 @@ def differences(cur, wikidata_id: str, ensure_sentences, langs: set[str]) -> lis
         best = None
         for k, (name, (_, _, ends)) in enumerate(AXES.items()):
             z = {i[0]: (sentence[i][1][k] - stats[name][i[0]][0]) / stats[name][i[0]][1] for i in ids}
-            for lang, zl in z.items():
-                # how far this edition sits from the others' average: with two, just their difference
-                deviation = zl - fmean(v for other, v in z.items() if other != lang)
+            # how far each edition sits from the others' average: with two, just their difference
+            deviations = {lang: zl - fmean(v for other, v in z.items() if other != lang) for lang, zl in z.items()}
+            for lang, deviation in deviations.items():
                 if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
-                    best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation}
+                    best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation,
+                            "deviations": {other: round(d, 2) for other, d in deviations.items()}}
         if best:
             framing.append({"kind": "framing", "distance": dist, **best, "outlier": len(ids) >= 3,
                             "members": [member(i) for i in ids]})
