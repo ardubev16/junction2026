@@ -2,7 +2,7 @@
 // manifest.json, avoids CORS: the page itself (https://*.wikipedia.org) could not call localhost.
 // To use another backend, change BACKEND and "host_permissions" together.
 const BACKEND = "http://127.0.0.1:8000";
-const PATHS = ["/api/diff", "/api/context"];
+const PATHS = ["/api/diff"];
 
 // {type: "get", path, params} -> {data} or {error, status}
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {

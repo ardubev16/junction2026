@@ -26,7 +26,7 @@ flowchart TD
   F1 --> R[JSON: differences, values first, then framing]
   F2 --> R
   F3 --> R
-  R --> UI[Web page and Chrome extension: quotes side by side, expandable, copy, optional AI]
+  R --> UI[Web page and Chrome extension: quotes side by side, copy, optional AI]
 ```
 
 Two different questions are answered by two different mechanisms:
@@ -99,7 +99,7 @@ sequenceDiagram
   API->>DB: one query: sentence pairs + axis positions (window functions)
   API->>API: group, flag values and framing
   API-->>B: differences
-  opt "Expand up / down" on a quote
+  opt "Show paragraphs", then "Expand up / down" (web page only)
     B->>API: GET /api/context (neighbouring sentences, from the sentence table)
   end
   opt "AI summaries" ticked

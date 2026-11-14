@@ -177,12 +177,12 @@ const getContext = async (params) => {
   return data;
 };
 
-// Keep in sync with expandable() in extension/content.js.
-// A quote that expands up and down through its article, a few sentences per click, like the folded
-// lines of a GitHub diff. Context is muted; a new passage starts a new line, a new section shows its
-// heading. `ctx` outlives re-renders of the card; `quote()` gives fresh nodes for the quote itself.
+// Paragraph view only ("Show paragraphs"), and only in the web app: when a quote's whole passage is
+// not enough context, it expands up and down through the article, a few sentences per click, like
+// the folded lines of a GitHub diff. Context is muted; a new passage starts a new line, a new section
+// shows its heading. `ctx` outlives re-renders of the card; `quote()` gives fresh nodes for the passage.
 const STEP = 3;
-const contextOf = (m) => ({ before: [], after: [], top: [m.seq, m.n ?? 0], bottom: [m.seq, m.n ?? 65535], end: {}, busy: false, error: "" });
+const contextOf = (m) => ({ before: [], after: [], top: [m.seq, 0], bottom: [m.seq, 65535], end: {}, busy: false, error: "" });
 function expandable(m, ctx, quote) {
   const wrap = $("div", { className: "expandable" });
   const button = (dir) => {
@@ -224,7 +224,8 @@ function expandable(m, ctx, quote) {
 function card(finding) {
   const members = finding.members;
   const names = (langs) => langs.map((l) => LANGS[l]).join(" and ");
-  const state = { highlights: {}, english: null, showEnglish: false, ctx: Object.fromEntries(members.map((m) => [m.lang, contextOf(m)])) };
+  const state = { highlights: {}, english: null, showEnglish: false, context: false,
+                  ctx: Object.fromEntries(members.map((m) => [m.lang, contextOf(m)])) };
   let title, label, outliers = [];
   if (finding.kind === "value") {
     for (const s of finding.slots) for (const [lang, w] of Object.entries(s.values)) (state.highlights[lang] ||= []).push(w);
@@ -261,9 +262,10 @@ function card(finding) {
   const renderQuotes = () => quotes.replaceChildren(...members.map((p) => {
     const en = state.showEnglish && state.english;
     const heading = (en ? en[`${p.lang}-heading`] : p.heading) || "(intro)";
-    // In English, the translated quote alone: its context is in the original language.
+    // In English, the translated quote alone; the passage and its context are in the original language.
     const quote = en ? $("blockquote", {}, $("span", { className: "quoted" }, ...marked(en[p.lang])))
-      : expandable(p, state.ctx[p.lang], () => marked(withMarks(quoteOf(p), state.highlights[p.lang])));
+      : state.context && p.sentence ? expandable(p, state.ctx[p.lang], () => marked(withMarks(p.text, [p.sentence])))
+      : $("blockquote", {}, $("span", { className: "quoted" }, ...marked(withMarks(quoteOf(p), state.highlights[p.lang]))));
     const copy = $("button", { className: "btn small", type: "button", title: "Copy this quote" }, icon("copy"), "Copy");
     copy.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(quote.querySelector(".quoted").textContent); copy.replaceChildren(icon("check"), "Copied"); }
@@ -277,6 +279,15 @@ function card(finding) {
   renderQuotes();
 
   const tools = $("div", { className: "tools" });
+  if (members[0].sentence) {
+    const context = $("button", { className: "btn small", type: "button" }, "Show paragraphs", icon("chevron"));
+    context.addEventListener("click", () => {
+      state.context = !state.context;
+      context.replaceChildren(state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
+      renderQuotes();
+    });
+    tools.append(context);
+  }
   if (ai.checked) {
     const toggle = $("button", { className: "btn small primary", type: "button", disabled: true, textContent: "View quotes in English" });
     verdict.className = "pending";

@@ -22,7 +22,7 @@ can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_
 
 `extension/` shows the same findings on Wikipedia itself (fi, sv, en): a "langdiff · N" button opens
 a panel listing what this edition states differently from the others, with the other editions'
-sentences and links to them. Quotes expand up and down like in the web app. **Clicking a finding
+sentences and links to them. **Clicking a finding
 shows it on the page**: in the article view and VisualEditor its paragraph is highlighted and
 scrolled to; in the source editor the figure (for a value) or the whole paragraph (for framing) is
 selected in the wikitext.

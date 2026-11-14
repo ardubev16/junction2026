@@ -17,8 +17,6 @@
     close: '<path d="m5 5 10 10M15 5 5 15"/>',
     find: '<circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/>',
     link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
-    chevron: '<path d="m5 8 5 5 5-5"/>',
-    up: '<path d="m5 12 5-5 5 5"/>',
   };
   const icon = (name) => {
     const t = document.createElement("template");
@@ -71,12 +69,6 @@
     .member { border-left: 3px solid #eaecf0; padding: .2rem .5rem; margin: .35rem 0; font-family: "Linux Libertine", Georgia, serif; }
     .member.here { border-left-color: #36c; background: #f8f9fa; }
     .member.outlier { border-left-color: #a66200; }
-    .member blockquote { margin: 0; white-space: pre-wrap; }
-    .context { color: #54595d; }
-    .section { color: #54595d; font: bold 11px sans-serif; }
-    .expand { display: flex; width: 100%; gap: .3rem; align-items: center; justify-content: center; font: 11px sans-serif; color: #36c;
-              background: #eaf3ff; border: 0; padding: .05rem; margin: .15rem 0; cursor: pointer; }
-    .expand:hover { background: #d5e6ff; } .expand:disabled { opacity: .5; cursor: default; }
     .who { font: 12px sans-serif; color: #54595d; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
     .who b { color: #202122; }
     mark { background: #fef6e7; border-bottom: 2px solid #edab00; padding: 0 1px; }
@@ -161,50 +153,6 @@
 
   const showOnPage = (text, numbers) => (textarea && textarea.offsetParent ? findInSource(text, numbers) : findOnPage(text, numbers));
 
-  // Keep in sync with expandable() in src/langdiff/index.html.
-  // A quote that expands up and down through its article, a few sentences per click, like the folded
-  // lines of a GitHub diff. Context is muted; a new passage starts a new line, a new section shows its
-  // heading.
-  const STEP = 3;
-  function expandable(m, quote) {
-    const ctx = { before: [], after: [], top: [m.seq, m.n ?? 0], bottom: [m.seq, m.n ?? 65535], end: {}, busy: false, error: "" };
-    const wrap = $("div", { className: "expandable" });
-    const button = (dir) => {
-      if (ctx.end[dir]) return "";
-      const b = $("button", { className: "expand", type: "button", disabled: ctx.busy, title: `Show ${STEP} more sentences ${dir === "up" ? "above" : "below"}` },
-        icon(dir === "up" ? "up" : "chevron"), dir === "up" ? "Expand up" : "Expand down");
-      b.addEventListener("click", async () => {
-        ctx.busy = true; draw();
-        const [seq, n] = dir === "up" ? ctx.top : ctx.bottom;
-        try {
-          const rows = await get("/api/context", { lang: m.lang, page_id: m.page_id, seq, n, direction: dir, count: STEP });
-          if (rows.length) {
-            if (dir === "up") { ctx.before.unshift(...rows); ctx.top = [rows[0].seq, rows[0].n]; }
-            else { ctx.after.push(...rows); ctx.bottom = [rows.at(-1).seq, rows.at(-1).n]; }
-          }
-          ctx.end[dir] = rows.length < STEP;
-          ctx.error = "";
-        } catch (err) { ctx.error = `Could not load more: ${err.message}`; }
-        ctx.busy = false; draw();
-      });
-      return b;
-    };
-    const draw = () => {
-      const segments = [...ctx.before.map((r) => ({ ...r, nodes: [r.text] })), { seq: m.seq, heading: m.heading, nodes: quote(), quote: true },
-        ...ctx.after.map((r) => ({ ...r, nodes: [r.text] }))];
-      const body = $("blockquote", {});
-      segments.forEach((s, i) => {
-        const prev = segments[i - 1];
-        if (prev && s.heading !== prev.heading) body.append("\n", $("span", { className: "section", textContent: `§ ${s.heading || "(intro)"}` }), "\n");
-        else if (prev) body.append(s.seq !== prev.seq ? "\n" : " ");
-        body.append($("span", { className: s.quote ? "quoted" : "context" }, ...s.nodes));
-      });
-      wrap.replaceChildren(button("up"), body, button("down"), ctx.error ? $("p", { className: "error", textContent: ctx.error }) : "");
-    };
-    draw();
-    return wrap;
-  }
-
   function finding(f, articles) {
     const urls = Object.fromEntries(articles.map((a) => [a.lang, a.url]));
     const outliers = f.kind === "value" ? new Set(f.slots.flatMap((s) => s.outliers)) : new Set(f.outlier ? [f.lang] : []);
@@ -248,7 +196,7 @@
         who.append(find);
       }
       card.append($("div", { className: `member${m.lang === lang ? " here" : ""}${outliers.has(m.lang) ? " outlier" : ""}` }, who,
-        expandable(m, () => marked(text, values(m.lang)))));
+        $("div", {}, ...marked(text, values(m.lang)))));
     }
     return card;
   }
