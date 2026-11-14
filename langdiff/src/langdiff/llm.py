@@ -1,8 +1,9 @@
 """JSON-answering LLM calls, swappable between providers.
 
 Pick a preset with LLM_PRESET (default: gemini); LLM_API, LLM_URL, LLM_MODEL override single fields.
-The key is always AI_API_KEY. To add a provider speaking an API already here, add a preset; for a new
-API, add a (request, text) pair to APIS.
+Each preset reads its key from its own variable (`key`), falling back to AI_API_KEY, so keys for
+several providers can sit in .env together. To add a provider speaking an API already here, add a
+preset; for a new API, add a (request, text) pair to APIS.
 """
 
 import hashlib
@@ -19,6 +20,7 @@ from .db import connect
 PRESETS = {
     "gemini": {
         "api": "gemini",
+        "key": "GEMINI_API_KEY",
         "url": "https://generativelanguage.googleapis.com/v1beta",
         "model": "gemini-4-hydrogen",
         # low | medium | high | xhigh: low is enough for summaries and translations, and fastest.
@@ -26,15 +28,24 @@ PRESETS = {
     },
     "verda": {  # serverless container: the first call after idle waits ~5 minutes for a cold start
         "api": "openai",
+        "key": "VERDA_API_KEY",
         "url": "https://containers.datacrunch.io/nemotron-3-5-super-vl-b300/v1",
         "model": "nemotron-3.5-super-vl",
         "extra": {},
     },
     "openrouter": {
         "api": "openai",
+        "key": "OPENROUTER_API_KEY",
         "url": "https://openrouter.ai/api/v1",
         "model": "nvidia/nemotron-3.5-super-vl:free",
         "extra": {"reasoning": {"enabled": False}},  # same quality here, ~0.8 s instead of ~7 s
+    },
+    "minimax": {
+        "api": "openai",
+        "key": "OPENROUTER_API_KEY",
+        "url": "https://openrouter.ai/api/v1",
+        "model": "minimax/minimax-m3.1-flash",  # the :free variant was retired on 2026-10-22
+        "extra": {},
     },
 }
 LLM = PRESETS[os.environ.get("LLM_PRESET", "gemini")] | {
@@ -96,15 +107,19 @@ def retry_delay(error: str) -> float | None:
 
 def chat(system: str, user: str, schema: dict) -> dict:
     """One LLM call answering JSON in `schema`, cached in MariaDB."""
-    cache_key = hashlib.sha256(json.dumps([LLM, system, user, schema]).encode()).digest()
+    # Which variable holds the key does not change the answer: keep it out of the cache key.
+    cache_key = hashlib.sha256(
+        json.dumps([{k: v for k, v in LLM.items() if k != "key"}, system, user, schema]).encode()
+    ).digest()
     with connect() as conn, conn.cursor() as cur:
         cur.execute("SELECT response FROM llm_cache WHERE k = %s", (cache_key,))
         if row := cur.fetchone():
             return json.loads(row[0])
-        if "AI_API_KEY" not in os.environ:
-            raise HTTPException(503, "AI_API_KEY not set: start with  uv run --env-file .env langdiff")
+        api_key = os.environ.get(LLM["key"]) or os.environ.get("AI_API_KEY")
+        if not api_key:
+            raise HTTPException(503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env langdiff")
         request, text = APIS[LLM["api"]]
-        url, headers, body = request(system, user, schema, os.environ["AI_API_KEY"])
+        url, headers, body = request(system, user, schema, api_key)
         for attempt in range(4):
             try:
                 r = httpx.post(url, headers=headers, json=body, timeout=600)

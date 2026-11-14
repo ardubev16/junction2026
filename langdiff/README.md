@@ -20,17 +20,19 @@ can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_
 
 ### LLM
 
-`AI_API_KEY` is the key for whichever provider is selected. `LLM_PRESET` picks one of the presets
-in `src/langdiff/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL` override single fields of it.
+`LLM_PRESET` picks one of the presets in `src/langdiff/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL`
+override single fields of it. Each preset reads its own key variable, falling back to `AI_API_KEY`,
+so keys for several providers can sit in `.env` together.
 
-| `LLM_PRESET` | API | Model |
-|---|---|---|
-| `gemini` (default) | Gemini `generateContent` | `gemini-4-hydrogen`, thinking level `low` |
-| `verda` | OpenAI-compatible | `nemotron-3.5-super-vl` on DataCrunch (cold start: ~5 min) |
-| `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` |
+| `LLM_PRESET` | API | Model | Key | Measured |
+|---|---|---|---|---|
+| `gemini` (default) | Gemini `generateContent` | `gemini-4-hydrogen`, thinking `low` | `GEMINI_API_KEY` | free tier: 5 requests/min, 20/day; frequent 503 "high demand" |
+| `minimax` | OpenAI-compatible (OpenRouter) | `minimax/minimax-m3.1-flash` (paid; `:free` retired) | `OPENROUTER_API_KEY` | 10 summaries in 15 s |
+| `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` | `OPENROUTER_API_KEY` | free: 50 requests/day |
+| `verda` | OpenAI-compatible | `nemotron-3.5-super-vl` on DataCrunch | `VERDA_API_KEY` | cold start ~5 min |
 
 ```bash
-LLM_PRESET=verda uv run --env-file .env langdiff
+LLM_PRESET=minimax uv run --env-file .env langdiff
 LLM_PRESET=openrouter LLM_MODEL=nvidia/nemotron-3.5-super-vl uv run --env-file .env langdiff
 ```
 
