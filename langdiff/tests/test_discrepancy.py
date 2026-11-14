@@ -1,4 +1,4 @@
-from langdiff.discrepancy import anchored_conflicts, conflicts, figure_slots, numbers
+from langdiff.discrepancy import anchored_conflicts, conflicts, figure_slots, numbers, tally
 
 
 def test_numbers_read_every_languages_thousands_separator():
@@ -36,13 +36,20 @@ def close(texts):
 
 def test_the_edition_against_the_majority_is_the_outlier():
     texts = {"fi": "Kaatuneita oli 126 875.", "sv": "Stupade: 126 875.", "en": "167,976 died."}
-    assert figure_slots(texts, close(texts)) == [
-        {"values": {"fi": "126 875", "sv": "126 875", "en": "167,976"}, "outliers": ["en"]}
-    ]
+    assert figure_slots(texts, close(texts)) == [{
+        "values": {"fi": "126 875", "sv": "126 875", "en": "167,976"},
+        "votes": [{"value": "126 875", "langs": ["fi", "sv"]}, {"value": "167,976", "langs": ["en"]}],
+        "verdict": "outlier",
+        "outliers": ["en"],
+    }]
 
 
-def test_no_outlier_without_a_majority():
+def test_no_outlier_without_a_clear_consensus():
     two = {"fi": "Kaatuneita oli 126 875.", "en": "167,976 died."}
-    assert figure_slots(two, close(two)) == [{"values": {"fi": "126 875", "en": "167,976"}, "outliers": []}]
+    assert [(s["verdict"], s["outliers"]) for s in figure_slots(two, close(two))] == [("differs", [])]
     three = {"fi": "Lukuja: 200 000.", "sv": "Siffror: 300 000.", "en": "Figures: 250,000."}
-    assert figure_slots(three, close(three))[0]["outliers"] == []
+    assert [(s["verdict"], s["outliers"]) for s in figure_slots(three, close(three))] == [("contested", [])]
+    # 3 of 5 is a majority but not a consensus: a split, not two outliers
+    split = {"values": {"fi": "126 875", "sv": "126 875", "de": "126.875", "en": "167,976", "pl": "167 976"}}
+    assert tally(split["values"])["verdict"] == "contested"
+    assert tally({**split["values"], "nl": "126.875"})["outliers"] == ["en", "pl"]  # 4 of 6

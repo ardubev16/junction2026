@@ -8,15 +8,16 @@ No LLM: three levels of vectors, all in MariaDB.
 3. Sentence: inside each passage pair, sentences that are each other's nearest. An exact join: a
    passage pair holds a few dozen sentence pairs, cheaper than index lookups.
 
-Matched sentences are then grouped across languages: pairs that connect (fi-sv, sv-en, fi-en) form
-one group per fact, one sentence per language. Within a group:
+Matched sentences are then grouped across languages, closest pairs first, one sentence per language:
+one group per fact, however many editions state it. Within a group:
 - framing: each edition's position on a semantic axis, e.g. "stated as fact" vs "claimed or
   disputed", against the others' average. An axis is the difference of two groups of anchor
   sentences, written in all three languages so that the language itself cancels out; a sentence's
   position is one VEC_DISTANCE_COSINE against it. With three or more editions, the furthest is the
   outlier; with two, it is just their difference.
-- values: a figure stated very differently (discrepancy.py, at least 20% apart); with a majority,
-  the editions against it are outliers ("126 875 (fi) vs 167,976 (en)").
+- values: a figure stated very differently (discrepancy.py, at least 20% apart), as a vote: the
+  editions against a clear consensus are outliers, a split without one is contested
+  ("126 875 (fi, sv, de) vs 167,976 (en)"). Groups that state the same figure are merged.
 
 See docs/how-it-works.md.
 """
@@ -28,7 +29,7 @@ import numpy as np
 import pymysql
 
 from .db import LANGS
-from .discrepancy import anchored_conflicts, conflicts, figure_slots, value
+from .discrepancy import anchored_conflicts, conflicts, figure_slots, tally, value
 from .embeddings import embed
 
 ER_STATEMENT_TIMEOUT = 1969  # MariaDB: "Query execution was interrupted (max_statement_time exceeded)"
@@ -215,29 +216,67 @@ def sentence_pairs(cur, pairs: list[tuple]) -> list[tuple]:
 
 
 def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
-    """Connected groups of items (sentences or passages) from matched pairs closer than max_dist:
-    (items, largest distance inside). A group holds one item per language; a chain that reaches two
-    items of one language falls back to its pairs."""
+    """Groups of items (sentences or passages) from matched pairs closer than max_dist: (items,
+    largest distance of a pair inside). A group holds one item per language: pairs join their groups
+    closest first, and only when the two groups have no language in common, so a chain that would
+    reach a second sentence of one language stops there instead of breaking the group up. A pair
+    left between two groups is kept as a group of its own, after the groups: its two sentences
+    still match (merge_values folds its figure into the group's vote when they agree)."""
     parent: dict = {}
+    langs: dict = {}  # group root -> its languages
 
     def find(x):
         while parent.setdefault(x, x) != x:
             x = parent[x]
         return x
 
-    kept = [(a, b, d) for a, b, d in edges if d <= max_dist]
+    kept = sorted((e for e in edges if e[2] <= max_dist), key=lambda e: (e[2], e[0], e[1]))
     for a, b, _ in kept:
-        parent[find(a)] = find(b)
-    components: dict = {}
+        ra, rb = find(a), find(b)
+        if ra != rb and not (la := langs.get(ra, {a[0]})) & (lb := langs.get(rb, {b[0]})):
+            parent[ra] = rb
+            langs[rb] = la | lb
+    inside: dict = {}
+    between = []
     for a, b, d in kept:
-        components.setdefault(find(a), []).append((a, b, d))
-    out = []
-    for pairs in components.values():
-        members = {item for a, b, _ in pairs for item in (a, b)}
-        if len({item[0] for item in members}) == len(members):
-            out.append((sorted(members, key=lambda item: lang_order(item[0])), max(d for _, _, d in pairs)))
+        if (root := find(a)) == find(b):
+            members, dist = inside.get(root, (set(), 0.0))
+            inside[root] = (members | {a, b}, max(dist, d))
         else:
-            out += [([a, b], d) for a, b, d in pairs]
+            between.append((sorted([a, b], key=lambda item: lang_order(item[0])), d))
+    return [(sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()] + between
+
+
+def merge_values(findings: list[dict]) -> list[dict]:
+    """One finding per fact: a finding joins an earlier one when each of its figures states values
+    that one of the earlier one's states too (or the other way round), with at least one edition
+    stating the same value in both and none a different one ("350 (hu) vs 366 (lt)" and "366 (da)
+    vs 350 (hu)" become one vote). Those come from separate groups: another sentence, or a passage,
+    in one of the languages, or a pair left between two groups."""
+    def stated(slot):
+        return {lang: value(w) for lang, w in slot["values"].items()}
+
+    def same(s, t):
+        a, b = stated(s), stated(t)
+        shared = a.keys() & b.keys()
+        va, vb = set(a.values()), set(b.values())
+        return (va <= vb or vb <= va) and bool(shared) and all(a[lang] == b[lang] for lang in shared)
+
+    out: list[dict] = []
+    for g in findings:
+        for f in out:
+            match = [next((s for s in f["slots"] if same(s, t)), None) for t in g["slots"]]
+            if all(match):
+                for s, t in zip(match, g["slots"]):
+                    both = {**t["values"], **s["values"]}
+                    s.update(tally({lang: both[lang] for lang in sorted(both, key=lang_order)}))
+                have = {m["lang"] for m in f["members"]}
+                f["members"] = sorted(f["members"] + [m for m in g["members"] if m["lang"] not in have],
+                                      key=lambda m: lang_order(m["lang"]))
+                f["distance"] = max(f["distance"], g["distance"])
+                break
+        else:
+            out.append(g)
     return out
 
 
@@ -246,8 +285,8 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> list[dict]:
     framing ({"kind": "framing"}). Each has members, one per language: the passage, its position
     (page_id, seq) and the sentence (n, sentence) or None when whole passages were compared.
 
-    Matched sentences are grouped across languages (fi-sv, fi-en, sv-en pairs that connect form one
-    group per fact); within a group, the edition that disagrees with the others is the outlier.
+    Matched sentences are grouped across languages, one sentence per language and group; each value
+    slot is a vote ({"votes", "verdict": "outlier" | "contested" | "differs", "outliers"}).
     """
     pairs = passage_pairs(cur, wikidata_id)
     ensure_sentences(cur, sorted({(lang, page_id) for a, b, _ in pairs for lang, page_id, _ in (a, b)}))
@@ -293,7 +332,9 @@ def differences(cur, wikidata_id: str, ensure_sentences) -> list[dict]:
         if slots:
             values.append({"kind": "value", "distance": dist, "slots": slots, "change": change(slots),
                            "members": [member(i) for i in ids]})
-    values.sort(key=lambda f: -f["change"])
+    values = merge_values(values)
+    # facts three or more editions vote on first (they show who is out of line), then by how far apart
+    values.sort(key=lambda f: (max(len(s["values"]) for s in f["slots"]) < 3, -f["change"]))
 
     framing = []
     for ids, dist in groups(edges, FRAMING_MAX):

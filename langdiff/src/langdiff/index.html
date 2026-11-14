@@ -9,7 +9,6 @@
   body { margin: 0; background: #f8f9fa; color: #202122; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
   header { background: #fff; border-bottom: 1px solid var(--border); padding: .6rem 1.5rem; display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; }
   .wordmark { font-family: var(--serif); font-size: 1.5rem; white-space: nowrap; }
-  .wordmark small { display: block; font: .7rem/1 sans-serif; color: var(--muted); letter-spacing: .05em; }
   form { display: flex; flex: 1; max-width: 640px; }
   form input { flex: 1; padding: .45rem .6rem; font-size: 1rem; border: 1px solid #a2a9b1; border-radius: 2px 0 0 2px; }
   .toggle { display: inline-flex; gap: .4rem; align-items: center; font-size: .9rem; cursor: pointer; }
@@ -18,7 +17,13 @@
   h1 { font-size: 1.9rem; margin: 1rem 0 .3rem; border-bottom: 1px solid #a2a9b1; }
   a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
   .muted { color: var(--muted); }
-  .editions { font-size: .9rem; margin-bottom: 1rem; }
+  .editions { position: relative; font-size: .9rem; margin-bottom: 1rem; }
+  .editions summary { cursor: pointer; color: var(--link); width: fit-content; }
+  .editions .langs { position: absolute; z-index: 10; margin-top: .3rem; width: min(900px, 90vw); max-height: 60vh; overflow: auto;
+                     columns: 14em; column-gap: 1.5rem; background: #fff; border: 1px solid var(--border); border-radius: 2px;
+                     padding: .6rem .9rem; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  .editions .langs a { display: block; break-inside: avoid; padding: .1rem 0; }
+  .editions .langs b { color: #202122; font-weight: normal; }
   .icon { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; flex: none; }
   .btn { display: inline-flex; gap: .4rem; align-items: center; font: bold .9rem sans-serif; padding: .4rem .8rem; border-radius: 2px;
          border: 1px solid #a2a9b1; background: #f8f9fa; color: #202122; cursor: pointer; }
@@ -26,11 +31,7 @@
   .btn.small { font-size: .8rem; padding: .15rem .5rem; }
   .btn:disabled { opacity: .5; cursor: default; }
   form .btn { border-radius: 0 2px 2px 0; }
-  .box, .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
-  .card.dismissed { opacity: .6; }
-  .box h2 { margin: 0; font: bold 1.3rem sans-serif; display: flex; gap: .5rem; align-items: center; }
-  .pill { font: bold .8rem sans-serif; background: #eaf3ff; color: var(--link); border-radius: 1em; padding: .1rem .6rem; }
-  .box p { font-family: var(--serif); margin: .3rem 0 0; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
   .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; }
   .meta .pair { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
   .chip { background: var(--chip); border-radius: 2px; padding: .1rem .45rem; }
@@ -54,11 +55,17 @@
   mark { background: #fef6e7; border-bottom: 2px solid #edab00; padding: 0 1px; }
   .odd { color: var(--warn); }
   .quote.outlier blockquote { border-left-color: var(--warn); }
+  .votes table { border-collapse: collapse; margin: .4rem 0; font-size: .9rem; }
+  .votes tr { cursor: pointer; }
+  .votes tr:hover td, .votes tr.picked td { background: #eaf3ff; }
+  .votes td { padding: .15rem .6rem .15rem 0; vertical-align: top; }
+  .votes td.value { font-weight: bold; white-space: nowrap; padding-left: .3rem; }
+  .votes td.count { color: var(--muted); white-space: nowrap; }
 </style>
 </head>
 <body>
 <header>
-  <div class="wordmark">langdiff<small>ALL LATIN-SCRIPT WIKIPEDIAS</small></div>
+  <div class="wordmark">langdiff</div>
   <form id="f">
     <input type="search" id="q" list="titles" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
     <datalist id="titles"></datalist>
@@ -80,7 +87,6 @@ const $ = (tag, attrs = {}, ...kids) => {
 // Icons are drawn here, not taken from a font: fonts without these glyphs showed empty squares.
 // innerHTML only ever sees these constant strings.
 const ICONS = {
-  globe: '<circle cx="10" cy="10" r="8"/><path d="M2 10h16M10 2c3 3 3 13 0 16M10 2c-3 3-3 13 0 16"/>',
   alert: '<path d="M10 2.5 18.5 17.5h-17z"/><path d="M10 8v4M10 14.8v.2"/>',
   pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
   scale: '<path d="M10 3v14M6 17h8M3 6h14M5.5 6 3 12h5zM14.5 6 12 12h5z"/>',
@@ -153,34 +159,21 @@ window.addEventListener("popstate", () => { const t = fromUrl(); if (t) search(t
 ai.addEventListener("change", () => shown && render(shown));
 if (fromUrl()) search(fromUrl(), false);
 
-// Whole-article distances: each pair with three editions or fewer, else the editions furthest from the rest.
-function distances(langs, similarity) {
-  if (langs.length <= 3) return ["Whole-article distance: ", similarity.map((s) => `${s.a}–${s.b} ${s.distance.toFixed(3)}`).join(" · ")];
-  const mean = langs.map((lang) => {
-    const d = similarity.filter((s) => s.a === lang || s.b === lang).map((s) => s.distance);
-    return { lang, mean: d.length ? d.reduce((x, y) => x + y, 0) / d.length : 0 };
-  }).sort((x, y) => y.mean - x.mean);
-  return ["Most different from the others: ", mean.slice(0, 5).map((m) => `${m.lang} ${m.mean.toFixed(3)}`).join(" · ")];
+// Every edition, folded into a menu: a topic can have dozens. Each link opens that edition.
+function editionsMenu(articles) {
+  return $("details", { className: "editions" },
+    $("summary", { textContent: `${articles.length} editions` }),
+    $("div", { className: "langs" }, ...articles.map((a) => $("a", { href: /^https?:\/\//.test(a.url) ? a.url : "#", target: "_blank", rel: "noopener" },
+      $("b", { textContent: `${langName(a.lang)} (${a.lang})` }), ` · ${a.title}`))));
 }
 
 function render(data) {
-  const langs = data.articles.map((a) => a.lang);
   const head = data.articles.find((a) => a.lang === "en") || data.articles[0];
-  const count = (kind) => data.differences.filter((d) => d.kind === kind).length;
-  const which = langs.length > 3 ? `Sentences in ${langs.length} editions that are about the same thing: `
-    : `Sentences in the ${langs.map((l) => `${langName(l)} (${l})`).join(", ")} editions that are about the same thing: `;
   out.replaceChildren(
     $("h1", { textContent: head.title }),
-    $("div", { className: "editions muted" }, "Editions: ",
-      ...data.articles.flatMap((a, i) => [i ? " · " : "", $("a", { href: /^https?:\/\//.test(a.url) ? a.url : "#", target: "_blank", rel: "noopener", textContent: `${a.lang}: ${a.title}` })]),
-      $("br"), ...distances(langs, data.similarity)),
-    $("section", { className: "box" },
-      $("h2", {}, icon("globe"), "Where the editions disagree", $("span", { className: "pill", textContent: `${data.differences.length} found` })),
-      $("p", { textContent: which +
-        `${count("framing")} frame it differently, ${count("value")} state a figure at least 20% apart. ` +
-        `Where three editions match, the one that disagrees with the other two is marked as the outlier.` +
-        (ai.checked ? " Each is checked by AI." : " Turn on AI summaries to check each one.") })),
-    ...(data.differences.length ? [$("h2", { textContent: "Differences" }), ...data.differences.map(card)] : []));
+    editionsMenu(data.articles),
+    ...(data.differences.length ? [$("h2", { textContent: `${data.differences.length} differences` }), ...data.differences.map(card)]
+      : [$("p", { className: "muted", textContent: "The editions state nothing differently that langdiff can find." })]));
 }
 
 const getContext = async (params) => {
@@ -238,24 +231,20 @@ function card(finding) {
   const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
   const state = { highlights: {}, english: null, showEnglish: false, context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
-  let title, label, outliers = [];
+  let title, label, outliers = [], votes = "";
   if (finding.kind === "value") {
     for (const s of finding.slots) for (const [lang, w] of Object.entries(s.values)) (state.highlights[lang] ||= []).push(w);
     outliers = [...new Set(finding.slots.flatMap((s) => s.outliers))];
-    // Each figure: its values, each with the editions stating it ("126 875 (fi, sv) vs 167,976 (en)").
-    title = $("h3", {}, ...finding.slots.flatMap((s, i) => {
-      const byValue = new Map();
-      for (const [lang, w] of Object.entries(s.values)) {
-        const key = w.replace(/\D/g, "");
-        byValue.set(key, { w: byValue.get(key)?.w ?? w, langs: [...(byValue.get(key)?.langs ?? []), lang] });
-      }
-      return [i ? " · " : "", ...[...byValue.values()].flatMap(({ w, langs }, j) => [
-        j ? $("span", { className: "vs", textContent: " vs " }) : "",
-        $("span", { className: s.outliers.includes(langs[0]) ? "odd" : "", textContent: w }),
-        $("span", { className: "vs", textContent: ` (${langs.join(", ")})` })])];
-    }));
+    // Each figure: its values, most stated first ("126 875 vs 167,976"); the vote table below says who states which.
+    title = $("h3", {}, ...finding.slots.flatMap((s, i) => [i ? " · " : "", ...s.votes.flatMap((v, j) => [
+      j ? $("span", { className: "vs", textContent: " vs " }) : "",
+      $("span", { className: s.outliers.includes(v.langs[0]) ? "odd" : "", textContent: v.value })])]));
+    votes = $("div", { className: "votes" });
+    const verdicts = finding.slots.map((s) => s.verdict);
+    const editions = new Set(finding.slots.flatMap((s) => Object.keys(s.values))).size;
     label = $("span", { className: "score" }, icon("alert"),
-      `${outliers.length > 3 ? `Outliers: ${outliers.length} editions` : outliers.length ? `Outlier: ${names(outliers)}` : "Different value"} · ${Math.round(finding.change * 100)}% apart`);
+      `${verdicts.includes("outlier") ? (outliers.length > 3 ? `Outliers: ${outliers.length} editions` : `Outlier: ${names(outliers)}`)
+        : verdicts.includes("contested") ? `Contested among ${editions} editions` : "Different value"} · ${Math.round(finding.change * 100)}% apart`);
   } else {
     const others = finding.members.map((m) => m.lang).filter((l) => l !== finding.lang);
     const toward = finding.deviation > 0 ? finding.ends[0] : finding.ends[1];
@@ -276,9 +265,14 @@ function card(finding) {
   const quoteOf = (p) => p.sentence ?? p.text;
 
   const more = members.length > SHOWN ? $("button", { className: "btn small", type: "button" }) : null;
+  // A value picked in the vote table shows only the editions stating it.
   const renderQuotes = () => {
-    if (more) more.replaceChildren(state.all ? "Show fewer" : `Show all ${members.length} editions`, icon("chevron"));
-    quotes.replaceChildren(...(state.all ? members : first).map((p) => {
+    const pool = state.pick ? members.filter((m) => state.pick.langs.includes(m.lang)) : members;
+    if (more) {
+      more.hidden = pool.length <= SHOWN;
+      more.replaceChildren(state.all ? "Show fewer" : `Show all ${pool.length} editions`, icon("chevron"));
+    }
+    quotes.replaceChildren(...(state.all ? pool : pool.slice(0, SHOWN)).map((p) => {
     const en = state.showEnglish && state.english && p.lang in state.english;
     const heading = (en ? state.english[`${p.lang}-heading`] : p.heading) || "(intro)";
     // In English, the translated quote alone; the passage and its context are in the original language.
@@ -297,6 +291,17 @@ function card(finding) {
     }));
   };
   renderQuotes();
+  const renderVotes = () => votes && votes.replaceChildren(...finding.slots.map((s) => $("table", {}, ...s.votes.map((v) => {
+    const picked = state.pick === v;
+    const row = $("tr", { className: `${s.outliers.includes(v.langs[0]) ? "odd" : ""}${picked ? " picked" : ""}`,
+                          title: picked ? "Show every edition again" : "Show the editions stating this value" },
+      $("td", { className: "value", textContent: v.value }),
+      $("td", { className: "count", textContent: `${v.langs.length} edition${v.langs.length === 1 ? "" : "s"}` }),
+      $("td", { textContent: v.langs.map(langName).join(", ") }));
+    row.addEventListener("click", () => { state.pick = picked ? null : v; renderVotes(); renderQuotes(); });
+    return row;
+  }))));
+  renderVotes();
 
   const tools = $("div", { className: "tools" });
   if (more) {
@@ -353,7 +358,7 @@ function card(finding) {
         $("span", { className: "chip" }, $("b", { textContent: `${m.lang}.wikipedia` }), ` § ${m.heading || "(intro)"}`)]),
         members.length > SHOWN ? ` + ${members.length - SHOWN} more` : ""),
       label),
-    title, verdict, summary, quotes, tools);
+    title, votes, verdict, summary, quotes, tools);
   return article;
 }
 </script>
