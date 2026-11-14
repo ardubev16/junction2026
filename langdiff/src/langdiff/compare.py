@@ -26,14 +26,15 @@ from statistics import fmean
 
 import numpy as np
 
+from .db import LANGS
 from .discrepancy import anchored_conflicts, conflicts, figure_slots, value
 from .embeddings import embed
 
-LANGS = ("fi", "sv", "en")
 PASSAGE_MAX = 0.40  # cosine distance for two parts to be about the same subject
 FIGURES_MAX = 0.40  # sentence pairs compared for figures
 FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, it has no anchor like a number
 FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit on an axis
+MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
 
 # axis -> (anchors for the positive end, anchors for the negative end, how each end reads)
 AXES = {
@@ -62,6 +63,11 @@ def unit(v: np.ndarray) -> np.ndarray:
     return v / np.linalg.norm(v, axis=-1, keepdims=True)
 
 
+def lang_order(lang: str) -> tuple[int, str]:
+    """fi, sv, en first (the dataset's languages), then the rest alphabetically."""
+    return (LANGS.index(lang), "") if lang in LANGS else (len(LANGS), lang)
+
+
 @lru_cache
 def axis_vectors() -> dict[str, bytes]:
     """Each axis as a VECTOR value: mean of its positive anchors minus mean of its negative ones."""
@@ -77,18 +83,26 @@ def axis_vectors() -> dict[str, bytes]:
 _stats: dict[str, dict[str, tuple[float, float]]] = {}
 
 
-def axis_stats(cur) -> dict[str, dict[str, tuple[float, float]]]:
+def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]]:
     """Per axis and language: mean and standard deviation of sentence positions. Languages sit at
-    slightly different places on every axis; comparing against their own mean removes that."""
-    if not _stats:
-        for name, vector in axis_vectors().items():
+    slightly different places on every axis; comparing against their own mean removes that. A
+    language with too few sentences for its own statistics gets all languages' pooled ones."""
+    axes = axis_vectors()
+    pooled = {}
+    if any(lang not in _stats.get(name, {}) for name in axes for lang in langs):
+        for name, vector in axes.items():
+            position = "1 - VEC_DISTANCE_COSINE(embedding, %s)"
             cur.execute(
-                "SELECT lang, AVG(1 - VEC_DISTANCE_COSINE(embedding, %s)), STDDEV(1 - VEC_DISTANCE_COSINE(embedding, %s)) "
-                "FROM sentence GROUP BY lang",
+                f"SELECT lang, COUNT(*), AVG({position}), STDDEV({position}) FROM sentence GROUP BY lang",
                 (vector, vector),
             )
-            _stats[name] = {lang: (mean, sd) for lang, mean, sd in cur.fetchall()}
-    return _stats
+            _stats[name] = {lang: (mean, sd) for lang, n, mean, sd in cur.fetchall() if n >= MIN_STATS_SENTENCES}
+            cur.execute(f"SELECT AVG({position}), STDDEV({position}) FROM sentence", (vector, vector))
+            pooled[name] = cur.fetchone()
+    return {
+        name: {lang: _stats[name][lang] if lang in _stats[name] else pooled[name] for lang in langs}
+        for name in axes
+    }
 
 
 def nearest_part(cur, lang: str, embedding: bytes):
@@ -119,6 +133,8 @@ def passage_pairs(cur, wikidata_id: str) -> list[tuple]:
 
     pairs = set()
     for part, emb in own.items():
+        if part[0] not in LANGS:
+            continue
         for lang in LANGS:
             if lang == part[0] or not (hit := lookup(part, lang, emb)) or hit[1] > PASSAGE_MAX:
                 continue
@@ -131,14 +147,29 @@ def passage_pairs(cur, wikidata_id: str) -> list[tuple]:
             back = lookup(other, part[0], own_emb)
             if back and back[0] == part:
                 pairs.add((min(part, other), max(part, other), dist))
+    # HNSW on a rare language has to filter almost the whole index: outside fi/sv/en, look for the
+    # counterpart inside the topic, by an exact join (only this topic has parts in most languages).
+    cur.execute(
+        f"""WITH t AS (SELECT c.lang, c.page_id, c.seq, c.embedding FROM chunk c JOIN article a USING (lang, page_id)
+                      WHERE a.wikidata_id = %s),
+            d AS (SELECT x.lang AS a, x.page_id AS apage, x.seq AS aseq, y.lang AS b, y.page_id AS bpage, y.seq AS bseq,
+                         VEC_DISTANCE_COSINE(x.embedding, y.embedding) AS dist
+                  FROM t x JOIN t y ON x.lang < y.lang
+                  WHERE NOT (x.lang IN {LANGS} AND y.lang IN {LANGS})),
+            r AS (SELECT d.*, ROW_NUMBER() OVER (PARTITION BY a, apage, aseq, b ORDER BY dist) AS ra,
+                              ROW_NUMBER() OVER (PARTITION BY b, bpage, bseq, a ORDER BY dist) AS rb FROM d)
+            SELECT a, apage, aseq, b, bpage, bseq, dist FROM r WHERE ra = 1 AND rb = 1 AND dist <= %s""",
+        (wikidata_id, PASSAGE_MAX),
+    )
+    pairs |= {((a, apage, aseq), (b, bpage, bseq), dist) for a, apage, aseq, b, bpage, bseq, dist in cur.fetchall()}
     return sorted(pairs)
 
 
 def sentence_pairs(cur, pairs: list[tuple]) -> list[tuple]:
     """Mutual nearest sentences inside each passage pair, with their positions on every axis."""
     cur.execute(
-        "CREATE TEMPORARY TABLE IF NOT EXISTS pair (a CHAR(2), apage INT UNSIGNED, aseq SMALLINT UNSIGNED, "
-        "b CHAR(2), bpage INT UNSIGNED, bseq SMALLINT UNSIGNED)"
+        "CREATE TEMPORARY TABLE IF NOT EXISTS pair (a VARCHAR(12), apage INT UNSIGNED, aseq SMALLINT UNSIGNED, "
+        "b VARCHAR(12), bpage INT UNSIGNED, bseq SMALLINT UNSIGNED)"
     )
     cur.execute("TRUNCATE pair")
     cur.executemany("INSERT INTO pair VALUES (%s, %s, %s, %s, %s, %s)", [(*a, *b) for a, b, _ in pairs])
@@ -192,7 +223,7 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float, dict]
         members = {item for a, b, _ in pairs for item in (a, b)}
         if len({item[0] for item in members}) == len(members):
             dist = {k: d for a, b, d in pairs for k in ((a[0], b[0]), (b[0], a[0]))}
-            out.append((sorted(members, key=lambda item: LANGS.index(item[0])), max(dist.values()), dist))
+            out.append((sorted(members, key=lambda item: lang_order(item[0])), max(dist.values()), dist))
         else:
             out += [([a, b], d, {(a[0], b[0]): d, (b[0], a[0]): d}) for a, b, d in pairs]
     return out
@@ -205,9 +236,8 @@ def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[
     group per fact); within a group, the edition that disagrees with the others is the outlier.
     """
     pairs = passage_pairs(cur, wikidata_id)
-    for page in {(lang, page_id) for a, b, _ in pairs for lang, page_id, _ in (a, b)}:
-        ensure_sentences(cur, *page)
-    stats = axis_stats(cur)
+    ensure_sentences(cur, sorted({(lang, page_id) for a, b, _ in pairs for lang, page_id, _ in (a, b)}))
+    stats = axis_stats(cur, {item[0] for a, b, _ in pairs for item in (a, b)})
     passages = {}
     if pairs:
         keys = {part for a, b, _ in pairs for part in (a, b)}

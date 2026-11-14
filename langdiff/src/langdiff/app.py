@@ -1,16 +1,18 @@
-"""API: where the fi, sv and en Wikipedia articles on one topic state different figures or frame things differently."""
+"""API: where the Latin-script Wikipedia editions of one topic state different figures or frame things differently."""
 
 import json
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from . import wiki
 from .compare import findings
-from .db import SCHEMA, connect
+from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
 from .llm import chat
 
@@ -32,6 +34,7 @@ async def lifespan(_app):
     with connect() as conn, conn.cursor() as cur:  # tables added after the data was loaded
         for stmt in SCHEMA:
             cur.execute(stmt)
+        widen_lang(cur)
     yield
 
 
@@ -64,21 +67,35 @@ def split(text: str) -> list[tuple[str, str]]:
     return parts
 
 
-def ensure_chunks(cur, lang: str, page_id: int, text: str) -> None:
-    cur.execute("SELECT 1 FROM chunk WHERE lang = %s AND page_id = %s LIMIT 1", (lang, page_id))
-    if cur.fetchone():
+def _in(keys: list[tuple]) -> str:
+    """`IN (...)` placeholders for a list of tuples."""
+    return ", ".join(["(" + ", ".join(["%s"] * len(keys[0])) + ")"] * len(keys))
+
+
+def ensure_chunks(cur, articles: list[tuple[str, int, str]]) -> None:
+    """Split and embed the articles (lang, page_id, text) that have no parts yet: one embed() call."""
+    if not articles:
         return
-    parts = split(text)
-    vectors = embed([f"{h}\n\n{t}" if h else t for h, t in parts])
-    cur.executemany(
-        "INSERT IGNORE INTO chunk VALUES (%s, %s, %s, %s, %s, %s)",
-        [(lang, page_id, i, h, t, v) for i, ((h, t), v) in enumerate(zip(parts, vectors))],
-    )
+    keys = [(lang, page_id) for lang, page_id, _ in articles]
+    cur.execute(f"SELECT DISTINCT lang, page_id FROM chunk WHERE (lang, page_id) IN ({_in(keys)})",
+                [v for k in keys for v in k])
+    done = set(cur.fetchall())
+    rows = [(lang, page_id, i, h, t) for lang, page_id, text in articles if (lang, page_id) not in done
+            for i, (h, t) in enumerate(split(text))]
+    if not rows:
+        return
+    vectors = embed([f"{h}\n\n{t}" if h else t for *_, h, t in rows])
+    cur.connection.begin()  # an interrupted run leaves all of an article's parts or none
+    cur.executemany("INSERT IGNORE INTO chunk VALUES (%s, %s, %s, %s, %s, %s)",
+                    [(*row, v) for row, v in zip(rows, vectors)])
+    cur.connection.commit()
 
 
-# A sentence ends at . ! ? followed by a capital, quote or bracket. Not before a digit: "(k. 1985)",
-# "3. syyskuuta" stay whole; a sentence starting with a year joins the one before, which is harmless.
-SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZÅÄÖ\"“”(])")
+# A sentence ends at . ! ? followed by an uppercase letter of any alphabet, a quote or a bracket. Not
+# before a digit or a lowercase letter: "(k. 1985)", "3. syyskuuta", "z. B. der" stay whole; a sentence
+# starting with a year joins the one before, which is harmless.
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=\S)")
+OPENERS = "\"“”«„("
 MIN_SENTENCE = 30  # shorter pieces ("Ks. myös.") join a neighbour in the same line
 
 
@@ -93,7 +110,13 @@ def sentences(part: str) -> list[str]:
             out.append(line)
             continue
         mine, buf = [], ""
-        for piece in SENTENCE_END.split(line):
+        pieces, start = [], 0
+        for m in SENTENCE_BREAK.finditer(line):
+            if line[m.end()] in OPENERS or line[m.end()].isupper():
+                pieces.append(line[start:m.start()].strip())
+                start = m.end()
+        pieces.append(line[start:].strip())
+        for piece in pieces:
             buf = f"{buf} {piece}".strip()
             if len(buf) >= MIN_SENTENCE:
                 mine.append(buf)
@@ -106,23 +129,33 @@ def sentences(part: str) -> list[str]:
     return out
 
 
-def ensure_sentences(cur, lang: str, page_id: int) -> None:
-    """Embed the sentences of an article's parts (which must be embedded already)."""
-    cur.execute("SELECT 1 FROM sentence WHERE lang = %s AND page_id = %s LIMIT 1", (lang, page_id))
-    if cur.fetchone():
+def ensure_sentences(cur, pages: list[tuple[str, int]]) -> None:
+    """Embed the sentences of the pages' parts (parts must exist) that have none yet: one embed() call."""
+    if not pages:
         return
-    cur.execute("SELECT seq, text FROM chunk WHERE lang = %s AND page_id = %s ORDER BY seq", (lang, page_id))
-    rows = [(seq, n, s) for seq, text in cur.fetchall() for n, s in enumerate(sentences(text))]
-    vectors = embed([s for _, _, s in rows])
-    cur.executemany(
-        "INSERT IGNORE INTO sentence VALUES (%s, %s, %s, %s, %s, %s)",
-        [(lang, page_id, seq, n, s, v) for (seq, n, s), v in zip(rows, vectors)],
+    cur.execute(f"SELECT DISTINCT lang, page_id FROM sentence WHERE (lang, page_id) IN ({_in(pages)})",
+                [v for k in pages for v in k])
+    missing = sorted(set(map(tuple, pages)) - set(cur.fetchall()))
+    if not missing:
+        return
+    cur.execute(
+        f"SELECT lang, page_id, seq, text FROM chunk WHERE (lang, page_id) IN ({_in(missing)}) ORDER BY lang, page_id, seq",
+        [v for k in missing for v in k],
     )
+    rows = [(lang, page_id, seq, n, s) for lang, page_id, seq, text in cur.fetchall()
+            for n, s in enumerate(sentences(text))]
+    if not rows:
+        return
+    vectors = embed([s for *_, s in rows])
+    cur.connection.begin()
+    cur.executemany("INSERT IGNORE INTO sentence VALUES (%s, %s, %s, %s, %s, %s)",
+                    [(*row, v) for row, v in zip(rows, vectors)])
+    cur.connection.commit()
 
 
 @app.get("/api/titles")
 def titles(q: str):
-    """Titles starting with q that exist in at least two languages."""
+    """Titles starting with q that exist in at least two languages, then English Wikipedia's suggestions."""
     like = re.sub(r"([\\%_])", r"\\\1", q) + "%"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
@@ -132,31 +165,53 @@ def titles(q: str):
                ORDER BY a.title LIMIT 20""",
             (like,),
         )
-        return [{"title": t, "lang": lang} for t, lang in cur.fetchall()]
+        out = [{"title": t, "lang": lang} for t, lang in cur.fetchall()]
+    if len(out) < 20:
+        try:
+            found = wiki.api("en.wikipedia.org", action="opensearch", search=q, limit=10, namespace=0)[1]
+        except wiki.WikiError:
+            return out
+        listed = {row["title"] for row in out}
+        out += [{"title": t, "lang": "en"} for t in found if t not in listed][: 20 - len(out)]
+    return out
 
 
 @app.get("/api/diff")
-def diff(title: str, limit: int = 10):
+def diff(title: str, limit: int = 10, lang: str = "en"):
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
             "SELECT wikidata_id FROM article WHERE title = %s AND wikidata_id IS NOT NULL "
-            "ORDER BY FIELD(lang, 'fi', 'sv', 'en') LIMIT 1",
+            "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang LIMIT 1",
             (title,),
         )
-        row = cur.fetchone()
-        if not row:
-            raise HTTPException(404, f"no article titled {title!r}")
-        wikidata_id = row[0]
+        if row := cur.fetchone():
+            wikidata_id = row[0]
+            cur.execute(
+                "SELECT lang, title, url FROM article WHERE wikidata_id = %s "
+                "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang LIMIT 1",
+                (wikidata_id,),
+            )
+            seed_lang, seed_title, seed_url = cur.fetchone()
+            seed_host = urlparse(seed_url).netloc
+        else:
+            try:
+                p = wiki.resolve(lang, title)
+            except wiki.WikiError as e:
+                raise HTTPException(502, f"Wikipedia unavailable: {e}") from e
+            if not p:
+                raise HTTPException(404, f"no article titled {title!r} here or on {lang}.wikipedia.org")
+            wikidata_id = p["wikidata_id"]
+            seed_host, seed_title, seed_lang = f"{lang}.wikipedia.org", p["title"], lang
+        wiki.ensure_editions(cur, wikidata_id, seed_host, seed_title, seed_lang)
         cur.execute(
             "SELECT lang, page_id, title, url, text FROM article WHERE wikidata_id = %s "
-            "ORDER BY FIELD(lang, 'fi', 'sv', 'en')",
+            "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang",
             (wikidata_id,),
         )
         articles = cur.fetchall()
         if len(articles) < 2:
             raise HTTPException(404, f"{title!r} exists in one language only")
-        for lang, page_id, _, _, text in articles:
-            ensure_chunks(cur, lang, page_id, text)
+        ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in articles])
 
         # Whole-article distance between languages, from the dataset's own vectors.
         cur.execute(

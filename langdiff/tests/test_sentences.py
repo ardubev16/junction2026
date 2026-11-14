@@ -16,3 +16,16 @@ def test_sentences_split_on_full_stops_but_not_finnish_dates_or_abbreviations():
         "- A list item. With two sentences.",
         "Short. This one is long enough to stand alone as a sentence.",
     ]
+
+
+def test_sentences_split_before_capitals_of_any_latin_alphabet():
+    part = (
+        "Bandera urodził się w Starym Uhrynowie w 1909 roku. Łączył działalność polityczną z terrorem.\n"
+        "Za vlády Hitlera byl v roce 1941 zatčen. Často se o tom dodnes mluví v Česku."
+    )
+    assert sentences(part) == [
+        "Bandera urodził się w Starym Uhrynowie w 1909 roku.",
+        "Łączył działalność polityczną z terrorem.",
+        "Za vlády Hitlera byl v roce 1941 zatčen.",
+        "Často se o tom dodnes mluví v Česku.",
+    ]

@@ -1,8 +1,14 @@
 # How langdiff works
 
-langdiff finds where the Finnish, Swedish and English Wikipedia articles on one topic **state
-different figures** or **frame the same thing differently**. It needs no LLM: only bge-m3 vectors,
-compared inside MariaDB. An optional LLM step (off by default) can summarise and translate.
+langdiff finds where the Wikipedia editions of one topic **state different figures** or **frame the
+same thing differently**: Finnish, Swedish and English from dataset S, every other Latin-script
+edition fetched live from Wikipedia on the first request (`wiki.py`). It needs no LLM: only bge-m3
+vectors, compared inside MariaDB. An optional LLM step (off by default) can summarise and translate.
+
+Passages in two dataset languages (fi, sv, en) are matched over the whole corpus with HNSW, as below.
+Any pair involving another language is matched only inside the topic, by an exact join: HNSW filtered
+to a language with a few articles would scan almost the whole index. Framing statistics fall back to
+all languages pooled for a language with fewer than 200 sentences.
 
 Everything below was measured on dataset S (history of Finland: 29,460 articles) on one laptop CPU,
 unless marked otherwise.

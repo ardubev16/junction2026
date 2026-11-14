@@ -6,7 +6,7 @@ LANGS = ("fi", "sv", "en")
 
 SCHEMA = [
     """CREATE TABLE IF NOT EXISTS article (
-      lang        CHAR(2)      NOT NULL,
+      lang        VARCHAR(12)  NOT NULL,
       page_id     INT UNSIGNED NOT NULL,
       wikidata_id VARCHAR(20),
       title       VARCHAR(255) NOT NULL,
@@ -18,7 +18,7 @@ SCHEMA = [
     ) CHARACTER SET utf8mb4""",
     # The downloaded bge-m3 vectors: one per article, all three languages.
     """CREATE TABLE IF NOT EXISTS article_vector (
-      lang      CHAR(2)      NOT NULL,
+      lang      VARCHAR(12)  NOT NULL,
       page_id   INT UNSIGNED NOT NULL,
       truncated BOOL         NOT NULL,
       embedding VECTOR(1024) NOT NULL,
@@ -28,7 +28,7 @@ SCHEMA = [
     # Parts of articles, embedded on demand with the same model; HNSW finds a part's counterpart
     # in another language anywhere in the corpus.
     """CREATE TABLE IF NOT EXISTS chunk (
-      lang      CHAR(2)           NOT NULL,
+      lang      VARCHAR(12)       NOT NULL,
       page_id   INT UNSIGNED      NOT NULL,
       seq       SMALLINT UNSIGNED NOT NULL,
       heading   VARCHAR(500)      NOT NULL,
@@ -40,7 +40,7 @@ SCHEMA = [
     # Sentences of those parts (seq = the part). Matched only inside a pair of parts, by an exact
     # join: cheaper than HNSW lookups there (0.11 s vs 3.7 s for Winter War), so no vector index.
     """CREATE TABLE IF NOT EXISTS sentence (
-      lang      CHAR(2)           NOT NULL,
+      lang      VARCHAR(12)       NOT NULL,
       page_id   INT UNSIGNED      NOT NULL,
       seq       SMALLINT UNSIGNED NOT NULL,
       n         SMALLINT UNSIGNED NOT NULL,
@@ -53,7 +53,22 @@ SCHEMA = [
       k        BINARY(32) PRIMARY KEY,
       response MEDIUMTEXT NOT NULL
     ) CHARACTER SET utf8mb4""",
+    # A row means: every Latin-script edition of this topic has been fetched (or ruled out).
+    """CREATE TABLE IF NOT EXISTS topic_editions (
+      wikidata_id VARCHAR(20) PRIMARY KEY,
+      fetched_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )""",
 ]
+
+
+def widen_lang(cur) -> None:
+    """Make lang columns created as CHAR(2) wide enough for any Wikipedia code (be-tarask). Idempotent."""
+    cur.execute(
+        "SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'lang' "
+        "AND CHARACTER_MAXIMUM_LENGTH = 2 AND TABLE_NAME IN ('article','article_vector','chunk','sentence')"
+    )
+    for (table,) in cur.fetchall():
+        cur.execute(f"ALTER TABLE {table} MODIFY lang VARCHAR(12) NOT NULL")
 
 
 def connect():

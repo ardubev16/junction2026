@@ -1,22 +1,38 @@
 # langdiff
 
-Where do the Finnish, Swedish and English Wikipedia articles on the same topic state different
+Where do the Wikipedia editions of the same topic, in every Latin-script language, state different
 facts? Built on dataset S of
-[mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) and MariaDB Vector.
+[mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) (fi, sv, en) and
+MariaDB Vector; the other editions are fetched live from Wikipedia the first time a topic is asked for.
 
 ## Run
 
-Needs Docker, uv and [Ollama](https://ollama.com) with `bge-m3` (`ollama pull bge-m3`).
+Needs Docker, uv and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
+sentences are embedded with bge-m3 on a Modal H100 (`src/langdiff/embed_gpu.py`).
 
 ```bash
 docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the langdiff-data volume
 uv run langdiff-load          # download S (articles + bge-m3 vectors, fi/sv/en) into MariaDB
+uv run modal deploy src/langdiff/embed_gpu.py   # bge-m3 on an H100, scales to zero after 5 idle minutes
 uv run --env-file .env langdiff   # http://127.0.0.1:8000; .env holds AI_API_KEY
 ```
 
 `langdiff-load` keeps its downloads in `data/` (checked against the release's `SHA256SUMS`) and
 can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
-`DB_NAME`, `OLLAMA_URL`.
+`DB_NAME`.
+
+Embedding an article the first time: ~10 s with a warm GPU container (Urho Kekkonen, fi + sv + en),
+then 0.3 s from the database. A cold container first loads the model: ~30–50 s. Modal's vectors
+match Ollama's `bge-m3` (cosine 0.99999), so they are comparable with the dataset's.
+
+**Live editions** (`src/langdiff/wiki.py`): the first request for a topic follows its language links
+and fetches every edition whose title and text are Latin script (≥90 % of letters), one MediaWiki API
+request at a time (Wikimedia answers bursts with 429), converts the plain-text extract to Markdown
+without its closing appendix (references, bibliography, links: headings classified by bge-m3 against
+anchor names, only in the trailing run of sections without prose), and embeds them all in one batch.
+`topic_editions` remembers finished topics. Measured: Stepan Bandera (not in S) 47 editions in 49 s,
+then 4.4 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s. Titles not in the
+database are looked up on English Wikipedia (`/api/diff?lang=` picks another).
 
 ### LLM
 
@@ -53,6 +69,6 @@ all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 **AI summaries** (checkbox on the page, off by default): an LLM checks each finding, says what each
 edition states, and can translate the quotes to English keeping the highlights. Cached in `llm_cache`.
 
-API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=15`,
+API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions), `GET /api/diff?title=Talvisota&limit=15`,
 `POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
