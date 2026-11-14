@@ -26,6 +26,14 @@
     t.innerHTML = `<svg class="icon" viewBox="0 0 20 20" aria-hidden="true">${ICONS[name]}</svg>`;
     return t.content.firstChild;
   };
+  // Same logo as the web app's header (src/wikicross/index.html).
+  const logo = () => {
+    const t = document.createElement("template");
+    t.innerHTML = '<svg class="logo" viewBox="0 0 24 24" fill="none" stroke="#36c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+      + '<path d="M19 11.5A8 8 0 1 0 11.5 19"/><path d="M4.6 7.2A8 8 0 0 1 18.6 8.6l-2.2.5-1.3-1.5-1.7 1.4-1.3-1.1-1.6 2.1.8 1.8-1.7 1.5-2-.8-1.3 2.4-2.2-1.1z" fill="#36c" stroke="none"/>'
+      + '<circle cx="15.8" cy="15.8" r="3.3"/><path d="m18.3 18.3 2.9 2.9"/></svg>';
+    return t.content.firstChild;
+  };
   const $ = (tag, attrs = {}, ...kids) => {
     const el = Object.assign(document.createElement(tag), attrs);
     el.append(...kids);
@@ -55,7 +63,8 @@
              font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
     .panel[hidden] { display: none; }
     header { position: sticky; top: 0; background: #f8f9fa; border-bottom: 1px solid #c8ccd1; padding: .4rem .8rem; display: flex; justify-content: space-between; align-items: center; }
-    header h2 { margin: 0; font: bold 15px/1.3 sans-serif; }
+    header h2 { margin: 0; font: bold 15px/1.3 sans-serif; display: inline-flex; gap: .4rem; align-items: center; }
+    .logo { width: 20px; height: 20px; flex: none; }
     .lean { background: #f8f9fa; border: 1px solid #eaecf0; border-radius: 2px; padding: .5rem .7rem; margin: .5rem 0; font-size: 13px; }
     .lean b { display: block; font-size: 14px; }
     .body { padding: .4rem .8rem .8rem; }
@@ -279,7 +288,7 @@
       body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
         ...elsewhere.map((f) => finding(f, data.articles))));
     }
-    panel.replaceChildren($("header", {}, $("h2", { textContent: "WikiCross" }), close), body);
+    panel.replaceChildren($("header", {}, $("h2", {}, logo(), "WikiCross"), close), body);
   }
 
   function showMessage(text, error) {
