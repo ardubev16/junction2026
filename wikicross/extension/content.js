@@ -64,10 +64,10 @@
              font: 14px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
     .panel[hidden] { display: none; }
     header { position: sticky; top: 0; background: #f8f9fa; border-bottom: 1px solid #c8ccd1; padding: .4rem .8rem; display: flex; justify-content: space-between; align-items: center; }
-    header h2 { margin: 0; font: bold 15px/1.3 sans-serif; display: inline-flex; gap: .4rem; align-items: center; }
+    header h2 { margin: 0; font: bold 15px/1.3 sans-serif; }
+    .home { all: unset; display: inline-flex; gap: .4rem; align-items: center; cursor: pointer; }
+    .home:hover { color: #36c; } .home:focus-visible { outline: 2px solid #36c; outline-offset: 2px; }
     .logo { width: 20px; height: 20px; flex: none; }
-    .lean { background: #f8f9fa; border: 1px solid #eaecf0; border-radius: 2px; padding: .5rem .7rem; margin: .5rem 0; font-size: 13px; }
-    .lean b { display: block; font-size: 14px; }
     .body { padding: .4rem .8rem .8rem; }
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
     .card.locatable { cursor: pointer; } .card.locatable:hover { border-color: #36c; }
@@ -252,27 +252,6 @@
     return card;
   }
 
-  // Where this edition leans: its average distance from the other editions on each framing axis over
-  // every matched group, and the editions whose profile is closest and furthest from its own.
-  const NEUTRAL = 0.2;  // σ: below this on every axis the edition reads as neutral
-  const MIN_GROUPS = 5;  // editions matched in fewer groups have no meaningful profile
-  function leaning(data) {
-    const eds = data.leaning?.editions || {}, me = eds[lang];
-    if (!me || me.groups < MIN_GROUPS) return null;
-    const axes = Object.entries(data.leaning.axes);
-    const leans = axes.filter(([a]) => Math.abs(me[a]) >= NEUTRAL).map(([a, ends]) => `${me[a] > 0 ? ends[0] : ends[1]} (${me[a] > 0 ? "+" : "−"}${Math.abs(me[a]).toFixed(1)}σ)`);
-    const others = Object.entries(eds).filter(([l, e]) => l !== lang && e.groups >= MIN_GROUPS)
-      .map(([l, e]) => ({ l, d: Math.hypot(...axes.map(([a]) => e[a] - me[a])) })).sort((x, y) => x.d - y.d);
-    const box = $("div", { className: "lean" }, $("b", { textContent: leans.length ? "This edition leans" : "This edition is neutral" }),
-      leans.length ? `It ${leans.join(", and ")} than the other editions on average.` : "Its tone, wording and certainty are close to the other editions' average.");
-    if (others.length >= 2) {
-      const k = Math.min(3, Math.floor(others.length / 2));
-      box.append($("div", { className: "muted", textContent: `Framed most like: ${others.slice(0, k).map((o) => langName(o.l)).join(", ")}` }),
-        $("div", { className: "muted", textContent: `Least like: ${others.slice(-k).reverse().map((o) => langName(o.l)).join(", ")}` }));
-    }
-    return box;
-  }
-
   function render(data) {
     const mine = data.differences.filter((f) => f.members.some((m) => m.lang === lang));
     const elsewhere = data.differences.filter((f) => !mine.includes(f));
@@ -282,8 +261,9 @@
     const close = $("button", { className: "close", type: "button", title: "Close", ariaLabel: "Close" }, icon("close"));
     close.addEventListener("click", () => { panel.hidden = true; });
     const body = $("div", { className: "body" });
-    const lean = leaning(data);
-    if (lean) body.append(lean);
+    // The logo and name open this topic in the web app, in a new tab (background.js knows its address).
+    const home = $("button", { className: "home", type: "button", title: "Open this topic in the WikiCross web app" }, logo(), "WikiCross");
+    home.addEventListener("click", () => chrome.runtime.sendMessage({ type: "open", title, lang }));
     if (!data.articles.some((a) => a.lang === lang)) {
       body.append($("p", { className: "muted", textContent: `This edition (${langName(lang)}) is not compared: only Latin- and Cyrillic-script editions are. Below, what the others state differently.` }));
     } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently from the other editions." }));
@@ -292,7 +272,7 @@
       body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
         ...elsewhere.map((f) => finding(f))));
     }
-    panel.replaceChildren($("header", {}, $("h2", {}, logo(), "WikiCross"), close), body);
+    panel.replaceChildren($("header", {}, $("h2", {}, home), close), body);
   }
 
   function showMessage(text, error) {

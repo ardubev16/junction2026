@@ -4,8 +4,13 @@
 const BACKEND = "http://127.0.0.1:8000";
 const PATHS = ["/api/diff", "/api/progress"];
 
+// {type: "open", title, lang}: the web app on that topic, in a new tab.
 // {type: "get", path, params} -> {data} or {error, status}
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "open") {
+    chrome.tabs.create({ url: `${BACKEND}/?${new URLSearchParams({ title: message.title, lang: message.lang })}` });
+    return false;
+  }
   if (message?.type !== "get" || !PATHS.includes(message.path)) return false;
   fetch(`${BACKEND}${message.path}?${new URLSearchParams(message.params)}`)
     .then(async (r) => {
