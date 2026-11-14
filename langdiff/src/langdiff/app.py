@@ -1,15 +1,16 @@
-"""API: where the fi, sv and en Wikipedia articles on one topic state different figures or frame things differently."""
+"""API: where the fi, sv and en Wikipedia articles on one topic frame things differently or state very different figures."""
 
 import json
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
-from .compare import findings
+from .compare import differences
 from .db import SCHEMA, connect
 from .embeddings import embed
 from .llm import chat
@@ -169,15 +170,30 @@ def diff(title: str, limit: int = 10):
         )
         similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall()]
 
-        figures, framing = findings(cur, wikidata_id, ensure_sentences)
+        found = differences(cur, wikidata_id, ensure_sentences)
 
     return {
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
         "similarity": similarity,
-        "figures": figures[:limit],
-        "framing": framing[:limit],
+        "differences": found[:limit],
     }
+
+
+@app.get("/api/context")
+def context(lang: str, page_id: int, seq: int, n: int, direction: Literal["up", "down"], count: int = 3):
+    """Up to `count` sentences of an article just before or after position (seq, n), in reading order:
+    for expanding a quote like a diff. A whole passage seq expands up from (seq, 0) and down from (seq, 65535)."""
+    up = direction == "up"
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.seq, s.n, c.heading, s.text FROM sentence s JOIN chunk c USING (lang, page_id, seq) "
+            f"WHERE s.lang = %s AND s.page_id = %s AND (s.seq, s.n) {'<' if up else '>'} (%s, %s) "
+            f"ORDER BY s.seq {'DESC' if up else ''}, s.n {'DESC' if up else ''} LIMIT %s",
+            (lang, page_id, seq, n, max(1, min(count, 20))),
+        )
+        rows = [{"seq": s, "n": i, "heading": h, "text": t} for s, i, h, t in cur.fetchall()]
+    return rows[::-1] if up else rows
 
 
 def strings(keys) -> dict:

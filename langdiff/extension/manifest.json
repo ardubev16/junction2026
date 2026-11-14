@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "langdiff for Wikipedia",
-  "version": "0.1.0",
-  "description": "In the Wikipedia edit view, shows where the Finnish, Swedish and English editions of the article state different figures or frame things differently.",
+  "version": "0.2.0",
+  "description": "On Wikipedia articles and their edit views, shows where the Finnish, Swedish and English editions frame things differently or state very different figures.",
   "host_permissions": ["http://127.0.0.1:8000/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [

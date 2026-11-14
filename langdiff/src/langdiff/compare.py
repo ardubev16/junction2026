@@ -1,4 +1,4 @@
-"""Where the language editions of one topic state different figures, or frame the same thing differently.
+"""Where the language editions of one topic frame the same thing differently, or state very different figures.
 
 No LLM: three levels of vectors, all in MariaDB.
 1. Article: the editions of a topic share a wikidata_id.
@@ -10,13 +10,13 @@ No LLM: three levels of vectors, all in MariaDB.
 
 Matched sentences are then grouped across languages: pairs that connect (fi-sv, sv-en, fi-en) form
 one group per fact, one sentence per language. Within a group:
-- figures: numbers the editions state differently (discrepancy.py); with a majority, the editions
-  against it are outliers ("260 (fi, sv) vs 259 (en)");
 - framing: each edition's position on a semantic axis, e.g. "stated as fact" vs "claimed or
   disputed", against the others' average. An axis is the difference of two groups of anchor
   sentences, written in all three languages so that the language itself cancels out; a sentence's
   position is one VEC_DISTANCE_COSINE against it. With three or more editions, the furthest is the
   outlier; with two, it is just their difference.
+- values: a figure stated very differently (discrepancy.py, at least 20% apart); with a majority,
+  the editions against it are outliers ("126 875 (fi) vs 167,976 (en)").
 
 See docs/how-it-works.md.
 """
@@ -31,7 +31,7 @@ from .embeddings import embed
 
 LANGS = ("fi", "sv", "en")
 PASSAGE_MAX = 0.40  # cosine distance for two parts to be about the same subject
-FIGURES_MAX = 0.40  # sentence pairs compared for figures
+VALUES_MAX = 0.40  # sentence pairs compared for values
 FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, it has no anchor like a number
 FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit on an axis
 
@@ -169,11 +169,10 @@ def sentence_pairs(cur, pairs: list[tuple]) -> list[tuple]:
     return cur.fetchall()
 
 
-def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float, dict]]:
+def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     """Connected groups of items (sentences or passages) from matched pairs closer than max_dist:
-    (items, largest distance inside, {(lang, lang): distance} for the pairs that matched directly).
-    A group holds one item per language; a chain that reaches two items of one language falls back
-    to its pairs."""
+    (items, largest distance inside). A group holds one item per language; a chain that reaches two
+    items of one language falls back to its pairs."""
     parent: dict = {}
 
     def find(x):
@@ -191,15 +190,16 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float, dict]
     for pairs in components.values():
         members = {item for a, b, _ in pairs for item in (a, b)}
         if len({item[0] for item in members}) == len(members):
-            dist = {k: d for a, b, d in pairs for k in ((a[0], b[0]), (b[0], a[0]))}
-            out.append((sorted(members, key=lambda item: LANGS.index(item[0])), max(dist.values()), dist))
+            out.append((sorted(members, key=lambda item: LANGS.index(item[0])), max(d for _, _, d in pairs)))
         else:
-            out += [([a, b], d, {(a[0], b[0]): d, (b[0], a[0]): d}) for a, b, d in pairs]
+            out += [([a, b], d) for a, b, d in pairs]
     return out
 
 
-def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[dict]]:
-    """(figures, framing) found between the editions of a topic, best first.
+def differences(cur, wikidata_id: str, ensure_sentences) -> list[dict]:
+    """What the editions of a topic state differently, best first: values ({"kind": "value"}), then
+    framing ({"kind": "framing"}). Each has members, one per language: the passage, its position
+    (page_id, seq) and the sentence (n, sentence) or None when whole passages were compared.
 
     Matched sentences are grouped across languages (fi-sv, fi-en, sv-en pairs that connect form one
     group per fact); within a group, the edition that disagrees with the others is the outlier.
@@ -216,7 +216,8 @@ def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[
             f"WHERE (c.lang, c.page_id, c.seq) IN ({', '.join(['(%s, %s, %s)'] * len(keys))})",
             [v for key in keys for v in key],
         )
-        passages = {(lang, page_id, seq): {"lang": lang, "title": title, "heading": heading, "text": text}
+        passages = {(lang, page_id, seq): {"lang": lang, "title": title, "heading": heading, "text": text,
+                                           "page_id": page_id, "seq": seq}
                     for lang, page_id, seq, title, heading, text in cur.fetchall()}
 
     sentence: dict[tuple, tuple[str, list[float]]] = {}  # (lang, page_id, seq, n) -> (text, axis positions)
@@ -226,31 +227,32 @@ def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[
         sentence[sa], sentence[sb] = (atext, pos[0::2]), (btext, pos[1::2])
         edges.append((sa, sb, dist))
 
-    def rank(f):  # findings with an outlier first, then more figures, then closer matches
-        return (-sum(bool(s["outliers"]) for s in f["slots"]), -len(f["slots"]), f["distance"])
+    def member(i):  # a sentence (lang, page_id, seq, n) or a whole passage (lang, page_id, seq)
+        return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]} if len(i) == 4 \
+            else {**passages[i], "n": None, "sentence": None}
 
-    figures = []
-    for ids, dist, pair_dist in groups(edges, FIGURES_MAX):
+    def change(slots):  # the largest relative difference among a finding's figures
+        return max(1 - min(vs) / max(vs) for s in slots if (vs := [value(w) for w in s["values"].values()]))
+
+    values = []
+    for ids, dist in groups(edges, VALUES_MAX):
         text = {i[0]: sentence[i][0] for i in ids}
-        # each pair of languages by its own distance; one not matched directly counts as far (no years)
-        if slots := figure_slots(text, lambda a, b: conflicts(text[a], text[b], pair_dist.get((a, b), 1.0))):
-            figures.append({"distance": dist, "slots": slots,
-                            "members": [{**passages[i[:3]], "sentence": sentence[i][0]} for i in ids]})
-    figures.sort(key=rank)
+        if slots := figure_slots(text, lambda a, b: conflicts(text[a], text[b])):
+            values.append({"kind": "value", "distance": dist, "slots": slots, "change": change(slots),
+                           "members": [member(i) for i in ids]})
     # Then whole passages, for figures the sentence matching missed (a table row against a sentence).
-    seen = {(lang, value(w)) for f in figures for s in f["slots"] for lang, w in s["values"].items()}
-    more = []
-    for ids, dist, _ in groups(pairs, PASSAGE_MAX):
+    seen = {(lang, value(w)) for f in values for s in f["slots"] for lang, w in s["values"].items()}
+    for ids, dist in groups(pairs, PASSAGE_MAX):
         text = {i[0]: passages[i]["text"] for i in ids}
         slots = [s for s in figure_slots(text, lambda a, b: anchored_conflicts(text[a], text[b]))
                  if not {(lang, value(w)) for lang, w in s["values"].items()} <= seen]
         if slots:
-            more.append({"distance": dist, "slots": slots,
-                         "members": [{**passages[i], "sentence": None} for i in ids]})
-    figures += sorted(more, key=rank)
+            values.append({"kind": "value", "distance": dist, "slots": slots, "change": change(slots),
+                           "members": [member(i) for i in ids]})
+    values.sort(key=lambda f: -f["change"])
 
     framing = []
-    for ids, dist, _ in groups(edges, FRAMING_MAX):
+    for ids, dist in groups(edges, FRAMING_MAX):
         best = None
         for k, (name, (_, _, ends)) in enumerate(AXES.items()):
             z = {i[0]: (sentence[i][1][k] - stats[name][i[0]][0]) / stats[name][i[0]][1] for i in ids}
@@ -260,7 +262,7 @@ def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[
                 if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
                     best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation}
         if best:
-            framing.append({"distance": dist, **best, "outlier": len(ids) >= 3,
-                            "members": [{**passages[i[:3]], "sentence": sentence[i][0]} for i in ids]})
+            framing.append({"kind": "framing", "distance": dist, **best, "outlier": len(ids) >= 3,
+                            "members": [member(i) for i in ids]})
     framing.sort(key=lambda f: -abs(f["deviation"]))
-    return figures, framing
+    return values + framing

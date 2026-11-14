@@ -1,7 +1,7 @@
 # langdiff
 
-Where do the Finnish, Swedish and English Wikipedia articles on the same topic state different
-facts? Built on dataset S of
+Where do the Finnish, Swedish and English Wikipedia articles on the same topic frame things
+differently, or state very different figures? Built on dataset S of
 [mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) and MariaDB Vector.
 
 ## Run
@@ -20,21 +20,29 @@ can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_
 
 ### Chrome extension
 
-`extension/` shows the same findings inside the Wikipedia edit view (fi, sv, en; source editor and
-VisualEditor): a "langdiff · N" button opens a panel listing what this edition states differently
-from the others, each with the other editions' sentences, links to them, and **Find in source**,
-which selects the sentence's figure (or the sentence) in the wikitext.
+`extension/` shows the same findings on Wikipedia itself (fi, sv, en): a "langdiff · N" button opens
+a panel listing what this edition states differently from the others, with the other editions'
+sentences and links to them. Quotes expand up and down like in the web app. **Clicking a finding
+shows it on the page**: in the article view and VisualEditor its paragraph is highlighted and
+scrolled to; in the source editor the figure (for a value) or the whole paragraph (for framing) is
+selected in the wikitext.
 
 1. Start the backend (above) on `http://127.0.0.1:8000`.
 2. `chrome://extensions` → Developer mode → **Load unpacked** → select `langdiff/extension`.
-3. Open an article's edit view, e.g. `https://fi.wikipedia.org/w/index.php?title=Urho_Kekkonen&action=edit`.
+3. Open an article, e.g. `https://fi.wikipedia.org/wiki/Talvisota`, and click the button; or its
+   edit view, where it loads at once.
 
-The extension calls the backend from its service worker (host permission, no CORS change needed);
-for another backend address, change `BACKEND` in `extension/background.js` and `host_permissions`
-in `extension/manifest.json`. Findings come from the dataset snapshot, not the text being edited.
-"Find in source" works in the source editor only. An article not embedded yet takes minutes the
-first time; past about five minutes Chrome may stop the service worker, and reopening the page shows
-the result once the backend has finished.
+In the article view the extension asks the backend only when the button is clicked, so reading
+Wikipedia does not embed every article visited; pages that are not in the dataset get no button.
+It calls the backend from its service worker (host permission, no CORS change needed); for another
+backend address, change `BACKEND` in `extension/background.js` and `host_permissions` in
+`extension/manifest.json`. Findings come from the dataset snapshot, not the live page: a paragraph
+edited since may still be found (by its words), or not. An article not embedded yet takes minutes
+the first time; past about five minutes Chrome may stop the service worker, and asking again shows
+the result once the backend has finished. After changing `background.js`, reload the extension in
+`chrome://extensions`: Chrome keeps running the old worker otherwise.
+
+The web app and the extension must stay in sync: see [AGENTS.md](AGENTS.md).
 
 ### LLM
 
@@ -61,9 +69,10 @@ A new provider with one of these APIs is a new preset; a new API is a `(request,
 
 No LLM is needed: articles, passages and sentences are matched across languages with bge-m3
 vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
-into one group per fact, and each group is checked for **different figures** and **different
-framing** (position on "fact ↔ disputed" and "praised ↔ condemned" axes). With three editions in a
-group, the one that disagrees with the other two is the outlier ("260 (fi, sv) vs 259 (en)").
+into one group per fact, and each group is checked for **different framing** (position on "fact ↔
+disputed" and "praised ↔ condemned" axes) and **very different figures** (at least 20% apart; small
+differences and years are left out). With three editions in a group, the one that disagrees with
+the other two is the outlier.
 
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
@@ -71,6 +80,7 @@ all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 **AI summaries** (checkbox on the page, off by default): an LLM checks each finding, says what each
 edition states, and can translate the quotes to English keeping the highlights. Cached in `llm_cache`.
 
-API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=15`,
-`POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding),
-`POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
+API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=15`
+(`differences`: values, then framing), `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3`
+(sentences around a quote), `POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one
+finding), `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.

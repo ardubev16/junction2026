@@ -1,8 +1,9 @@
 # How langdiff works
 
-langdiff finds where the Finnish, Swedish and English Wikipedia articles on one topic **state
-different figures** or **frame the same thing differently**. It needs no LLM: only bge-m3 vectors,
-compared inside MariaDB. An optional LLM step (off by default) can summarise and translate.
+langdiff finds where the Finnish, Swedish and English Wikipedia articles on one topic **frame the
+same thing differently** or **state a figure very differently** (at least 20% apart). It needs no
+LLM: only bge-m3 vectors, compared inside MariaDB. An optional LLM step (off by default) can
+summarise and translate.
 
 Everything below was measured on dataset S (history of Finland: 29,460 articles) on one laptop CPU,
 unless marked otherwise.
@@ -19,13 +20,13 @@ flowchart TD
   P --> E2[Split matched passages into sentences, embed on demand]
   E2 --> S[Sentence matching inside each passage pair: exact join]
   S --> G[Group matched sentences across languages: one group per fact]
-  G --> F1[Figures: numbers stated differently, majority → outlier]
+  G --> F1[Values: figures at least 20% apart, majority → outlier]
   G --> F2[Framing: position on semantic axes, furthest edition → outlier]
-  P --> F3[Passage-level figures: quantities, only with a shared anchor number]
-  F1 --> R[JSON: figures + framing]
+  P --> F3[Passage-level values: quantities, only with a shared anchor number]
+  F1 --> R[JSON: differences, values first, then framing]
   F2 --> R
   F3 --> R
-  R --> UI[Web page: cards, quotes side by side, copy, optional AI]
+  R --> UI[Web page and Chrome extension: quotes side by side, expandable, copy, optional AI]
 ```
 
 Two different questions are answered by two different mechanisms:
@@ -96,8 +97,11 @@ sequenceDiagram
     API->>DB: INSERT sentence
   end
   API->>DB: one query: sentence pairs + axis positions (window functions)
-  API->>API: group, flag figures and framing
-  API-->>B: figures, framing
+  API->>API: group, flag values and framing
+  API-->>B: differences
+  opt "Expand up / down" on a quote
+    B->>API: GET /api/context (neighbouring sentences, from the sentence table)
+  end
   opt "AI summaries" ticked
     B->>API: POST /api/explain, /api/translate (LLM, cached in llm_cache)
   end
@@ -120,7 +124,7 @@ sequenceDiagram
 |---|---|---|---|
 | Article | same `wikidata_id` | — | exact, free |
 | Passage | nearest passage in each other language **over the whole corpus** (HNSW), kept if mutual | cosine distance ≤ 0.40 | the counterpart can sit in another article (fi keeps *Talvisodan tausta* apart from *Talvisota*) |
-| Sentence | nearest sentence **inside the matched passage pair**, kept if mutual (`ROW_NUMBER()` both ways) | ≤ 0.40 for figures, ≤ 0.35 for framing | a passage pair has a few dozen sentence pairs: an exact join beats index lookups |
+| Sentence | nearest sentence **inside the matched passage pair**, kept if mutual (`ROW_NUMBER()` both ways) | ≤ 0.40 for values, ≤ 0.35 for framing | a passage pair has a few dozen sentence pairs: an exact join beats index lookups |
 
 "Mutual" means each is the other's nearest: one-to-one, so one long English paragraph cannot absorb
 three Finnish ones.
@@ -129,9 +133,10 @@ three Finnish ones.
 
 Matched sentence pairs that connect (fi–sv, sv–en, fi–en) form one **group** per fact, with at most
 one sentence per language. A chain that reaches two sentences of one language is ambiguous and falls
-back to its pairs. The same grouping is applied to matched passages for the passage-level figure
+back to its pairs. The same grouping is applied to matched passages for the passage-level value
 check. Example: the three Urho Kekkonen passages on the 1978 election, with their measured cosine
-distances:
+distances (260 vs 259 is under the 20% bar, so this group is no longer reported; it shows the
+grouping only):
 
 ```mermaid
 flowchart LR
@@ -146,27 +151,31 @@ Measured: with three languages most groups are still pairs (Urho Kekkonen: 27 th
 and 90 pairs; Winter War: 8 and 37). Voting needs three; the more languages, the more groups have a
 majority.
 
-### 4a. Flagging figures (`discrepancy.py`)
+### 4a. Flagging values (`discrepancy.py`)
 
 Digits read the same in every language here; only thousands separators differ (`25,904`, `23 576`,
 `23 576`), and they are normalised.
 
-1. Between two sentences of a group, a **conflict** is a pair of numbers that each side has and the
-   other lacks, close in value:
-   - quantities (≥100, not years) within a factor of 1.67;
-   - years within ±2, and only for sentence pairs closer than 0.30 (unrelated events have unrelated
-     years). Pairs in a group that did not match directly are treated as far: no years.
-
-   Each number is matched once, to its closest counterpart.
-2. Conflicting numbers that touch form a **slot** (one fact). A language whose sentence states one of
+1. Between two sentences of a group, candidates are pairs of numbers that each side has and the other
+   lacks: quantities (≥100, never years) within a factor of 1.67. Each number is matched once, to
+   its closest counterpart.
+2. A matched pair is a **conflict** only if the two differ by at least 20% of the larger. Smaller
+   differences (260 vs 259 electoral votes, 25,904 vs 23 576 dead, rounding, revised counts) are
+   mostly harmless and crowded out the framing findings; they are matched first and then dropped, so
+   a small difference cannot re-pair as a big one with another number.
+3. Conflicting numbers that touch form a **slot** (one fact). A language whose sentence states one of
    the slot's values exactly backs that value.
-3. A value held by more than half of the slot, by at least two editions, makes the others
+4. A value held by more than half of the slot, by at least two editions, makes the others
    **outliers**. Two editions, or no majority, give no outlier.
 
-**Passage-level fallback**: whole passages are compared too, for quantities only, and only when the
-two passages share at least one identical number. "43,557 wounded" in both en and sv shows they
-report the same statistics, so 25,904 vs 23 576 dead in the same passages is a real conflict, even
-though one side is a table row that never pairs with a sentence.
+**Passage-level fallback**: whole passages are compared too, only when the two passages share at
+least one identical number. "43,557 wounded" in both shows they report the same statistics, so a
+big difference in another of their figures is likely one fact stated differently, even when one side
+is a table row that never pairs with a sentence. It is also where most coincidences come from (see
+Limitations).
+
+Values are listed first, by largest difference, then framing by deviation: a figure 20%+ apart is
+concrete, framing is a degree.
 
 ### 4b. Flagging framing (`compare.py`)
 
@@ -191,11 +200,13 @@ reported when it is at least 1.2σ; with three or more editions, that edition is
 
 | Topic | Kind | Editions | Result |
 |---|---|---|---|
-| Urho Kekkonen | figures, passage group | fi 260, sv 260, en 259 (1978 electoral votes) | outlier: **en** |
 | Urho Kekkonen | framing, pair, 3.0σ | fi "1978 presidentinvaalit olivat **riemuvoitto**" (a triumph) vs sv "var **enbart ett statspolitiskt skådespel**" (merely a political spectacle) | fi more positive |
-| Urho Kekkonen | figures, pair | fi presidency until 1982 vs sv 1956–1981 | no majority |
-| Winter War | figures, passage | en 25,904 vs sv 23 576 Finnish dead (anchor: 43,557 wounded in both) | no majority |
-| Winter War | figures, pair | en 114 vs sv 119 combat planes | no majority |
+| Winter War | value, pair, 24% | fi 126 875 vs en 167,976 Soviet dead | no majority |
+| Winter War | value, three editions, 27% | fi 337 000 vs sv 460 000 Finnish troops | no majority |
+| Winter War | framing, three editions, 1.4σ | the Finnish troop strength note | en the outlier |
+
+Winter War gives 6 values and 5 framing findings; Urho Kekkonen, whose figure differences were all
+small (260 vs 259, years), gives 11 framing findings and no values.
 
 ## Measured cost
 
@@ -220,7 +231,8 @@ Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vecto
 | Passage search | HNSW over the whole corpus | exact join within the topic | finds counterparts in other articles; stays fast as the corpus grows |
 | Sentence search | exact join within passage pairs | HNSW | measured 0.11 s vs 3.68 s; exact; no index to maintain on the largest table |
 | Language bias on axes | per-language z-scores, anchors in every language | raw positions | raw positions differ per language before any content does |
-| Years | only in very close pairs, never in passage fallback | always | articles share many years; differing years are usually different events |
+| Years | never compared | compared when close | articles share many years; differing years are usually different events or dates of one |
+| Small value differences | dropped below 20% | shown | rounding and revised counts are mostly harmless and crowded out framing |
 | Embedding | on demand, cached | precomputed | no upfront job for a demo; `TODO.md` describes the precompute |
 
 ## Limitations
@@ -233,7 +245,7 @@ Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vecto
   checking.
 - **Thresholds are tuned on two articles** (Winter War, Urho Kekkonen).
 - **Coincidences.** A number can match a different fact (en 35,000 French soldiers vs sv 22,000 troops
-  in a different plan).
+  in a different plan; fi 95 348 dead vs sv 158 863 wounded in the same casualty passage).
 
 ## Scaling to more languages
 
@@ -261,10 +273,10 @@ flowchart LR
     a1[fi] --- a2[sv]
   end
   subgraph "many languages: groups with a majority"
-    b1[fi 260] --- b2[sv 260]
-    b2 --- b3[de 260]
-    b3 --- b4[en 259]
-    b1 --- b5[et 260]
+    b1[fi 126 875] --- b2[sv 126 875]
+    b2 --- b3[de 126 875]
+    b3 --- b4[en 167,976]
+    b1 --- b5[et 126 875]
   end
 ```
 
