@@ -41,10 +41,7 @@
   .summary:empty { display: none; }
   .pending { color: var(--muted); font-style: italic; }
   .error { color: #d33; }
-  details { margin-top: .6rem; }
-  details > summary { list-style: none; } details > summary::-webkit-details-marker { display: none; }
-  details[open] > summary { margin-bottom: .8rem; }
-  details[open] > summary .icon { transform: rotate(180deg); }
+  .tools { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
   .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .8rem; }
   .quote h4 { margin: 0 0 .3rem; font-size: .85rem; font-weight: normal; display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
   .quote blockquote { margin: 0; padding: .5rem .8rem; border-left: 4px solid var(--chip); font-family: var(--serif);
@@ -77,6 +74,7 @@ const ICONS = {
   globe: '<circle cx="10" cy="10" r="8"/><path d="M2 10h16M10 2c3 3 3 13 0 16M10 2c-3 3-3 13 0 16"/>',
   alert: '<path d="M10 2.5 18.5 17.5h-17z"/><path d="M10 8v4M10 14.8v.2"/>',
   pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
+  scale: '<path d="M10 3v14M6 17h8M3 6h14M5.5 6 3 12h5zM14.5 6 12 12h5z"/>',
   chevron: '<path d="m5 8 5 5 5-5"/>',
   copy: '<rect x="7" y="7" width="10" height="11" rx="1"/><path d="M13 7V3H3v11h4"/>',
   check: '<path d="m4 10 4 4 8-8"/>',
@@ -148,6 +146,7 @@ if (fromUrl()) search(fromUrl(), false);
 function render(data) {
   const langs = data.articles.map((a) => a.lang);
   const head = data.articles.find((a) => a.lang === "en") || data.articles[0];
+  const total = data.figures.length + data.framing.length;
   out.replaceChildren(
     $("h1", { textContent: head.title }),
     $("div", { className: "editions muted" }, "Editions: ",
@@ -155,27 +154,41 @@ function render(data) {
       $("br"), "Whole-article distance: ",
       data.similarity.map((s) => `${s.a}–${s.b} ${s.distance.toFixed(3)}`).join(" · ")),
     $("section", { className: "box" },
-      $("h2", {}, icon("globe"), "Possible factual discrepancies", $("span", { className: "pill", textContent: `${data.pairs.length} found` })),
-      $("p", { textContent: data.pairs.length
-        ? `In the ${langs.map((l) => `${LANGS[l]} (${l})`).join(", ")} editions, ${data.pairs.length} pairs of passages about the same subject state different figures or dates.${ai.checked ? " Each pair is checked by AI." : " Turn on AI summaries to check each pair."}`
-        : "No passages about the same subject state different figures or dates." })),
-    ...data.pairs.map(card));
+      $("h2", {}, icon("globe"), "Where the editions disagree", $("span", { className: "pill", textContent: `${total} found` })),
+      $("p", { textContent: `Sentences in the ${langs.map((l) => `${LANGS[l]} (${l})`).join(", ")} editions that are about the same thing: ` +
+        `${data.figures.length} state different figures, ${data.framing.length} frame it differently.` +
+        (ai.checked ? " Each is checked by AI." : " Turn on AI summaries to check each one.") })),
+    ...(data.figures.length ? [$("h2", { textContent: "Different figures" }), ...data.figures.map((f) => card(f, "figures"))] : []),
+    ...(data.framing.length ? [$("h2", { textContent: "Different framing" }), ...data.framing.map((f) => card(f, "framing"))] : []));
 }
 
-function card(pair) {
-  const [a, b] = pair.passages;
-  const state = { highlights: { [a.lang]: pair.conflicts.map((c) => c[0]), [b.lang]: pair.conflicts.map((c) => c[1]) }, english: null, showEnglish: false };
-  const figures = pair.conflicts.flatMap(([x, y], i) => [i ? " · " : "", `${x} `, $("span", { className: "vs", textContent: `(${a.lang}) vs ` }), `${y} `, $("span", { className: "vs", textContent: `(${b.lang})` })]);
-  const title = $("h3", {}, ...figures);
+function card(finding, kind) {
+  const [a, b] = finding.passages;
+  const state = { highlights: {}, english: null, showEnglish: false, context: false };
+  let title, label;
+  if (kind === "figures") {
+    state.highlights = { [a.lang]: finding.conflicts.map((c) => c[0]), [b.lang]: finding.conflicts.map((c) => c[1]) };
+    title = $("h3", {}, ...finding.conflicts.flatMap(([x, y], i) => [i ? " · " : "", `${x} `, $("span", { className: "vs", textContent: `(${a.lang}) vs ` }), `${y} `, $("span", { className: "vs", textContent: `(${b.lang})` })]));
+    const n = finding.conflicts.length;
+    label = $("span", { className: "score" }, icon("alert"), `${n} differing figure${n === 1 ? "" : "s"}`);
+  } else {
+    const [first, second] = finding.z > 0 ? [a, b] : [b, a];  // the side toward the axis' positive end
+    title = $("h3", { textContent: `The ${LANGS[first.lang]} edition ${finding.ends[0]}; the ${LANGS[second.lang]} edition ${finding.ends[1]}.` });
+    label = $("span", { className: "score" }, icon("scale"), `Different framing · ${Math.abs(finding.z).toFixed(1)}σ`);
+  }
   const summary = $("p", { className: "summary" });
   const verdict = $("p", { className: "summary" });  // AI only; empty and hidden otherwise
   const quotes = $("div", { className: "quotes" });
   const article = $("article", { className: "card" });
+  // A finding is a pair of sentences, or of whole passages when the sentences did not pair up.
+  const quoteOf = (p) => p.sentence ?? p.text;
 
-  const renderQuotes = () => quotes.replaceChildren(...pair.passages.map((p) => {
+  const renderQuotes = () => quotes.replaceChildren(...finding.passages.map((p) => {
     const en = state.showEnglish && state.english;
     const heading = (en ? en[`${p.lang}-heading`] : p.heading) || "(intro)";
-    const quote = $("blockquote", {}, ...marked(en ? en[p.lang] : withMarks(p.text, state.highlights[p.lang])));
+    const text = en ? en[p.lang]
+      : state.context && p.sentence ? withMarks(p.text, [p.sentence]) : withMarks(quoteOf(p), state.highlights[p.lang]);
+    const quote = $("blockquote", {}, ...marked(text));
     const copy = $("button", { className: "btn small", type: "button", title: "Copy this quote" }, icon("copy"), "Copy");
     copy.addEventListener("click", async () => {
       try { await navigator.clipboard.writeText(quote.textContent); copy.replaceChildren(icon("check"), "Copied"); }
@@ -183,20 +196,30 @@ function card(pair) {
       setTimeout(() => copy.replaceChildren(icon("copy"), "Copy"), 1500);
     });
     return $("div", { className: "quote" },
-      $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: `${p.lang}.wikipedia` }), ` § ${heading}`), copy),
+      $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: `${p.lang}.wikipedia` }), ` ${p.title} § ${heading}`), copy),
       quote);
   }));
   renderQuotes();
 
-  const details = $("details", {}, $("summary", { className: "btn" }, "Compare quotes", icon("chevron")));
+  const tools = $("div", { className: "tools" });
+  if (a.sentence) {
+    const context = $("button", { className: "btn small", type: "button" }, "Show paragraphs", icon("chevron"));
+    context.addEventListener("click", () => {
+      state.context = !state.context;
+      state.showEnglish = false;
+      context.replaceChildren(state.context ? "Show sentences" : "Show paragraphs", icon("chevron"));
+      renderQuotes();
+    });
+    tools.append(context);
+  }
   if (ai.checked) {
-    const toggle = $("button", { className: "btn primary", type: "button", disabled: true, textContent: "View quotes in English" });
+    const toggle = $("button", { className: "btn small primary", type: "button", disabled: true, textContent: "View quotes in English" });
     verdict.className = "pending";
     verdict.textContent = "Checking with AI…";
-    post("/api/explain", { passages: pair.passages.map(({ lang, heading, text }) => ({ lang, heading, text })) })
+    post("/api/explain", { passages: finding.passages.map(({ lang, heading, text }) => ({ lang, heading, text })) })
       .then((x) => {
         verdict.className = "muted";
-        verdict.textContent = x.discrepancy ? `AI: ${x.title}` : "AI: the figures do not contradict each other here.";
+        verdict.textContent = x.discrepancy ? `AI: ${x.title}` : "AI: these passages do not contradict each other.";
         if (!x.discrepancy) article.classList.add("dismissed");
         summary.textContent = x.summary;
         for (const [lang, phrases] of Object.entries(x.highlights)) state.highlights[lang] = [...(state.highlights[lang] || []), ...phrases];
@@ -208,8 +231,8 @@ function card(pair) {
       if (!state.english && !state.showEnglish) {
         toggle.disabled = true; toggle.textContent = "Translating…";
         const texts = {};
-        for (const p of pair.passages) {
-          texts[p.lang] = withMarks(p.text, state.highlights[p.lang]);
+        for (const p of finding.passages) {
+          texts[p.lang] = withMarks(quoteOf(p), state.highlights[p.lang]);
           if (p.heading) texts[`${p.lang}-heading`] = p.heading;
         }
         try { state.english = await post("/api/translate", { texts, target: "en" }); }
@@ -217,22 +240,21 @@ function card(pair) {
         toggle.disabled = false;
       }
       state.showEnglish = !state.showEnglish;
+      state.context = false;
       toggle.textContent = state.showEnglish ? "View original quotes" : "View quotes in English";
       renderQuotes();
     });
-    details.append(toggle);
+    tools.append(toggle);
   }
-  details.append(quotes);
 
-  const n = pair.conflicts.length;
   article.append(
     $("div", { className: "meta" },
       $("span", { className: "pair" },
         $("span", { className: "chip" }, $("b", { textContent: `${a.lang}.wikipedia` }), ` § ${a.heading || "(intro)"}`),
         icon("pair"),
         $("span", { className: "chip" }, $("b", { textContent: `${b.lang}.wikipedia` }), ` § ${b.heading || "(intro)"}`)),
-      $("span", { className: "score" }, icon("alert"), `${n} differing figure${n === 1 ? "" : "s"}`)),
-    title, verdict, summary, details);
+      label),
+    title, verdict, summary, quotes, tools);
   return article;
 }
 </script>

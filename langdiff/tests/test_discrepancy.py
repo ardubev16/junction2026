@@ -1,4 +1,4 @@
-from langdiff.discrepancy import conflicts, numbers
+from langdiff.discrepancy import anchored_conflicts, conflicts, numbers
 
 
 def test_numbers_read_every_languages_thousands_separator():
@@ -25,3 +25,10 @@ def test_shared_figures_and_far_apart_years_are_not_conflicts():
 def test_years_need_closely_matching_passages():
     assert conflicts("Elected in 1981.", "Elected in 1982.", 0.25) == [("1981", "1982")]
     assert conflicts("Elected in 1981.", "Elected in 1982.", 0.33) == []
+
+
+def test_passages_need_a_shared_number_and_never_conflict_on_years():
+    en = "In 1978 he won 259 of the 300 electoral votes; first elected in 1956."
+    fi = "Vuoden 1978 vaaleissa hän sai 260 valitsijamiestä; valittiin 1955."
+    assert anchored_conflicts(en, fi) == [("259", "260")]  # 1978 anchors; 1956 vs 1955 is ignored
+    assert anchored_conflicts("He won 259 votes.", "Hän sai 260 ääntä.") == []  # nothing shared

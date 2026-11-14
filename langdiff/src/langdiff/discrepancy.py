@@ -50,3 +50,12 @@ def conflicts(a: str, b: str, distance: float) -> list[tuple[str, str]]:
             used |= {x, y}
             out.append((na[x][0], nb[y][0]))
     return out
+
+
+def anchored_conflicts(a: str, b: str) -> list[tuple[str, str]]:
+    """Conflicting quantities in two passages that share at least one identical number: the shared
+    number ("43,557 wounded" in both) shows they report the same statistics. Years can anchor but never
+    conflict here: two passages share many years, and differing ones are usually different events."""
+    if not numbers(a).keys() & numbers(b).keys():
+        return []
+    return conflicts(a, b, distance=1.0)  # past YEAR_MAX_DISTANCE: years are not compared

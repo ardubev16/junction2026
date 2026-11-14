@@ -1,26 +1,21 @@
-"""API: given an article title, the parts of the article that differ the most between fi, sv and en."""
+"""API: where the fi, sv and en Wikipedia articles on one topic state different figures or frame things differently."""
 
 import json
-import os
 import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-import httpx
-import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from .compare import findings
 from .db import SCHEMA, connect
-from .discrepancy import conflicts
+from .embeddings import embed
 from .llm import chat
 
-OLLAMA = os.environ.get("OLLAMA_URL", "http://localhost:11434")
-MODEL = "bge-m3"  # the model the dataset's vectors were made with
 MIN_CHARS = 300  # merge paragraphs until a part is at least this long: tiny parts embed noisily
 TARGETS = {"en": "English"}  # languages the UI can translate into
-SAME_SUBJECT = 0.35  # cosine distance under which two mutually nearest parts are about one subject
 # Sections that are lists of sources and links, not content; they always "differ". fi, sv, en.
 SKIP = re.compile(
     r"\b(lähteet|viitteet|kirjallisuutta|aiheesta muualla|katso myös|huomautukset|"
@@ -69,19 +64,6 @@ def split(text: str) -> list[tuple[str, str]]:
     return parts
 
 
-def embed(texts: list[str]) -> list[bytes]:
-    out = []
-    for i in range(0, len(texts), 32):
-        r = httpx.post(
-            f"{OLLAMA}/api/embed",
-            json={"model": MODEL, "input": texts[i : i + 32], "truncate": True},
-            timeout=600,
-        )
-        r.raise_for_status()
-        out += [np.asarray(v, "<f4").tobytes() for v in r.json()["embeddings"]]
-    return out
-
-
 def ensure_chunks(cur, lang: str, page_id: int, text: str) -> None:
     cur.execute("SELECT 1 FROM chunk WHERE lang = %s AND page_id = %s LIMIT 1", (lang, page_id))
     if cur.fetchone():
@@ -91,6 +73,50 @@ def ensure_chunks(cur, lang: str, page_id: int, text: str) -> None:
     cur.executemany(
         "INSERT IGNORE INTO chunk VALUES (%s, %s, %s, %s, %s, %s)",
         [(lang, page_id, i, h, t, v) for i, ((h, t), v) in enumerate(zip(parts, vectors))],
+    )
+
+
+# A sentence ends at . ! ? followed by a capital, quote or bracket. Not before a digit: "(k. 1985)",
+# "3. syyskuuta" stay whole; a sentence starting with a year joins the one before, which is harmless.
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+(?=[A-ZÅÄÖ\"“”(])")
+MIN_SENTENCE = 30  # shorter pieces ("Ks. myös.") join a neighbour in the same line
+
+
+def sentences(part: str) -> list[str]:
+    """A part's sentences; table rows and list items count as one sentence each."""
+    out: list[str] = []
+    for line in part.splitlines():
+        line = line.strip()
+        if not line or (line.startswith("|") and set(line) <= set("|-: ")):
+            continue  # blank, or a table separator row
+        if line.startswith(("|", "- ")):
+            out.append(line)
+            continue
+        mine, buf = [], ""
+        for piece in SENTENCE_END.split(line):
+            buf = f"{buf} {piece}".strip()
+            if len(buf) >= MIN_SENTENCE:
+                mine.append(buf)
+                buf = ""
+        if buf and mine:
+            mine[-1] += " " + buf
+        elif buf:
+            mine.append(buf)
+        out += mine
+    return out
+
+
+def ensure_sentences(cur, lang: str, page_id: int) -> None:
+    """Embed the sentences of an article's parts (which must be embedded already)."""
+    cur.execute("SELECT 1 FROM sentence WHERE lang = %s AND page_id = %s LIMIT 1", (lang, page_id))
+    if cur.fetchone():
+        return
+    cur.execute("SELECT seq, text FROM chunk WHERE lang = %s AND page_id = %s ORDER BY seq", (lang, page_id))
+    rows = [(seq, n, s) for seq, text in cur.fetchall() for n, s in enumerate(sentences(text))]
+    vectors = embed([s for _, _, s in rows])
+    cur.executemany(
+        "INSERT IGNORE INTO sentence VALUES (%s, %s, %s, %s, %s, %s)",
+        [(lang, page_id, seq, n, s, v) for (seq, n, s), v in zip(rows, vectors)],
     )
 
 
@@ -143,42 +169,14 @@ def diff(title: str, limit: int = 10):
         )
         similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall()]
 
-        # Pairs of parts about the same subject: in two languages, each is the other's nearest
-        # part, and they are close. Only such pairs can state one fact differently.
-        cur.execute(
-            """WITH c AS (SELECT c.* FROM chunk c JOIN article a USING (lang, page_id)
-                          WHERE a.wikidata_id = %s),
-               d AS (SELECT x.lang AS a, x.seq AS aseq, y.lang AS b, y.seq AS bseq,
-                            VEC_DISTANCE_COSINE(x.embedding, y.embedding) AS dist
-                     FROM c x JOIN c y ON x.lang < y.lang),
-               r AS (SELECT d.*,
-                            ROW_NUMBER() OVER (PARTITION BY a, aseq, b ORDER BY dist) AS ra,
-                            ROW_NUMBER() OVER (PARTITION BY b, bseq, a ORDER BY dist) AS rb
-                     FROM d)
-               SELECT r.a, ca.heading, ca.text, r.b, cb.heading, cb.text, r.dist
-               FROM r JOIN c ca ON ca.lang = r.a AND ca.seq = r.aseq
-                      JOIN c cb ON cb.lang = r.b AND cb.seq = r.bseq
-               WHERE r.ra = 1 AND r.rb = 1 AND r.dist <= %s""",
-            (wikidata_id, SAME_SUBJECT),
-        )
-        pairs = []
-        for a, aheading, atext, b, bheading, btext, dist in cur.fetchall():
-            if found := conflicts(atext, btext, dist):
-                pairs.append({
-                    "distance": dist,
-                    "conflicts": found,
-                    "passages": [
-                        {"lang": a, "heading": aheading, "text": atext},
-                        {"lang": b, "heading": bheading, "text": btext},
-                    ],
-                })
-        pairs.sort(key=lambda p: (-len(p["conflicts"]), p["distance"]))
+        figures, framing = findings(cur, wikidata_id, ensure_sentences)
 
     return {
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
         "similarity": similarity,
-        "pairs": pairs[:limit],
+        "figures": figures[:limit],
+        "framing": framing[:limit],
     }
 
 

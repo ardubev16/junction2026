@@ -25,7 +25,8 @@ SCHEMA = [
       PRIMARY KEY (lang, page_id),
       VECTOR INDEX (embedding) M=16 DISTANCE=cosine
     )""",
-    # Parts of articles, embedded on demand with the same model; a cache filled by the API.
+    # Parts of articles, embedded on demand with the same model; HNSW finds a part's counterpart
+    # in another language anywhere in the corpus.
     """CREATE TABLE IF NOT EXISTS chunk (
       lang      CHAR(2)           NOT NULL,
       page_id   INT UNSIGNED      NOT NULL,
@@ -33,7 +34,19 @@ SCHEMA = [
       heading   VARCHAR(500)      NOT NULL,
       text      TEXT              NOT NULL,
       embedding VECTOR(1024)      NOT NULL,
-      PRIMARY KEY (lang, page_id, seq)
+      PRIMARY KEY (lang, page_id, seq),
+      VECTOR INDEX (embedding) M=16 DISTANCE=cosine
+    ) CHARACTER SET utf8mb4""",
+    # Sentences of those parts (seq = the part). Matched only inside a pair of parts, by an exact
+    # join: cheaper than HNSW lookups there (0.11 s vs 3.7 s for Winter War), so no vector index.
+    """CREATE TABLE IF NOT EXISTS sentence (
+      lang      CHAR(2)           NOT NULL,
+      page_id   INT UNSIGNED      NOT NULL,
+      seq       SMALLINT UNSIGNED NOT NULL,
+      n         SMALLINT UNSIGNED NOT NULL,
+      text      TEXT              NOT NULL,
+      embedding VECTOR(1024)      NOT NULL,
+      PRIMARY KEY (lang, page_id, seq, n)
     ) CHARACTER SET utf8mb4""",
     # LLM answers (summaries, translations), keyed by sha256 of model + prompt.
     """CREATE TABLE IF NOT EXISTS llm_cache (
