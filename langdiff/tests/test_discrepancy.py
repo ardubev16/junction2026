@@ -1,4 +1,4 @@
-from langdiff.discrepancy import anchored_conflicts, conflicts, numbers
+from langdiff.discrepancy import anchored_conflicts, conflicts, figure_slots, numbers
 
 
 def test_numbers_read_every_languages_thousands_separator():
@@ -32,3 +32,21 @@ def test_passages_need_a_shared_number_and_never_conflict_on_years():
     fi = "Vuoden 1978 vaaleissa hän sai 260 valitsijamiestä; valittiin 1955."
     assert anchored_conflicts(en, fi) == [("259", "260")]  # 1978 anchors; 1956 vs 1955 is ignored
     assert anchored_conflicts("He won 259 votes.", "Hän sai 260 ääntä.") == []  # nothing shared
+
+
+def close(texts):
+    return lambda a, b: conflicts(texts[a], texts[b], 0.2)
+
+
+def test_the_edition_against_the_majority_is_the_outlier():
+    texts = {"fi": "Kaatuneita oli 23 576.", "sv": "Stupade: 23 576.", "en": "25,904 died."}
+    assert figure_slots(texts, close(texts)) == [
+        {"values": {"fi": "23 576", "sv": "23 576", "en": "25,904"}, "outliers": ["en"]}
+    ]
+
+
+def test_no_outlier_without_a_majority():
+    two = {"fi": "Kaatuneita oli 23 576.", "en": "25,904 died."}
+    assert figure_slots(two, close(two)) == [{"values": {"fi": "23 576", "en": "25,904"}, "outliers": []}]
+    three = {"fi": "Lukuja: 265 000.", "sv": "Siffror: 273 000.", "en": "Figures: 271,528."}
+    assert figure_slots(three, close(three))[0]["outliers"] == []

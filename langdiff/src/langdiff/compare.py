@@ -8,19 +8,25 @@ No LLM: three levels of vectors, all in MariaDB.
 3. Sentence: inside each passage pair, sentences that are each other's nearest. An exact join: a
    passage pair holds a few dozen sentence pairs, cheaper than index lookups.
 
-Then, for sentence pairs clearly about the same thing:
-- figures: numbers each side states differently (discrepancy.py);
-- framing: how far apart the two sentences sit on a semantic axis, e.g. "stated as fact" vs
-  "claimed or disputed". An axis is the difference of two groups of anchor sentences, written in all
-  three languages so that the language itself cancels out; a sentence's position is one
-  VEC_DISTANCE_COSINE against it.
+Matched sentences are then grouped across languages: pairs that connect (fi-sv, sv-en, fi-en) form
+one group per fact, one sentence per language. Within a group:
+- figures: numbers the editions state differently (discrepancy.py); with a majority, the editions
+  against it are outliers ("260 (fi, sv) vs 259 (en)");
+- framing: each edition's position on a semantic axis, e.g. "stated as fact" vs "claimed or
+  disputed", against the others' average. An axis is the difference of two groups of anchor
+  sentences, written in all three languages so that the language itself cancels out; a sentence's
+  position is one VEC_DISTANCE_COSINE against it. With three or more editions, the furthest is the
+  outlier; with two, it is just their difference.
+
+See docs/how-it-works.md.
 """
 
 from functools import lru_cache
+from statistics import fmean
 
 import numpy as np
 
-from .discrepancy import anchored_conflicts, conflicts
+from .discrepancy import anchored_conflicts, conflicts, figure_slots, value
 from .embeddings import embed
 
 LANGS = ("fi", "sv", "en")
@@ -47,7 +53,7 @@ AXES = {
         ["This is only an unconfirmed claim and it is disputed.", "Detta är bara ett obekräftat påstående och det är omstritt.",
          "Tämä on vain vahvistamaton väite, ja se on kiistanalainen.", "According to some sources this allegedly happened.",
          "Enligt vissa källor ska detta ha hänt.", "Joidenkin lähteiden mukaan näin olisi tapahtunut."],
-        ("states it as fact", "presents it as uncertain or disputed"),
+        ("states it more firmly as fact", "presents it as more uncertain or disputed"),
     ),
 }
 
@@ -153,7 +159,7 @@ def sentence_pairs(cur, pairs: list[tuple]) -> list[tuple]:
                      ROW_NUMBER() OVER (PARTITION BY a, apage, aseq, an, b, bpage, bseq ORDER BY dist) AS ra,
                      ROW_NUMBER() OVER (PARTITION BY b, bpage, bseq, bn, a, apage, aseq ORDER BY dist) AS rb
               FROM d)
-            SELECT r.a, r.apage, r.aseq, x.text, r.b, r.bpage, r.bseq, y.text, r.dist, {positions}
+            SELECT r.a, r.apage, r.aseq, r.an, x.text, r.b, r.bpage, r.bseq, r.bn, y.text, r.dist, {positions}
             FROM r
             JOIN sentence x ON x.lang = r.a AND x.page_id = r.apage AND x.seq = r.aseq AND x.n = r.an
             JOIN sentence y ON y.lang = r.b AND y.page_id = r.bpage AND y.seq = r.bseq AND y.n = r.bn
@@ -163,8 +169,41 @@ def sentence_pairs(cur, pairs: list[tuple]) -> list[tuple]:
     return cur.fetchall()
 
 
+def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float, dict]]:
+    """Connected groups of items (sentences or passages) from matched pairs closer than max_dist:
+    (items, largest distance inside, {(lang, lang): distance} for the pairs that matched directly).
+    A group holds one item per language; a chain that reaches two items of one language falls back
+    to its pairs."""
+    parent: dict = {}
+
+    def find(x):
+        while parent.setdefault(x, x) != x:
+            x = parent[x]
+        return x
+
+    kept = [(a, b, d) for a, b, d in edges if d <= max_dist]
+    for a, b, _ in kept:
+        parent[find(a)] = find(b)
+    components: dict = {}
+    for a, b, d in kept:
+        components.setdefault(find(a), []).append((a, b, d))
+    out = []
+    for pairs in components.values():
+        members = {item for a, b, _ in pairs for item in (a, b)}
+        if len({item[0] for item in members}) == len(members):
+            dist = {k: d for a, b, d in pairs for k in ((a[0], b[0]), (b[0], a[0]))}
+            out.append((sorted(members, key=lambda item: LANGS.index(item[0])), max(dist.values()), dist))
+        else:
+            out += [([a, b], d, {(a[0], b[0]): d, (b[0], a[0]): d}) for a, b, d in pairs]
+    return out
+
+
 def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[dict]]:
-    """(figures, framing) found between the editions of a topic, best first."""
+    """(figures, framing) found between the editions of a topic, best first.
+
+    Matched sentences are grouped across languages (fi-sv, fi-en, sv-en pairs that connect form one
+    group per fact); within a group, the edition that disagrees with the others is the outlier.
+    """
     pairs = passage_pairs(cur, wikidata_id)
     for page in {(lang, page_id) for a, b, _ in pairs for lang, page_id, _ in (a, b)}:
         ensure_sentences(cur, *page)
@@ -180,30 +219,48 @@ def findings(cur, wikidata_id: str, ensure_sentences) -> tuple[list[dict], list[
         passages = {(lang, page_id, seq): {"lang": lang, "title": title, "heading": heading, "text": text}
                     for lang, page_id, seq, title, heading, text in cur.fetchall()}
 
-    figures, framing = [], []
-    for a, apage, aseq, atext, b, bpage, bseq, btext, dist, *pos in sentence_pairs(cur, pairs):
-        sides = [{**passages[a, apage, aseq], "sentence": atext}, {**passages[b, bpage, bseq], "sentence": btext}]
-        if dist <= FIGURES_MAX and (found := conflicts(atext, btext, dist)):
-            figures.append({"distance": dist, "conflicts": found, "passages": sides})
-        if dist <= FRAMING_MAX:
-            best = None
-            for i, (name, (_, _, ends)) in enumerate(AXES.items()):
-                (ma, sa), (mb, sb) = stats[name][a], stats[name][b]
-                dz = (pos[2 * i] - ma) / sa - (pos[2 * i + 1] - mb) / sb
-                if abs(dz) >= FRAMING_MIN_Z and (not best or abs(dz) > abs(best["z"])):
-                    # the side further toward the positive end "reads" like it; the other like the negative end
-                    best = {"axis": name, "z": dz, "ends": ends}
-            if best:
-                framing.append({"distance": dist, **best, "passages": sides})
-    figures.sort(key=lambda f: (-len(f["conflicts"]), f["distance"]))
-    # Then whole passages, for figures the sentence pairing missed (a table row against a sentence).
-    seen = {(f["passages"][0]["lang"], f["passages"][1]["lang"], *c) for f in figures for c in f["conflicts"]}
+    sentence: dict[tuple, tuple[str, list[float]]] = {}  # (lang, page_id, seq, n) -> (text, axis positions)
+    edges = []
+    for a, apage, aseq, an, atext, b, bpage, bseq, bn, btext, dist, *pos in sentence_pairs(cur, pairs):
+        sa, sb = (a, apage, aseq, an), (b, bpage, bseq, bn)
+        sentence[sa], sentence[sb] = (atext, pos[0::2]), (btext, pos[1::2])
+        edges.append((sa, sb, dist))
+
+    def rank(f):  # findings with an outlier first, then more figures, then closer matches
+        return (-sum(bool(s["outliers"]) for s in f["slots"]), -len(f["slots"]), f["distance"])
+
+    figures = []
+    for ids, dist, pair_dist in groups(edges, FIGURES_MAX):
+        text = {i[0]: sentence[i][0] for i in ids}
+        # each pair of languages by its own distance; one not matched directly counts as far (no years)
+        if slots := figure_slots(text, lambda a, b: conflicts(text[a], text[b], pair_dist.get((a, b), 1.0))):
+            figures.append({"distance": dist, "slots": slots,
+                            "members": [{**passages[i[:3]], "sentence": sentence[i][0]} for i in ids]})
+    figures.sort(key=rank)
+    # Then whole passages, for figures the sentence matching missed (a table row against a sentence).
+    seen = {(lang, value(w)) for f in figures for s in f["slots"] for lang, w in s["values"].items()}
     more = []
-    for a, b, dist in pairs:
-        found = [c for c in anchored_conflicts(passages[a]["text"], passages[b]["text"]) if (a[0], b[0], *c) not in seen]
-        if found:
-            more.append({"distance": dist, "conflicts": found,
-                         "passages": [{**passages[a], "sentence": None}, {**passages[b], "sentence": None}]})
-    figures += sorted(more, key=lambda f: (-len(f["conflicts"]), f["distance"]))
-    framing.sort(key=lambda f: -abs(f["z"]))
+    for ids, dist, _ in groups(pairs, PASSAGE_MAX):
+        text = {i[0]: passages[i]["text"] for i in ids}
+        slots = [s for s in figure_slots(text, lambda a, b: anchored_conflicts(text[a], text[b]))
+                 if not {(lang, value(w)) for lang, w in s["values"].items()} <= seen]
+        if slots:
+            more.append({"distance": dist, "slots": slots,
+                         "members": [{**passages[i], "sentence": None} for i in ids]})
+    figures += sorted(more, key=rank)
+
+    framing = []
+    for ids, dist, _ in groups(edges, FRAMING_MAX):
+        best = None
+        for k, (name, (_, _, ends)) in enumerate(AXES.items()):
+            z = {i[0]: (sentence[i][1][k] - stats[name][i[0]][0]) / stats[name][i[0]][1] for i in ids}
+            for lang, zl in z.items():
+                # how far this edition sits from the others' average: with two, just their difference
+                deviation = zl - fmean(v for other, v in z.items() if other != lang)
+                if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
+                    best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation}
+        if best:
+            framing.append({"distance": dist, **best, "outlier": len(ids) >= 3,
+                            "members": [{**passages[i[:3]], "sentence": sentence[i][0]} for i in ids]})
+    framing.sort(key=lambda f: -abs(f["deviation"]))
     return figures, framing

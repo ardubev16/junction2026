@@ -192,16 +192,16 @@ class Passage(BaseModel):
 
 
 class ExplainRequest(BaseModel):
-    passages: list[Passage]  # two parts about the same subject, in two languages
+    passages: list[Passage]  # parts about the same subject, one per language
 
 
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
-    """Whether two passages about the same subject contradict each other, and how."""
-    if len(req.passages) != 2:
-        raise HTTPException(400, "need exactly two passages")
+    """Whether passages about the same subject, one per language, contradict each other, and how."""
+    if len(req.passages) < 2:
+        raise HTTPException(400, "need at least two passages")
     answer = chat(
-        "You check two passages about the same subject from different language editions of Wikipedia "
+        "You check passages about the same subject from different language editions of Wikipedia "
         "for factual discrepancies: statements about the same thing that disagree (numbers, dates, names, "
         "places, outcomes). Information that only one passage has is NOT a discrepancy, and neither are "
         "differences in wording or detail. discrepancy: whether there is at least one. title: in English, "

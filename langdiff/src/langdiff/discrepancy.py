@@ -1,11 +1,13 @@
-"""Numbers two passages state differently: a language-independent hint of a factual discrepancy.
+"""Numbers that editions state differently: a language-independent hint of a factual discrepancy.
 
 Digits read the same in fi, sv and en; only the thousands separator differs (space, no-break space,
 comma or dot). Passages about the same subject that each have a number the other lacks, close in
-value to each other, likely disagree about one fact: "25,904 dead" vs "23 576 stupade".
+value to each other, likely disagree about one fact: "25,904 dead" vs "23 576 stupade". With three
+or more editions, the one that disagrees with a majority is the outlier.
 """
 
 import re
+from collections import Counter
 
 # A number with thousands groups ("126 875", "126,875", "126.875") or plain digits.
 NUMBER = re.compile(r"(?<![\d.,])(\d{1,3}(?:[ \u00a0\u202f,.]\d{3})+|\d+)(?!\d)")
@@ -27,6 +29,11 @@ def numbers(text: str) -> dict[int, list[str]]:
 
 def is_year(n: int) -> bool:
     return 1000 <= n <= 2100
+
+
+def value(written: str) -> int:
+    """'126 875', '126,875', '126.875' -> 126875."""
+    return int(re.sub(r"\D", "", written))
 
 
 def conflicts(a: str, b: str, distance: float) -> list[tuple[str, str]]:
@@ -59,3 +66,48 @@ def anchored_conflicts(a: str, b: str) -> list[tuple[str, str]]:
     if not numbers(a).keys() & numbers(b).keys():
         return []
     return conflicts(a, b, distance=1.0)  # past YEAR_MAX_DISTANCE: years are not compared
+
+
+def figure_slots(texts: dict[str, str], pair_conflicts) -> list[dict]:
+    """The figures a group of texts (one per language, about one subject) states differently.
+
+    `pair_conflicts(lang_a, lang_b)` gives the conflicting numbers of two of the texts, like `conflicts`. Conflicting
+    numbers that touch form one slot, i.e. one fact; a language stating one of the slot's values
+    exactly backs it. A value held by more than half of the slot makes the others outliers; two
+    languages, or no majority, give no outlier. Returns [{"values": {lang: as written}, "outliers": [lang]}].
+    """
+    langs = list(texts)
+    nums = {lang: numbers(text) for lang, text in texts.items()}
+    parent: dict[tuple, tuple] = {}
+
+    def find(node):
+        while parent.setdefault(node, node) != node:
+            node = parent[node]
+        return node
+
+    for i, a in enumerate(langs):
+        for b in langs[i + 1 :]:
+            for x, y in pair_conflicts(a, b):
+                parent[find((a, value(x)))] = find((b, value(y)))
+    slots: dict[tuple, set] = {}
+    for node in parent:
+        slots.setdefault(find(node), set()).add(node)
+
+    out = []
+    for nodes in slots.values():
+        stated: dict[str, set[int]] = {}
+        for lang, v in nodes:
+            stated.setdefault(lang, set()).add(v)
+        if any(len(vs) > 1 for vs in stated.values()):
+            continue  # one language with two figures for the same fact: ambiguous
+        stated = {lang: vs.pop() for lang, vs in stated.items()}
+        for lang in langs:  # a language that states one of the values exactly agrees with it
+            if lang not in stated and len(same := {v for v in stated.values() if v in nums[lang]}) == 1:
+                stated[lang] = same.pop()
+        top, n = Counter(stated.values()).most_common(1)[0]
+        majority = n >= 2 and n > len(stated) / 2
+        out.append({
+            "values": {lang: nums[lang][stated[lang]][0] for lang in langs if lang in stated},
+            "outliers": [lang for lang in langs if lang in stated and stated[lang] != top] if majority else [],
+        })
+    return out
