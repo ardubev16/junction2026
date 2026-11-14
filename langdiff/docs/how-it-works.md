@@ -26,7 +26,7 @@ flowchart TD
   P --> E2[Split matched passages into sentences, embed on demand]
   E2 --> S[Sentence matching inside each passage pair: exact join]
   S --> G[Group matched sentences across languages: one group per fact]
-  G --> F1[Values: figures at least 20% apart, majority → outlier]
+  G --> F1[Values: figures at least 20% apart, a vote: consensus → outliers, else contested]
   G --> F2[Framing: position on semantic axes, furthest edition → outlier]
   P --> F3[Passage-level values: quantities, only with a shared anchor number]
   F1 --> R[JSON: differences, values first, then framing]
@@ -137,9 +137,11 @@ three Finnish ones.
 
 ### 3. Grouping across languages
 
-Matched sentence pairs that connect (fi–sv, sv–en, fi–en) form one **group** per fact, with at most
-one sentence per language. A chain that reaches two sentences of one language is ambiguous and falls
-back to its pairs. The same grouping is applied to matched passages for the passage-level value
+Matched sentence pairs that connect (fi–sv, sv–en, pl–de, …) form one **group** per fact, with at
+most one sentence per language. Pairs join groups closest first, and only when the two groups have no
+language in common: a chain that would reach a second sentence of one language stops there, and that
+pair is kept as a group of its own. The same grouping is applied to matched passages for the
+passage-level value
 check. Example: the three Urho Kekkonen passages on the 1978 election, with their measured cosine
 distances (260 vs 259 is under the 20% bar, so this group is no longer reported; it shows the
 grouping only):
@@ -155,7 +157,11 @@ flowchart LR
 
 Measured: with three languages most groups are still pairs (Urho Kekkonen: 27 three-language groups
 and 90 pairs; Winter War: 8 and 37). Voting needs three; the more languages, the more groups have a
-majority.
+majority. With every Latin-script edition (before → after this grouping and the merge below):
+Stepan Bandera's value findings went from 14 pairs to 5 votes of 3–16 editions, none of the 14
+conflicts lost; Talvisota's first 100 went from 100 pairs to 60 of 3–31 editions and 40 pairs, 11 of
+its 133 pairwise conflicts no longer reported (a group's other sentence in that language states
+something else, which makes the slot ambiguous).
 
 ### 4a. Flagging values (`discrepancy.py`)
 
@@ -171,8 +177,13 @@ Digits read the same in every language here; only thousands separators differ (`
    a small difference cannot re-pair as a big one with another number.
 3. Conflicting numbers that touch form a **slot** (one fact). A language whose sentence states one of
    the slot's values exactly backs that value.
-4. A value held by more than half of the slot, by at least two editions, makes the others
-   **outliers**. Two editions, or no majority, give no outlier.
+4. Each slot is a **vote**: its values, most stated first, with the editions stating each. A value
+   held by at least two thirds of the slot (and two editions) makes the others **outliers**; three
+   or more editions without that consensus are **contested** (8 vs 7 is a split, not 7 outliers);
+   two editions just **differ**.
+5. Findings from different groups that state the same figure (one value set within the other, an
+   edition stating the same value in both, none a different one) are **merged** into one vote.
+   Findings voted on by three or more editions come first, then by how far apart.
 
 **Passage-level fallback**: whole passages are compared too, only when the two passages share at
 least one identical number. "43,557 wounded" in both shows they report the same statistics, so a

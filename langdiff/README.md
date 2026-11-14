@@ -112,8 +112,8 @@ No LLM is needed: articles, passages and sentences are matched across languages 
 vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
 into one group per fact, and each group is checked for **different framing** (position on "fact ↔
 disputed" and "praised ↔ condemned" axes) and **very different figures** (at least 20% apart; small
-differences and years are left out). With three editions in a group, the one that disagrees with
-the other two is the outlier.
+differences and years are left out). Each figure is a vote across the editions stating it: those
+against a two-thirds consensus are outliers, a split without one is contested.
 
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).

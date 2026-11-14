@@ -4,11 +4,11 @@ Digits read the same in fi, sv and en; only the thousands separator differs (spa
 comma or dot). Passages about the same subject that each have a number the other lacks, of the same
 order but at least MIN_CHANGE apart, likely disagree about one fact: "126 875 kaatunutta" vs
 "167,976 dead". Small differences (260 vs 259, rounding, revised counts) and years are left out:
-they are too often harmless. With three or more editions, the one against a majority is the outlier.
+they are too often harmless. With three or more editions each fact is a vote: editions against a
+clear consensus are outliers, a split without one is contested.
 """
 
 import re
-from collections import Counter
 from functools import lru_cache
 
 # A number with thousands groups ("126 875", "126,875", "126.875") or plain digits.
@@ -16,6 +16,7 @@ NUMBER = re.compile(r"(?<![\d.,])(\d{1,3}(?:[ \u00a0\u202f,.]\d{3})+|\d+)(?!\d)"
 MIN_NUMBER = 100  # smaller numbers are days, counts and units: too common to mean anything
 QUANTITY_RATIO = 0.6  # quantities within this ratio of each other may be the same figure
 MIN_CHANGE = 0.2  # and they must differ by at least this share of the larger one to be worth showing
+CONSENSUS = 2 / 3  # share of editions a value needs for the others to be outliers; less is contested
 
 
 @lru_cache(maxsize=65536)  # one topic compares the same sentences thousands of times
@@ -67,13 +68,30 @@ def anchored_conflicts(a: str, b: str) -> list[tuple[str, str]]:
     return conflicts(a, b)
 
 
+def tally(values: dict[str, str]) -> dict:
+    """One fact's values ({lang: as written}, in display order) as a vote: the values with the editions
+    stating each, most stated first, and a verdict. "outlier": one value has at least CONSENSUS of the
+    editions (and two or more), the others are outliers; "contested": three or more editions, no such
+    consensus; "differs": two editions, nothing to vote on."""
+    votes: dict[int, dict] = {}
+    for lang, w in values.items():
+        votes.setdefault(value(w), {"value": w, "langs": []})["langs"].append(lang)
+    ranked = sorted(votes.values(), key=lambda v: -len(v["langs"]))  # stable: ties keep display order
+    top = len(ranked[0]["langs"])
+    if top >= 2 and top >= CONSENSUS * len(values):
+        verdict, outliers = "outlier", [lang for v in ranked[1:] for lang in v["langs"]]
+    else:
+        verdict, outliers = ("contested" if len(values) >= 3 else "differs"), []
+    return {"values": values, "votes": ranked, "verdict": verdict,
+            "outliers": [lang for lang in values if lang in outliers]}
+
+
 def figure_slots(texts: dict[str, str], pair_conflicts) -> list[dict]:
     """The figures a group of texts (one per language, about one subject) states differently.
 
     `pair_conflicts(lang_a, lang_b)` gives the conflicting numbers of two of the texts, like `conflicts`. Conflicting
     numbers that touch form one slot, i.e. one fact; a language stating one of the slot's values
-    exactly backs it. A value held by more than half of the slot makes the others outliers; two
-    languages, or no majority, give no outlier. Returns [{"values": {lang: as written}, "outliers": [lang]}].
+    exactly backs it. Each slot is then a vote (`tally`).
     """
     langs = list(texts)
     nums = {lang: numbers(text) for lang, text in texts.items()}
@@ -103,10 +121,5 @@ def figure_slots(texts: dict[str, str], pair_conflicts) -> list[dict]:
         for lang in langs:  # a language that states one of the values exactly agrees with it
             if lang not in stated and len(same := {v for v in stated.values() if v in nums[lang]}) == 1:
                 stated[lang] = same.pop()
-        top, n = Counter(stated.values()).most_common(1)[0]
-        majority = n >= 2 and n > len(stated) / 2
-        out.append({
-            "values": {lang: nums[lang][stated[lang]][0] for lang in langs if lang in stated},
-            "outliers": [lang for lang in langs if lang in stated and stated[lang] != top] if majority else [],
-        })
+        out.append(tally({lang: nums[lang][stated[lang]][0] for lang in langs if lang in stated}))
     return out

@@ -169,16 +169,14 @@
     const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
     let what, label;
     if (f.kind === "value") {
-      what = f.slots.map((s) => {
-        const byValue = new Map();
-        for (const [l, w] of Object.entries(s.values)) {
-          const key = w.replace(/\D/g, "");
-          byValue.set(key, { w: byValue.get(key)?.w ?? w, langs: [...(byValue.get(key)?.langs ?? []), l] });
-        }
-        return [...byValue.values()].map(({ w, langs }) => `${w} (${langs.join(", ")})`).join(" vs ");
-      }).join(" · ");
+      // Each figure as a vote, most stated first: "126 875 (fi, sv, de) vs 167,976 (en)"; long lists counted.
+      const who = (langs) => langs.length > 6 ? `${langs.length} editions` : langs.join(", ");
+      what = f.slots.map((s) => s.votes.map((v) => `${v.value} (${who(v.langs)})`).join(" vs ")).join(" · ");
+      const verdicts = f.slots.map((s) => s.verdict);
+      const editions = new Set(f.slots.flatMap((s) => Object.keys(s.values))).size;
       label = $("span", { className: "label" }, icon("alert"),
-        `${outliers.size > 3 ? `Outliers: ${outliers.size} editions` : outliers.size ? `Outlier: ${names([...outliers])}` : "Different value"} · ${Math.round(f.change * 100)}% apart`);
+        `${verdicts.includes("outlier") ? (outliers.size > 3 ? `Outliers: ${outliers.size} editions` : `Outlier: ${names([...outliers])}`)
+          : verdicts.includes("contested") ? `Contested among ${editions} editions` : "Different value"} · ${Math.round(f.change * 100)}% apart`);
     } else {
       const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
       what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
