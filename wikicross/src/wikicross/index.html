@@ -11,7 +11,9 @@
   header { background: #fff; border-bottom: 1px solid var(--border); padding: .6rem 1.5rem; display: grid;
            grid-template-columns: 1fr minmax(0, 640px) 1fr; gap: 1.5rem; align-items: center; }
   @media (max-width: 860px) { header { grid-template-columns: 1fr; gap: .6rem; } }
-  .wordmark { font-family: var(--serif); font-size: 1.5rem; white-space: nowrap; display: inline-flex; gap: .45rem; align-items: center; }
+  .wordmark { font-family: var(--serif); font-size: 1.5rem; white-space: nowrap; display: inline-flex; gap: .45rem; align-items: center;
+              color: inherit; justify-self: start; }
+  .wordmark:hover { text-decoration: none; }
   .logo { width: 1.6rem; height: 1.6rem; flex: none; }
   form { display: flex; }
   form input { flex: 1; padding: .45rem .6rem; font-size: 1rem; border: 1px solid #a2a9b1; border-radius: 2px 0 0 2px; }
@@ -36,11 +38,10 @@
   .btn:disabled { opacity: .5; cursor: default; }
   form .btn { border-radius: 0 2px 2px 0; }
   .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
-  .card.dismissed { opacity: .6; }
-  /* Findings the AI check finds no clear difference in: header, title and "Show anyway" only, until reopened. */
-  .card.collapsed .quotes, .card.collapsed .tools, .card.collapsed .summary { display: none; }
   .verdict:empty { display: none; } .verdict { margin: 0 0 .6rem; }
-  .card.collapsed h3 { font-size: 1rem; }
+  .reason { color: var(--muted); font-style: italic; }
+  .irrelevant { border-top: 1px dashed var(--border); margin-top: 1rem; }
+  .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.5rem 0; }
   .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; position: relative; }
   .meta .pair { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
   /* A card's "+N more" opens across the card's width, not the page's. */
@@ -77,13 +78,13 @@
 </head>
 <body>
 <header>
-  <div class="wordmark">
+  <a class="wordmark" href="/" title="WikiCross home">
     <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="#36c" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M19 11.5A8 8 0 1 0 11.5 19"/>
       <path d="M4.6 7.2A8 8 0 0 1 18.6 8.6l-2.2.5-1.3-1.5-1.7 1.4-1.3-1.1-1.6 2.1.8 1.8-1.7 1.5-2-.8-1.3 2.4-2.2-1.1z" fill="#36c" stroke="none"/>
       <circle cx="15.8" cy="15.8" r="3.3"/><path d="m18.3 18.3 2.9 2.9"/>
     </svg>WikiCross
-  </div>
+  </a>
   <form id="f">
     <input type="search" id="q" list="titles" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
     <datalist id="titles"></datalist>
@@ -109,6 +110,8 @@ const ICONS = {
   pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
   scale: '<path d="M10 3v14M6 17h8M3 6h14M5.5 6 3 12h5zM14.5 6 12 12h5z"/>',
   chevron: '<path d="m5 8 5 5 5-5"/>',
+  left: '<path d="m12 5-5 5 5 5"/>',
+  right: '<path d="m8 5 5 5-5 5"/>',
   up: '<path d="m5 12 5-5 5 5"/>',
   link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
   list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
@@ -153,11 +156,19 @@ q.addEventListener("input", () => {
   }, 200);
 });
 
-// The query lives in the URL (?title=…) so results can be shared and Back/Forward work. The title is
-// only ever put into input.value, textContent and URLSearchParams: never parsed as HTML.
+// The query lives in the URL (?title=…&lang=…&page=…) so results can be shared and Back/Forward work;
+// `lang` (the edition the title is from) comes from the extension's link. The title is only ever put
+// into input.value, textContent and URLSearchParams: never parsed as HTML.
+const PER_PAGE = 10;
 let current = 0, shown = null;
-async function search(title, push) {
-  if (push) history.pushState(null, "", `?${new URLSearchParams({ title })}`);
+const urlQuery = () => {
+  const p = new URLSearchParams(location.search);
+  return { title: p.get("title")?.trim(), lang: p.get("lang"), page: Math.max(1, parseInt(p.get("page"), 10) || 1) };
+};
+const queryString = ({ title, lang, page }) => `${new URLSearchParams({ title, ...(lang && { lang }), ...(page > 1 && { page }) })}`;
+async function search(query, push) {
+  const { title, lang, page } = query;
+  if (push) history.pushState(null, "", `?${queryString(query)}`);
   q.value = title;
   document.title = `${title} — WikiCross`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
@@ -178,7 +189,7 @@ async function search(title, push) {
   }, 1000);
   let r, data;
   try {
-    r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: 15 })}`);
+    r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: PER_PAGE, offset: (page - 1) * PER_PAGE, ...(lang && { lang }) })}`);
     data = await r.json().catch(() => ({ detail: `Server error ${r.status}` }));
   } catch (err) {
     data = { detail: `WikiCross server not reachable: ${err.message}` };
@@ -187,19 +198,18 @@ async function search(title, push) {
   }
   if (mine !== current) return;
   if (!r?.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
-  shown = data;
-  render(data);
+  shown = { data, query };
+  render(shown);
 }
-const fromUrl = () => new URLSearchParams(location.search).get("title")?.trim();
 
 document.getElementById("f").addEventListener("submit", (e) => {
   e.preventDefault();
-  const title = q.value.trim();
-  if (title) search(title, title !== fromUrl());
+  const query = { title: q.value.trim(), page: 1 };  // a typed title may be from any edition: no lang
+  if (query.title) search(query, queryString(query) !== location.search.slice(1));
 });
-window.addEventListener("popstate", () => { const t = fromUrl(); if (t) search(t, false); });
+window.addEventListener("popstate", () => { const query = urlQuery(); if (query.title) search(query, false); });
 ai.addEventListener("change", () => shown && render(shown));
-if (fromUrl()) search(fromUrl(), false);
+if (urlQuery().title) search(urlQuery(), false);
 
 // Every edition, folded into a menu: a topic can have dozens. Each link opens that edition.
 function editionsMenu(articles) {
@@ -209,12 +219,36 @@ function editionsMenu(articles) {
       $("b", { textContent: `${langName(a.lang)} (${a.lang})` }), ` · ${a.title}`))));
 }
 
-function render(data) {
+function render({ data, query }) {
   const head = data.articles.find((a) => a.lang === "en") || data.articles[0];
+  const pages = Math.ceil(data.total / PER_PAGE), from = (query.page - 1) * PER_PAGE;
+  // Findings the AI check does not confirm leave the list for a hidden one under it, behind a button.
+  const irrelevant = $("div", { className: "irrelevant", hidden: true });
+  const reveal = $("button", { className: "btn small", type: "button", hidden: true, ariaExpanded: "false" });
+  let dismissed = 0;
+  const relabel = () => reveal.replaceChildren(icon("eye"),
+    `${irrelevant.hidden ? "Show" : "Hide"} ${dismissed} finding${dismissed === 1 ? "" : "s"} the AI marked as irrelevant`);
+  reveal.addEventListener("click", () => {
+    irrelevant.hidden = !irrelevant.hidden;
+    reveal.ariaExpanded = String(!irrelevant.hidden);
+    relabel();
+  });
+  const dismiss = (article) => { dismissed++; irrelevant.append(article); reveal.hidden = false; relabel(); };
+  const go = (page) => { search({ ...query, page }, true); window.scrollTo(0, 0); };
+  const step = (page, text, iconName) => {
+    const b = $("button", { className: "btn small", type: "button", disabled: page < 1 || page > pages }, ...(iconName === "left" ? [icon(iconName), text] : [text, icon(iconName)]));
+    b.addEventListener("click", () => go(page));
+    return b;
+  };
+  const pager = pages > 1 ? $("nav", { className: "pager", ariaLabel: "Pages of differences" },
+    step(query.page - 1, "Previous", "left"), $("span", { textContent: `Page ${query.page} of ${pages}` }), step(query.page + 1, "Next", "right")) : "";
   out.replaceChildren(
     $("h1", { textContent: head.title }),
     editionsMenu(data.articles),
-    ...(data.differences.length ? [$("h2", { textContent: `${data.differences.length} differences` }), ...data.differences.map((f) => card(f))]
+    ...(data.total ? [
+      $("h2", { textContent: `${data.total} differences` }),
+      $("p", { className: "muted", textContent: `Strongest first. Showing ${from + 1}–${from + data.differences.length}.` }),
+      ...data.differences.map((f) => card(f, dismiss)), reveal, irrelevant, pager]
       : [$("p", { className: "muted", textContent: "The editions state nothing differently that WikiCross can find." })]));
 }
 
@@ -278,7 +312,7 @@ const snippetUrl = (m) => {
   return `https://${m.lang}.wikipedia.org/wiki/${encodeURIComponent(m.title.replace(/ /g, "_"))}#:~:text=${text}`;
 };
 
-function card(finding) {
+function card(finding, dismiss) {
   const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
   const state = { highlights: {}, english: null, showEnglish: false, context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
@@ -293,7 +327,7 @@ function card(finding) {
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
   const first = members.slice(0, SHOWN);
   const summary = $("p", { className: "summary" });
-  const verdict = $("p", { className: "verdict" });  // AI only: its progress, or "Show anyway"; empty and hidden otherwise
+  const verdict = $("p", { className: "verdict" });  // AI only: its progress, or why it was marked irrelevant
   const quotes = $("div", { className: "quotes" });
   const article = $("article", { className: "card" });
   const quoteOf = (p) => p.sentence;
@@ -345,15 +379,12 @@ function card(finding) {
         verdict.className = "verdict";
         verdict.replaceChildren();
         if (!x.discrepancy) {
-          article.classList.add("dismissed", "collapsed");
-          const reopen = $("button", { className: "btn small", type: "button", ariaExpanded: "false",
-                                       title: "The AI check found no clear difference in tone or framing" }, icon("eye"), "Show anyway", icon("chevron"));
-          reopen.addEventListener("click", () => {
-            const open = !article.classList.toggle("collapsed");
-            reopen.ariaExpanded = String(open);
-            reopen.replaceChildren(icon("eye"), open ? "Collapse" : "Show anyway", icon(open ? "up" : "chevron"));
-          });
-          verdict.append(reopen);
+          // Why it is out of the list; the summary below says what each edition states.
+          verdict.className = "verdict reason";
+          verdict.textContent = "Marked irrelevant by the AI check: these passages do not differ clearly in tone "
+            + "or framing. Their distance on the axis comes from other differences, such as the facts they "
+            + "include, their length or detail.";
+          dismiss(article);
         }
         summary.textContent = x.summary;
         for (const [lang, phrases] of Object.entries(x.highlights)) state.highlights[lang] = [...(state.highlights[lang] || []), ...phrases];

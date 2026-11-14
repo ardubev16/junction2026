@@ -63,9 +63,8 @@ row to recompute.
 `extension/` shows the same findings on every Wikipedia (`*.wikipedia.org`, article pages): a
 "WikiCross · N" button opens
 a panel listing what this edition states differently from the others, with the other editions'
-sentences and links to them. At its top, where this edition **leans**: on each framing axis its
-average distance from the other editions over every matched sentence group, read as neutral below
-0.2σ on all of them, and the editions framed most and least like it. **Clicking a finding shows its
+sentences and links to them; its logo and name open the topic in the web app, in a new tab.
+**Clicking a finding shows its
 evidence on the page**: in the article view and VisualEditor just that sentence is highlighted and
 scrolled to; in the source editor it is selected in the wikitext, link markup and `<ref>`s included.
 
@@ -123,11 +122,16 @@ Full explanation with diagrams, measured costs, tradeoffs and notes on scaling t
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
 **AI summaries** (checkbox on the page, off by default): an LLM checks each finding, says what each
-edition states, and can translate the quotes to English keeping the highlights. Cached in `llm_cache`.
+edition states, and can translate the quotes to English keeping the highlights. Findings it does not
+confirm move under a "Show N findings the AI marked as irrelevant" button, each saying why. Cached in
+`llm_cache`. The web app shows the total number of differences, ten per page.
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
-`GET /api/diff?title=Talvisota&limit=15` (`differences`, best first; `&focus=fi` puts the
-findings involving that edition first), `GET /api/progress?title=Talvisota` (stage of a running diff),
+`GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, and
+their `total`; `&focus=fi` puts the findings involving that edition first; `&dialects=false` leaves
+out editions without a two-letter ISO 639-1 code, i.e. regional languages and varieties such as
+Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian Taraškievica
+`be-tarask`), `GET /api/progress?title=Talvisota` (stage of a running diff),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
 `POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding: is the tone or
 framing clearly different?),
