@@ -1,7 +1,7 @@
 # langdiff
 
-Which parts of a Wikipedia article differ the most between its Finnish, Swedish and English
-versions? Built on dataset S of
+Where do the Finnish, Swedish and English Wikipedia articles on the same topic state different
+facts? Built on dataset S of
 [mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) and MariaDB Vector.
 
 ## Run
@@ -46,15 +46,21 @@ A new provider with one of these APIs is a new preset; a new API is a `(request,
 - `chunk`: an article's parts (paragraphs merged to ≥300 characters, never across a heading; source
   and link sections skipped), embedded with the same bge-m3 the first time the article is asked
   for, then cached.
-- For each part, MariaDB finds the closest part in every other language
-  (`VEC_DISTANCE_COSINE` + `ROW_NUMBER()`). A part's score is its largest such distance: high
-  means at least one language has nothing like it.
-- For each divergent part, the LLM writes a headline and a 1–2 sentence summary of what differs
-  (no suggested edits), and picks the verbatim phrases carrying the difference; the UI marks them
-  in the side-by-side quotes. "View quotes in English" translates a card's quotes in one LLM call,
-  keeping the marks. Only English for now (`TARGETS` in `app.py`). LLM answers are cached in the
-  `llm_cache` table.
+- **Same subject:** for each pair of languages, MariaDB pairs up parts that are each other's nearest
+  part (`VEC_DISTANCE_COSINE` + two `ROW_NUMBER()`s) and closer than `SAME_SUBJECT` (0.35).
+  Information only one edition has never forms such a pair, so it is not reported.
+- **Different facts:** within a pair, numbers that each side has and the other lacks, and that are
+  close in value (`discrepancy.py`): quantities within a factor of 1.67, years within ±2 (years only
+  for pairs closer than 0.3, since unrelated events have unrelated years). Digits read the same in
+  all three languages; thousands separators (`25,904`, `23 576`) are normalised. Each number is
+  matched once, to its closest counterpart. Pairs are ranked by how many figures differ.
+- **AI summaries** (checkbox on the page, off by default): the LLM checks each pair for a real
+  contradiction, says what each edition states, highlights the phrases, and can translate the
+  quotes to English keeping the highlights. Answers are cached in the `llm_cache` table.
 
-API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=10`,
-`POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (divergent part first),
+Limits: only figures and dates are compared without the LLM: names, places and claims need it.
+A number can match a different fact in the other passage (two troop counts in one paragraph).
+
+API: `GET /api/titles?q=Talvi` (titles in ≥2 languages), `GET /api/diff?title=Talvisota&limit=15`,
+`POST /api/explain {"passages": [{"lang", "heading", "text"}, {…}]}` (one pair),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
