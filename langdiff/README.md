@@ -18,6 +18,24 @@ uv run --env-file .env langdiff   # http://127.0.0.1:8000; .env holds AI_API_KEY
 can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
 `DB_NAME`, `OLLAMA_URL`.
 
+### Chrome extension
+
+`extension/` shows the same findings inside the Wikipedia edit view (fi, sv, en; source editor and
+VisualEditor): a "langdiff · N" button opens a panel listing what this edition states differently
+from the others, each with the other editions' sentences, links to them, and **Find in source**,
+which selects the sentence's figure (or the sentence) in the wikitext.
+
+1. Start the backend (above) on `http://127.0.0.1:8000`.
+2. `chrome://extensions` → Developer mode → **Load unpacked** → select `langdiff/extension`.
+3. Open an article's edit view, e.g. `https://fi.wikipedia.org/w/index.php?title=Urho_Kekkonen&action=edit`.
+
+The extension calls the backend from its service worker (host permission, no CORS change needed);
+for another backend address, change `BACKEND` in `extension/background.js` and `host_permissions`
+in `extension/manifest.json`. Findings come from the dataset snapshot, not the text being edited.
+"Find in source" works in the source editor only. An article not embedded yet takes minutes the
+first time; past about five minutes Chrome may stop the service worker, and reopening the page shows
+the result once the backend has finished.
+
 ### LLM
 
 `LLM_PRESET` picks one of the presets in `src/langdiff/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL`
