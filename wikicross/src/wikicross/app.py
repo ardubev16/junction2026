@@ -1,16 +1,19 @@
 """API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently."""
 
 import hashlib
+import ipaddress
 import json
+import os
 import re
 import time
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import compare, embed_gpu, wiki
@@ -44,6 +47,44 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="WikiCross", lifespan=lifespan)
+
+# Clients outside ALLOWED_IPS (IPs or CIDR ranges, space-separated) get at most this many requests a
+# minute per zone; the home page states the same numbers. Behind Caddy the client IP comes from
+# X-Forwarded-For, which Caddy sets (uvicorn --forwarded-allow-ips in the Dockerfile).
+ALLOWED_IPS = [ipaddress.ip_network(n, strict=False) for n in os.environ.get("ALLOWED_IPS", "127.0.0.1 ::1").split()]
+LIMITS = {"llm": 30, "api": 60}
+# shortcut: in-process memory, one counter per IP and zone kept forever; fine for one server process.
+_hits: dict[tuple[str, str], deque] = defaultdict(deque)
+
+
+def zone(path: str) -> str | None:
+    """The rate-limit zone of a path: LLM calls cost per request; progress is polled each second."""
+    if path in ("/api/explain", "/api/translate"):
+        return "llm"
+    return "api" if path.startswith("/api/") and path != "/api/progress" else None
+
+
+def allowed(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return any(ip in net for net in ALLOWED_IPS)
+
+
+@app.middleware("http")
+async def rate_limit(request, call_next):
+    host = request.client.host if request.client else ""
+    if (z := zone(request.url.path)) and not allowed(host):
+        now, hits = time.monotonic(), _hits[host, z]
+        while hits and hits[0] <= now - 60:
+            hits.popleft()
+        if len(hits) >= LIMITS[z]:
+            wait = int(hits[0] + 60 - now) + 1
+            return JSONResponse({"detail": f"Too many requests: {LIMITS[z]} a minute from this address. Try again in {wait} s."},
+                                429, headers={"Retry-After": str(wait)})
+        hits.append(now)
+    return await call_next(request)
 
 
 def split(text: str) -> list[tuple[str, str]]:

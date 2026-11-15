@@ -35,4 +35,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 # Not the `wikicross` script: that binds 127.0.0.1, and Caddy reaches the app from another container.
-CMD ["uvicorn", "wikicross.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Only Caddy can reach the app (no published port), so its X-Forwarded-For is trusted as the client IP.
+CMD ["uvicorn", "wikicross.app:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "*"]

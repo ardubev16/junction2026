@@ -25,6 +25,8 @@ services:
     environment:
       DB_HOST: mariadb
       DB_PORT: "3306"
+      # Exempt from the rate limit. Not private ranges: over IPv6, Docker's proxy hands Caddy a private address.
+      ALLOWED_IPS: ${ALLOWED_IPS:-127.0.0.1 ::1}
     depends_on:
       mariadb:
         condition: service_healthy
@@ -35,8 +37,6 @@ services:
     profiles: [deploy]
     environment:
       DOMAIN: ${DOMAIN:-localhost}
-      # Unset: nobody from outside. Not private ranges: over IPv6, Docker's proxy hands Caddy a private address.
-      ALLOWED_IPS: ${ALLOWED_IPS:-127.0.0.1}
     ports:
       - "80:80"
       - "443:443"

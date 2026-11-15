@@ -67,7 +67,7 @@ domain's A record at it (DNS only, no proxy in front; no AAAA record, see below)
 cat >> .env <<'EOF'
 COMPOSE_PROFILES=deploy
 DOMAIN=wikicross.example.com
-ALLOWED_IPS=198.51.100.23     # who may use it: IPs or CIDR ranges, space-separated
+ALLOWED_IPS=198.51.100.23     # not rate-limited (the event network): IPs or CIDR ranges, space-separated
 MODAL_TOKEN_ID=ak-…           # `uv run modal token new` or modal.com/settings/tokens
 MODAL_TOKEN_SECRET=as-…
 EOF
@@ -79,9 +79,13 @@ copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross
 | gzip > wikicross.sql.gz` here, `gunzip -c wikicross.sql.gz | docker compose exec -T mariadb mariadb
 -uwikicross -pwikicross wikicross` there.
 
-**Access** (`Caddyfile`): only the client IPs in `ALLOWED_IPS` get in, everyone else gets 403; unset,
-nobody from outside does. Use public IPv4 addresses: a client reaching the VM over IPv6 shows up
-as Docker's private gateway address, hence the A record only. There is no rate limit.
+**Rate limit** (`app.py`, `LIMITS`; stated on the home page): anyone can use it, but a client outside
+`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/explain` + `/api/translate` (the LLM),
+then 429 with `Retry-After`; `/api/progress`, polled each second, is not counted. The client is the
+address Caddy sets in `X-Forwarded-For` (a forged one is overwritten). `ALLOWED_IPS` unset: only
+localhost is exempt, so `uv run wikicross` locally is never limited. Use public IPv4 addresses: a
+client reaching the VM over IPv6 shows up as Docker's private gateway address, hence the A record
+only. The counters live in the server process and reset when it restarts.
 
 The extension still points at `http://127.0.0.1:8000`: for the deployment, change `BACKEND` in
 `extension/background.js` and `host_permissions` in `extension/manifest.json` to `https://DOMAIN`.

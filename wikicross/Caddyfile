@@ -1,10 +1,6 @@
 # HTTPS is automatic: Caddy gets a Let's Encrypt certificate for DOMAIN on the first request and
-# renews it (kept in the caddy-data volume). Ports 80 and 443 must be reachable from the internet;
-# the certificate check on port 80 is answered by Caddy before the whitelist below.
+# renews it (kept in the caddy-data volume). Ports 80 and 443 must be reachable from the internet.
+# Caddy sets X-Forwarded-For to the client's address; the app rate-limits by it (ALLOWED_IPS exempt).
 {$DOMAIN} {
-	# Only these client IPs or CIDR ranges (space-separated) get in; everyone else gets 403.
-	@outside not remote_ip {$ALLOWED_IPS}
-	respond @outside "Forbidden" 403
-
 	reverse_proxy app:8000
 }
