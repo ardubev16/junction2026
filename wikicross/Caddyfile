@@ -1,33 +1,40 @@
-{
-	order rate_limit before reverse_proxy
-}
+# Rate limiting is off: all participants share one public IP, so ALLOWED_IPS gates access instead.
+# To turn it on, uncomment this block and the rate_limit block below (Dockerfile.caddy has the plugin).
+# {
+# 	order rate_limit before reverse_proxy
+# }
 
 # HTTPS is automatic: Caddy gets a Let's Encrypt certificate for DOMAIN on the first request and
-# renews it (kept in the caddy-data volume). Ports 80 and 443 must be reachable from the internet.
+# renews it (kept in the caddy-data volume). Ports 80 and 443 must be reachable from the internet;
+# the certificate check on port 80 is answered by Caddy before the whitelist below.
 {$DOMAIN} {
+	# Only these client IPs or CIDR ranges (space-separated) get in; everyone else gets 403.
+	@outside not remote_ip {$ALLOWED_IPS}
+	respond @outside "Forbidden" 403
+
 	# Per client IP, which Caddy sees directly (no proxy in front). Over the limit: 429 + Retry-After.
 	# shortcut: per-IP limits do not cap total Modal/LLM spend across many IPs; add a global cap
 	# on new topics in the app if that becomes a problem.
-	rate_limit {
-		# Each call costs LLM tokens; AI summaries send one per finding, so 10 per page.
-		zone llm {
-			match {
-				path /api/explain /api/translate
-			}
-			key {remote_host}
-			events 30
-			window 1m
-		}
-		# A new topic costs GPU time. Progress is left out: pages poll it once a second while waiting.
-		zone api {
-			match {
-				path /api/*
-				not path /api/progress /api/explain /api/translate
-			}
-			key {remote_host}
-			events 60
-			window 1m
-		}
-	}
+	# rate_limit {
+	# 	# Each call costs LLM tokens; AI summaries send one per finding, so 10 per page.
+	# 	zone llm {
+	# 		match {
+	# 			path /api/explain /api/translate
+	# 		}
+	# 		key {remote_host}
+	# 		events 30
+	# 		window 1m
+	# 	}
+	# 	# A new topic costs GPU time. Progress is left out: pages poll it once a second while waiting.
+	# 	zone api {
+	# 		match {
+	# 			path /api/*
+	# 			not path /api/progress /api/explain /api/translate
+	# 		}
+	# 		key {remote_host}
+	# 		events 60
+	# 		window 1m
+	# 	}
+	# }
 	reverse_proxy app:8000
 }

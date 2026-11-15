@@ -17,7 +17,7 @@ services:
       retries: 30
     restart: unless-stopped
 
-  # The public deployment: `COMPOSE_PROFILES=deploy` and `DOMAIN=…` in .env, then `docker compose up -d`.
+  # The public deployment: `COMPOSE_PROFILES=deploy`, `DOMAIN=…` and `ALLOWED_IPS=…` in .env, then `docker compose up -d`.
   app:
     build: .
     profiles: [deploy]
@@ -37,6 +37,8 @@ services:
     profiles: [deploy]
     environment:
       DOMAIN: ${DOMAIN:-localhost}
+      # Unset: nobody from outside. Not private ranges: over IPv6, Docker's proxy hands Caddy a private address.
+      ALLOWED_IPS: ${ALLOWED_IPS:-127.0.0.1}
     ports:
       - "80:80"
       - "443:443"
