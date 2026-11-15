@@ -57,8 +57,8 @@ row to recompute.
 
 ### Public deployment (HTTPS)
 
-`docker-compose.yml`'s `deploy` profile adds the app (`Dockerfile`) and Caddy (`Caddyfile`,
-`Dockerfile.caddy`) in front of it, on ports 80 and 443. Caddy gets a Let's Encrypt certificate for
+`docker-compose.yml`'s `deploy` profile adds the app (`Dockerfile`) and Caddy (stock `caddy:2` image,
+configured by `Caddyfile`) in front of it, on ports 80 and 443. Caddy gets a Let's Encrypt certificate for
 the domain by itself and renews it (kept in the `caddy-data` volume). On the VM: point the
 domain's A record at it (DNS only, no proxy in front; no AAAA record, see below), open ports 80 and
 443 (TCP, and 443 UDP for HTTP/3), then:
@@ -81,9 +81,7 @@ copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross
 
 **Access** (`Caddyfile`): only the client IPs in `ALLOWED_IPS` get in, everyone else gets 403; unset,
 nobody from outside does. Use public IPv4 addresses: a client reaching the VM over IPv6 shows up
-as Docker's private gateway address, hence the A record only. Per-IP **rate limits** (30 a minute
-for `/api/explain` and `/api/translate`, 60 for the rest of `/api/` but `/api/progress`) are in the
-`Caddyfile`, commented out: all participants share one public IP.
+as Docker's private gateway address, hence the A record only. There is no rate limit.
 
 The extension still points at `http://127.0.0.1:8000`: for the deployment, change `BACKEND` in
 `extension/background.js` and `host_permissions` in `extension/manifest.json` to `https://DOMAIN`.

@@ -31,9 +31,7 @@ services:
     restart: unless-stopped
 
   caddy:
-    build:
-      context: .
-      dockerfile: Dockerfile.caddy
+    image: caddy:2
     profiles: [deploy]
     environment:
       DOMAIN: ${DOMAIN:-localhost}
