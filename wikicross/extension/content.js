@@ -301,7 +301,7 @@
     const home = $("button", { className: "home", type: "button", title: "Open this topic in the WikiCross web app" }, logo(), "WikiCross");
     home.addEventListener("click", () => chrome.runtime.sendMessage({ type: "open", title, lang }));
     if (!data.articles.some((a) => a.lang === lang)) {
-      body.append($("p", { className: "muted", textContent: `This edition (${langName(lang)}) is not compared: only Latin- and Cyrillic-script editions are. Below, what the others state differently.` }));
+      body.append($("p", { className: "muted", textContent: `This version (${langName(lang)}) is not compared: its script is not supported yet. Below, what the others state differently.` }));
     } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently from the other editions." }));
     body.append(...mine.map((f) => finding(f)));
     if (elsewhere.length) {
@@ -324,7 +324,7 @@
     const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
     panel.replaceChildren($("div", { className: "body" }, $("div", { className: "loading" }, spinner(),
       $("div", {}, $("div", { role: "status" }, stage, " ", seconds),
-        $("p", { className: "muted", textContent: "The first time a topic is asked for, its Latin- and Cyrillic-script editions are fetched and embedded: this can take a few minutes." })))));
+        $("p", { className: "muted", textContent: "The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this can take a few minutes." })))));
     const poll = setInterval(() => get("/api/progress", { title }).then((p) => {
       if (!p.stage) return;
       if (stage.textContent !== `${p.stage}…`) stage.textContent = `${p.stage}…`;

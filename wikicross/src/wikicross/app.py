@@ -1,4 +1,4 @@
-"""API: where the Latin- and Cyrillic-script Wikipedia editions of one topic frame things differently."""
+"""API: where all the Wikipedia versions of one article frame things differently."""
 
 import hashlib
 import ipaddress

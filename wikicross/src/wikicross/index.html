@@ -105,9 +105,9 @@
   <label class="toggle" title="Check each pair with an LLM, summarise it, and allow English translation"><input type="checkbox" id="ai"> AI summaries</label>
 </header>
 <main id="out">
-  <p class="muted">Pick an article to see where its Latin- and Cyrillic-script Wikipedia editions frame things differently.</p>
+  <p class="muted">Pick an article to see where all its Wikipedia versions frame things differently.</p>
   <!-- Keep in sync with LIMITS in app.py. -->
-  <p class="muted">Fair use: outside the event network, each address can make 60 requests a minute, and 30 a minute
+  <p class="error">Fair use: outside the event network, each address can make 60 requests a minute, and 30 a minute
     for AI summaries and translations. Past that, wait a minute and try again.</p>
 </main>
 
@@ -196,7 +196,7 @@ async function search(query, push) {
   const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
   out.replaceChildren($("div", { className: "loading" }, spinner(),
     $("div", {}, $("div", { className: "stage", role: "status" }, stage, " ", seconds),
-      $("div", { className: "muted", textContent: "The first time a topic is asked for, its Latin- and Cyrillic-script editions are fetched from Wikipedia and embedded: this may take a few minutes." }))));
+      $("div", { className: "muted", textContent: "The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this may take a few minutes." }))));
   const poll = setInterval(async () => {
     try {
       const p = await (await fetch(`/api/progress?${new URLSearchParams({ title })}`)).json();

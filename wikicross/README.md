@@ -1,8 +1,8 @@
 # WikiCross
 
-Where do the Wikipedia editions of the same topic, in every Latin- or Cyrillic-script language, frame
-things differently? Every edition is fetched live from Wikipedia the first time a topic is asked
-for, embedded with bge-m3 and compared in MariaDB Vector.
+Where do all the Wikipedia versions of an article frame things differently? They are fetched live
+from Wikipedia the first time an article is asked for, embedded with bge-m3 and compared in MariaDB
+Vector.
 
 ## Run
 
@@ -107,7 +107,7 @@ scrolled to; in the source editor it is selected in the wikitext, link markup an
 
 In the article view the extension asks the backend only when the button is clicked, so reading
 Wikipedia does not fetch and embed every topic visited; a page whose topic has no other edition loses
-its button. Findings cover every Latin- and Cyrillic-script edition, those involving the page's own
+its button. Findings cover all Wikipedia versions of the article, those involving the page's own
 edition first (`/api/diff?focus=fi`); a card shows four editions, the rest on "Show all".
 It calls the backend from its service worker (host permission, no CORS change needed); for another
 backend address, change `BACKEND` in `extension/background.js` and `host_permissions` in
