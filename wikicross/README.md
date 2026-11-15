@@ -58,6 +58,37 @@ reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. A topic loade
 passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
 row to recompute.
 
+### Public deployment (HTTPS)
+
+`docker-compose.yml`'s `deploy` profile adds the app (`Dockerfile`) and Caddy (`Caddyfile`,
+`Dockerfile.caddy`) in front of it, on ports 80 and 443. Caddy gets a Let's Encrypt certificate for
+the domain by itself and renews it (kept in the `caddy-data` volume). On the VM: point the
+domain's A/AAAA record at it (DNS only, no proxy in front), open ports 80 and 443 (TCP, and 443 UDP
+for HTTP/3), then:
+
+```bash
+cat >> .env <<'EOF'
+COMPOSE_PROFILES=deploy
+DOMAIN=wikicross.example.com
+MODAL_TOKEN_ID=ak-…           # `uv run modal token new` or modal.com/settings/tokens
+MODAL_TOKEN_SECRET=as-…
+EOF
+docker compose up -d --build --wait
+docker compose run --rm app wikicross-load   # the dataset S corpus, as in Run above
+```
+
+Or copy an existing database instead of loading S: `docker compose exec mariadb mariadb-dump -uwikicross
+-pwikicross wikicross | gzip > wikicross.sql.gz` here, `gunzip -c wikicross.sql.gz | docker compose
+exec -T mariadb mariadb -uwikicross -pwikicross wikicross` there (keeps every computed topic).
+
+**Rate limits** (per client IP, `Caddyfile`; over the limit: 429 with `Retry-After`): 30 a minute for
+the LLM endpoints (`/api/explain`, `/api/translate`; AI summaries send one per finding), 60 a minute
+for the rest of `/api/` except `/api/progress`, which pages poll once a second. They do not cap the
+total spend across many IPs: each new topic costs about $0.34 of GPU time.
+
+The extension still points at `http://127.0.0.1:8000`: for the deployment, change `BACKEND` in
+`extension/background.js` and `host_permissions` in `extension/manifest.json` to `https://DOMAIN`.
+
 ### Chrome extension
 
 `extension/` shows the same findings on every Wikipedia (`*.wikipedia.org`, article pages): a
