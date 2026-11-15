@@ -1,25 +1,25 @@
 # How WikiCross works
 
 WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently**:
-Finnish, Swedish and English from dataset S, every other Latin- or Cyrillic-script edition fetched
-live from Wikipedia on the first request (`wiki.py`). It needs no LLM: only bge-m3 vectors, compared
-inside MariaDB. An optional LLM step (off by default) can summarise and translate.
+every Latin- or Cyrillic-script edition is fetched live from Wikipedia on the topic's first request
+(`wiki.py`). It needs no LLM: only bge-m3 vectors, compared inside MariaDB. An optional LLM step (off
+by default) can summarise and translate.
 
-Passages in two dataset languages (fi, sv, en) are matched over the whole corpus with HNSW, as below.
+Passages in two of fi, sv and en are matched over every passage in the database with HNSW, as below.
 Any pair involving another language is matched only inside the topic, by an exact join: HNSW filtered
 to a language with a few articles would scan almost the whole index. Framing statistics fall back to
 all languages pooled for a language with fewer than 200 sentences.
 
-Everything below was measured on dataset S (history of Finland: 29,460 articles) on one laptop CPU,
-unless marked otherwise.
+Everything below was measured on dataset S of mariadb-wikipedia-datasets (history of Finland: 29,460
+articles in fi, sv, en), which WikiCross was first built on, on one laptop CPU, unless marked otherwise.
 
 ## The pipeline at a glance
 
 ```mermaid
 flowchart TD
-  L[wikicross-load: dataset S into MariaDB] --> A[article + article_vector]
-  Q[GET /api/diff?title=…] --> T[Topic: editions sharing a wikidata_id]
-  A --> T
+  Q[GET /api/diff?title=…] --> W[wiki.py: fetch the topic's editions not in the DB yet, embed each]
+  W --> A[article + article_vector]
+  A --> T[Topic: editions sharing a wikidata_id]
   T --> E1[Split articles into passages, embed with bge-m3 on demand]
   E1 --> P[Passage matching: mutual nearest across languages, HNSW]
   P --> E2[Split matched passages into sentences, embed on demand]
@@ -44,7 +44,7 @@ disagreement, not omission.
 
 ```mermaid
 erDiagram
-  article ||--|| article_vector : "1 vector per article (from the dataset)"
+  article ||--|| article_vector : "1 vector per article (bge-m3, at fetch time)"
   article ||--o{ chunk : "split into passages"
   chunk ||--o{ sentence : "split into sentences"
   article {
@@ -227,7 +227,7 @@ What needs work:
 
 | Piece | Today | With more languages |
 |---|---|---|
-| Language list | `LANGS` in `compare.py`, the loader, the page | from the data |
+| Language list | `LANGS` (fi, sv, en: matched with HNSW, listed first) in `db.py`, the page | from the data |
 | Sentence splitter | `.!?` + an uppercase letter of any alphabet (Latin, Cyrillic) or an opening quote/bracket | per script: CJK `。`, Arabic `؟`, Thai has no sentence punctuation |
 | Axis anchors | fi, sv, en | add anchors in each language; check each axis per language |
 | Passage lookups | 2 per passage | L−1 per passage, plus reverse lookups for mutuality |
@@ -297,11 +297,10 @@ flowchart LR
 Articles are edited all the time; the stored vectors describe the text they were made from.
 
 **Today nothing detects a change.** `ensure_chunks()` and `ensure_sentences()` only check whether an
-article has rows at all, and the loader keeps no revision (`rev_id` is in the dataset files but not
-loaded). Loading newer text with `wikicross-load` replaces `article` but leaves the old passages,
-sentences and vectors in place: findings would quote text that no longer exists. Until the steps
-below exist, after reloading changed text: `DELETE FROM chunk` / `sentence` for those articles (or
-`TRUNCATE` both).
+article has rows at all, and `wiki.py` fetches a topic's editions once (`topic_editions`) and keeps no
+revision: findings may quote text that has changed since. To refresh a topic until the steps below
+exist: delete its `topic_editions` row, its `article` / `article_vector` rows and their `chunk` /
+`sentence` rows; the next request fetches it again.
 
 **What goes stale when one edition of a topic changes:**
 
@@ -336,7 +335,7 @@ flowchart TD
 
 What that needs:
 
-1. **Store the revision**: a `rev_id` column in `article` (the dataset already has it) and the
+1. **Store the revision**: a `rev_id` column in `article` (the MediaWiki API returns it) and the
    `rev_id` each article's rows were made from, so "stale" is a comparison, not a guess.
 2. **Store a content hash** per passage and sentence (`sha256(text)`, `BINARY(32)`). Positions shift
    when a paragraph is inserted, so rows are matched by hash, not by `seq`. Rewrite an article's rows

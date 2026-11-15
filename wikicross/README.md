@@ -1,9 +1,8 @@
 # WikiCross
 
 Where do the Wikipedia editions of the same topic, in every Latin- or Cyrillic-script language, frame
-things differently? Built on dataset S of
-[mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets) (fi, sv, en) and
-MariaDB Vector; the other editions are fetched live from Wikipedia the first time a topic is asked for.
+things differently? Every edition is fetched live from Wikipedia the first time a topic is asked
+for, embedded with bge-m3 and compared in MariaDB Vector.
 
 ## Run
 
@@ -16,18 +15,16 @@ becomes the active profile), or set `MODAL_PROFILE=fabio-missagia` when starting
 
 ```bash
 docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the wikicross-data volume
-uv run wikicross-load          # download S (articles + bge-m3 vectors, fi/sv/en) into MariaDB
 uv run modal deploy src/wikicross/embed_gpu.py   # bge-m3 on an H100, scales to zero after 5 idle minutes
 uv run --env-file .env wikicross   # http://127.0.0.1:8000; .env holds AI_API_KEY
 ```
 
-`wikicross-load` keeps its downloads in `data/` (checked against the release's `SHA256SUMS`) and
-can be run again. Settings by environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`,
-`DB_NAME`.
+The server creates its tables on start; the database fills as topics are asked for. Settings by
+environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
 
 Embedding an article the first time: ~10 s with a warm GPU container (Urho Kekkonen, fi + sv + en),
 then 0.3 s from the database. A cold container first loads the model: ~30–50 s. Modal's vectors
-match Ollama's `bge-m3` (cosine 0.99999), so they are comparable with the dataset's.
+match Ollama's `bge-m3` (cosine 0.99999).
 
 **Live editions** (`src/wikicross/wiki.py`): the first request for a topic follows its language links
 and fetches every edition whose title and text are in Latin or Cyrillic script (≥90 % of letters;
@@ -36,8 +33,8 @@ plain-text extract to Markdown without its closing appendix (references, bibliog
 headings classified by bge-m3 against anchor names in Latin and Cyrillic languages, only in the
 trailing run of sections without prose), and embeds them all in one batch. `topic_editions`
 remembers finished topics and which scripts they covered, so a topic fetched before Cyrillic was
-added fetches its Cyrillic editions once. Measured, one request at a time: Stepan Bandera (not in S)
-47 editions in 49 s; Talvisota 52 more editions besides the dataset's fi/sv/en in 103 s. Eight at a
+added fetches its Cyrillic editions once. Measured, one request at a time: Stepan Bandera
+47 editions in 49 s; Talvisota 52 editions besides fi/sv/en (then already in the database) in 103 s. Eight at a
 time: Mannerheim-linja's 28 editions in about 1 s. Adding Cyrillic,
 Urho Kekkonen gained 8 editions (be, be-tarask, mn, os, ru, sr, uk, …) and Talvisota went to 66.
 Titles are looked up in any language in the database, else on English Wikipedia; `/api/diff?lang=de`
@@ -75,12 +72,12 @@ MODAL_TOKEN_ID=ak-…           # `uv run modal token new` or modal.com/settings
 MODAL_TOKEN_SECRET=as-…
 EOF
 docker compose up -d --build --wait
-docker compose run --rm app wikicross-load   # the dataset S corpus, as in Run above
 ```
 
-Or copy an existing database instead of loading S: `docker compose exec mariadb mariadb-dump -uwikicross
--pwikicross wikicross | gzip > wikicross.sql.gz` here, `gunzip -c wikicross.sql.gz | docker compose
-exec -T mariadb mariadb -uwikicross -pwikicross wikicross` there (keeps every computed topic).
+The database starts empty and fills as topics are asked for. To keep the topics computed so far,
+copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross -pwikicross wikicross
+| gzip > wikicross.sql.gz` here, `gunzip -c wikicross.sql.gz | docker compose exec -T mariadb mariadb
+-uwikicross -pwikicross wikicross` there.
 
 **Access** (`Caddyfile`): only the client IPs in `ALLOWED_IPS` get in, everyone else gets 403; unset,
 nobody from outside does. Use public IPv4 addresses: a client reaching the VM over IPv6 shows up
@@ -112,9 +109,8 @@ its button. Findings cover every Latin- and Cyrillic-script edition, those invol
 edition first (`/api/diff?focus=fi`); a card shows four editions, the rest on "Show all".
 It calls the backend from its service worker (host permission, no CORS change needed); for another
 backend address, change `BACKEND` in `extension/background.js` and `host_permissions` in
-`extension/manifest.json`. Findings come from the dataset snapshot (fi, sv, en) and from when the
-other editions were fetched, not the live page: a paragraph edited since may still be found (by its
-words), or not. A topic not embedded yet takes minutes
+`extension/manifest.json`. Findings come from when the editions were fetched, not the live page: a
+paragraph edited since may still be found (by its words), or not. A topic not embedded yet takes minutes
 the first time; past about five minutes Chrome may stop the service worker, and asking again shows
 the result once the backend has finished. After changing `background.js`, reload the extension in
 `chrome://extensions`: Chrome keeps running the old worker otherwise.

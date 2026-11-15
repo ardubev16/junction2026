@@ -2,7 +2,6 @@
 .venv
 .pytest_cache
 .env
-data
 docs
 extension
 tests

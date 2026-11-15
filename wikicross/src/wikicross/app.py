@@ -36,7 +36,7 @@ HATNOTE = re.compile(r"^(pääartikkelit?|huvudartikl(ar|el)|main articles?|furt
 
 @asynccontextmanager
 async def lifespan(_app):
-    with connect() as conn, conn.cursor() as cur:  # tables added after the data was loaded
+    with connect() as conn, conn.cursor() as cur:  # an empty database gets every table here
         for stmt in SCHEMA:
             cur.execute(stmt)
         widen_lang(cur)
@@ -265,7 +265,7 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         progress(f"Splitting {len(articles)} editions into passages and embedding the new ones")
         ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in articles])
 
-        # Whole-article distance between languages, from the dataset's own vectors.
+        # Whole-article distance between languages, from each edition's article vector.
         cur.execute(
             """SELECT x.lang, y.lang, VEC_DISTANCE_COSINE(vx.embedding, vy.embedding)
                FROM article x JOIN article y ON y.wikidata_id = x.wikidata_id AND x.lang < y.lang

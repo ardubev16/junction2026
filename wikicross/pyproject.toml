@@ -12,14 +12,12 @@ dependencies = [
     "httpx>=0.28.1",
     "modal>=1.6.4",
     "numpy>=2.5.4",
-    "pyarrow>=26.0.1",
     "pymysql>=1.2.4",
     "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
 wikicross = "wikicross:main"
-wikicross-load = "wikicross:load"
 
 [build-system]
 requires = ["uv_build>=0.11.21,<0.12.0"]

@@ -118,7 +118,7 @@
   const words = (text) => [...new Set(text.toLowerCase().match(/[\p{L}\d]{4,}/gu) || [])];
   const escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-  // Where a sentence from the dataset (plain text) lies in `text` (wikitext, or a paragraph's text):
+  // Where a sentence from the backend (plain text) lies in `text` (wikitext, or a paragraph's text):
   // [start, end] from its first two words to its last two, each pair allowed markup between them
   // ([[links|…]], <ref>s, footnote marks); the start nearest `near` wins. null if not found.
   function sentenceSpan(text, sentence, near) {
@@ -148,7 +148,7 @@
   }
 
   // Find the evidence sentence in the wikitext, which adds [[links]], '''bold''' and <ref>s to the
-  // dataset's plain text: the place where most of its longer words occur together is the anchor. Then
+  // backend's plain text: the place where most of its longer words occur together is the anchor. Then
   // select the sentence there, or else the whole line.
   function findInSource(sentence) {
     const src = textarea.value;

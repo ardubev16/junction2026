@@ -1,8 +1,8 @@
-"""Live Wikipedia: a topic's Latin- and Cyrillic-script editions that the dataset (fi, sv, en) does not have.
+"""Live Wikipedia: every Latin- and Cyrillic-script edition of a topic, the first time it is asked for.
 
-Fetched once per topic through the MediaWiki API (plain-text extracts), converted to the dataset's
-Markdown with appendix sections (bibliography, links) removed, embedded and stored like the dataset's
-articles. Editions are fetched FETCHERS at a time; Wikimedia answers bursts with HTTP 429 and
+Fetched once per topic through the MediaWiki API (plain-text extracts), converted to Markdown with
+appendix sections (bibliography, links) removed, embedded and stored in `article` and
+`article_vector`. Editions are fetched FETCHERS at a time; Wikimedia answers bursts with HTTP 429 and
 Retry-After, which api() waits out.
 """
 
@@ -106,7 +106,7 @@ def headings(extract: str) -> list[tuple[int, str]]:
 
 
 def markdown(title: str, extract: str, appendix: set[str]) -> str:
-    """The extract in the dataset's Markdown, without the sections whose heading is in `appendix`."""
+    """The extract as Markdown (`#` headings), without the sections whose heading is in `appendix`."""
     out, skip_level = [f"# {title}"], 0
     for line in extract.splitlines():
         line = line.strip()
