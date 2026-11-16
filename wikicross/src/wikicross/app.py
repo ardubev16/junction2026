@@ -230,11 +230,12 @@ PROGRESS: dict[str, tuple[str, float]] = {}
 
 @app.get("/api/diff")
 def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, focus: str | None = None,
-         dialects: bool = True):
+         dialects: bool = True, langs: str | None = None):
     """What a topic's editions state differently, best first, `limit` of them from `offset` (`total`
     counts all); `lang` is the edition the title is from (any if not given: then looked up on English
     Wikipedia if the database does not have it), `focus` an edition whose findings go first.
-    `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect()."""
+    `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect();
+    `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not."""
     start = time.monotonic()
 
     def progress(stage: str) -> None:
@@ -242,7 +243,7 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
 
     progress("Looking the topic up")
     try:
-        data = compare_editions(title, lang, progress, dialects)
+        data = compare_editions(title, lang, progress, dialects, set(langs.split(",")) if langs else None)
         # findings involving the focus edition first, each group in its own order, then the page
         data["differences"].sort(key=lambda f: focus is not None and all(m["lang"] != focus for m in f["members"]))
         data["total"] = len(data["differences"])
@@ -267,7 +268,7 @@ def progress_of(title: str):
     return {"stage": stage, "seconds": round(time.monotonic() - start)}
 
 
-def compare_editions(title: str, lang: str | None, progress, dialects: bool = True) -> dict:
+def compare_editions(title: str, lang: str | None, progress, dialects: bool = True, langs: set[str] | None = None) -> dict:
     with connect() as conn, conn.cursor() as cur:
         # The page's own edition only: on another one the same title can be another topic (de "Gift").
         cur.execute(
@@ -300,9 +301,11 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
             "ORDER BY FIELD(lang, 'en', 'sv', 'fi') DESC, lang",
             (wikidata_id,),
         )
-        articles = [a for a in cur.fetchall() if dialects or not is_dialect(a[0])]
+        every = cur.fetchall()
+        articles = [a for a in every if (dialects or not is_dialect(a[0])) and (langs is None or a[0] in langs)]
         if len(articles) < 2:
-            raise HTTPException(404, f"{title!r} exists in one language only")
+            raise HTTPException(404, "fewer than two languages left: pick more" if len(every) >= 2
+                                else f"{title!r} exists in one language only")
         progress(f"Splitting {len(articles)} editions into passages and embedding the new ones")
         ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in articles])
 
@@ -339,6 +342,7 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
     return {
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
+        "languages": [a[0] for a in every],
         "similarity": similarity,
         "differences": found,
     }
@@ -368,7 +372,8 @@ def strings(keys) -> dict:
 class Passage(BaseModel):
     lang: str
     heading: str
-    text: str
+    text: str  # the whole passage, for context
+    sentence: str  # the quote shown on the card, inside `text`
 
 
 class ExplainRequest(BaseModel):
@@ -377,49 +382,66 @@ class ExplainRequest(BaseModel):
 
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
-    """Whether passages about the same subject, one per language, frame it clearly differently, and how."""
+    """Whether the quotes (one per language, each with its passage) frame the same subject clearly
+    differently; a title and a description of how, and each quote in English with those words marked."""
     if len(req.passages) < 2:
         raise HTTPException(400, "need at least two passages")
-    check = (
-        "for differences in impartiality: describing the same thing in a clearly different tone, with "
-        "loaded or emotive words where another is neutral, more favourably or critically, or presenting "
-        "as settled what another presents as disputed. Different facts, length or detail alone do not "
-        "count. discrepancy: whether such a difference is clear. title: in English, at most 8 words, "
-        "naming how the framing differs."
-    )
-    phrases = "the differently framed wording"
     answer = chat(
-        f"You check passages about the same subject from different language editions of Wikipedia {check} "
-        "summary: in English, 1-2 sentences saying what each edition states and how. Do not suggest edits "
-        "or actions. highlights: for each passage's language code, the 1-4 short phrases (at most 12 words "
-        f"each, copied verbatim from that passage) that state {phrases}.",
-        "\n\n".join(f"[{p.lang}] section: {p.heading or '(intro)'}\n{p.text}" for p in req.passages),
+        "You compare quotes about the same subject from different language editions of Wikipedia, each "
+        "given with the passage around it, for differences in impartiality: describing the same thing in a "
+        "clearly different tone, with loaded or emotive words where another is neutral, more favourably or "
+        "critically, or presenting as settled what another presents as disputed. Different facts, length or "
+        "detail alone do not count. discrepancy: whether such a difference is clear. "
+        "title: in English, at most 10 words, naming which edition frames it how, e.g. \"Finnish calls it an "
+        "invasion, Russian a border conflict\". quotes: for each language code, english: the quote translated "
+        "to English (unchanged if it is English), with <mark> and </mark> around the 1-3 short parts that "
+        "carry the framing; heading: the section heading in English; phrases: those same parts copied "
+        "verbatim from the original quote. description: in English, 2-4 sentences explaining in detail how "
+        "the editions differ, quoting the marked parts of the English quotes, each quoted part wrapped in "
+        "<mark> and </mark> exactly as in its quote. Do not suggest edits or actions.",
+        "\n\n".join(f"[{p.lang}] section: {p.heading or '(intro)'}\nquote: {p.sentence}\npassage: {p.text}"
+                    for p in req.passages),
         {
             "type": "object",
             "properties": {
                 "discrepancy": {"type": "boolean"},
                 "title": {"type": "string"},
-                "summary": {"type": "string"},
-                "highlights": {
+                "description": {"type": "string"},
+                "quotes": {
                     "type": "object",
-                    "properties": {p.lang: {"type": "array", "items": {"type": "string"}} for p in req.passages},
+                    "properties": {
+                        p.lang: {
+                            "type": "object",
+                            "properties": {"english": {"type": "string"}, "heading": {"type": "string"},
+                                           "phrases": {"type": "array", "items": {"type": "string"}}},
+                            "required": ["english", "heading", "phrases"],
+                        }
+                        for p in req.passages
+                    },
+                    "required": [p.lang for p in req.passages],
                 },
             },
-            "required": ["discrepancy", "title", "summary", "highlights"],
+            "required": ["discrepancy", "title", "description", "quotes"],
         },
     )
-    texts = {p.lang: p.text for p in req.passages}
-    highlights = answer.get("highlights") if isinstance(answer.get("highlights"), dict) else {}
+    quotes = answer.get("quotes") if isinstance(answer.get("quotes"), dict) else {}
+    out = {}
+    for p in req.passages:
+        q = quotes.get(p.lang)
+        if not isinstance(q, dict) or not isinstance(q.get("english"), str) or not q["english"].strip():
+            continue  # the UI keeps this quote in its original language
+        phrases = q.get("phrases") if isinstance(q.get("phrases"), list) else []
+        out[p.lang] = {
+            "english": q["english"],
+            "heading": str(q.get("heading") or p.heading),
+            # Only phrases that really occur: the UI marks them in the original by exact match.
+            "phrases": [h for h in phrases if isinstance(h, str) and h and h in p.sentence],
+        }
     return {
         "discrepancy": answer.get("discrepancy") is True,
         "title": str(answer.get("title", "")),
-        "summary": str(answer.get("summary", "")),
-        # Only phrases that really occur: the UI marks them by exact match.
-        "highlights": {
-            lang: [h for h in phrases if isinstance(h, str) and h and h in texts.get(lang, "")]
-            for lang, phrases in highlights.items()
-            if isinstance(phrases, list)
-        },
+        "description": str(answer.get("description", "")),
+        "quotes": out,
     }
 
 
