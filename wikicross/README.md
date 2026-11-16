@@ -170,7 +170,9 @@ number of differences, ten per page, and filters the compared editions: a langua
 a topic is compared once over every edition (cached), and a filter trims that result (`narrow()`:
 each finding keeps the chosen editions' sentences, its deviations redone from the stored ones).
 
-API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
+API: `GET /api/titles?q=Talvi` (up to 10 topics, one each: those compared before whose title in any
+language starts with q, then English Wikipedia's suggestions; each in English, else its longest
+edition, with Wikipedia's short description and thumbnail, as the search box's suggestions show them),
 `GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, and
 their `total`; each finding has every edition's `deviations` on its axis, shown under the "i" next
 to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` keeps
