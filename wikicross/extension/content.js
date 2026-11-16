@@ -16,7 +16,6 @@
   // Icons as SVG: font glyphs show as empty squares where the font lacks them. Constant markup only.
   const ICONS = {
     alert: '<path d="M10 2.5 18.5 17.5h-17z"/><path d="M10 8v4M10 14.8v.2"/>',
-    scale: '<path d="M10 3v14M6 17h8M3 6h14M5.5 6 3 12h5zM14.5 6 12 12h5z"/>',
     close: '<path d="m5 5 10 10M15 5 5 15"/>',
     find: '<circle cx="8.5" cy="8.5" r="5.5"/><path d="m13 13 4.5 4.5"/>',
     link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
@@ -110,6 +109,7 @@
     /* The kind of difference the AI found, first thing on a card. Keep in sync with src/wikicross/index.html. */
     .kind { font: bold 11px sans-serif; text-transform: uppercase; letter-spacing: .04em; padding: .15rem .5rem; border-radius: 2px; color: #fff; }
     .kind.factual { background: #d33; } .kind.bias { background: #8e44ad; } .kind.framing { background: #36c; }
+    .kind.none { background: #72777d; }  /* marked irrelevant by the AI */
     .card h3 { margin: .35rem 0 .2rem; font: bold 15px/1.35 sans-serif; }
     .card h3.pending { font: italic 13px sans-serif; color: #54595d; }
     .summary { font: 14px/1.55 "Linux Libertine", Georgia, serif; margin: 0 0 .5rem; } .summary:empty { display: none; }
@@ -346,7 +346,7 @@
     const outliers = f.outlier ? [f.lang] : [];
     // The kind badge waits for the AI; the label only says which edition is the outlier, if one is.
     const kind = $("span", { className: "kind", hidden: true });
-    const label = $("span", { className: "label" }, icon("scale"),
+    const label = $("span", { className: "label" },
       f.outlier ? `Outlier: ${langName(f.lang)}` : "", ...numbers(f));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.includes(m.lang) ? 1 : 2);
@@ -434,6 +434,7 @@
         title.className = "";
         title.textContent = x.title;
         if (x.discrepancy && x.kind) Object.assign(kind, { className: `kind ${x.kind}`, textContent: KIND_NAMES[x.kind], hidden: false });
+        if (!x.discrepancy) Object.assign(kind, { className: "kind none", textContent: "Irrelevant", hidden: false });
         for (const [l, q] of Object.entries(x.quotes)) {
           state.english[l] = { quote: q.english, heading: q.heading };
           state.phrases[l] = q.phrases;
@@ -512,7 +513,7 @@
     const mine = data.differences.filter((f) => f.members.some((m) => m.lang === lang));
     const elsewhere = data.differences.filter((f) => !mine.includes(f));
     const n = mine.length;
-    toggle.replaceChildren(icon(n ? "alert" : "scale"), `WikiCross · ${n}`);
+    toggle.replaceChildren(...(n ? [icon("alert")] : []), `WikiCross · ${n}`);
     toggle.className = n ? "toggle" : "toggle quiet";
     const close = $("button", { className: "close", type: "button", title: "Close", ariaLabel: "Close" }, icon("close"));
     close.addEventListener("click", () => { panel.hidden = true; });

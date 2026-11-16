@@ -68,6 +68,7 @@
   /* The kind of difference the AI found, first thing on a card. Keep in sync with extension/content.js. */
   .kind { font: bold .75rem sans-serif; text-transform: uppercase; letter-spacing: .04em; padding: .2rem .55rem; border-radius: 2px; color: #fff; }
   .kind.factual { background: #d33; } .kind.bias { background: #8e44ad; } .kind.framing { background: #36c; }
+  .kind.none { background: #72777d; }  /* marked irrelevant by the AI */
   .score { color: var(--warn); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .3rem; align-items: center; margin-left: auto; }
   .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
   .card h3.pending { font: italic 1rem sans-serif; color: var(--muted); }
@@ -151,7 +152,6 @@ const $ = (tag, attrs = {}, ...kids) => {
 // innerHTML only ever sees these constant strings.
 const ICONS = {
   alert: '<path d="M10 2.5 18.5 17.5h-17z"/><path d="M10 8v4M10 14.8v.2"/>',
-  scale: '<path d="M10 3v14M6 17h8M3 6h14M5.5 6 3 12h5zM14.5 6 12 12h5z"/>',
   chevron: '<path d="m5 8 5 5 5-5"/>',
   left: '<path d="m12 5-5 5 5 5"/>',
   right: '<path d="m8 5 5 5-5 5"/>',
@@ -452,7 +452,7 @@ function card(finding, dismiss) {
   const outliers = finding.outlier ? [finding.lang] : [];
   // The kind badge waits for the AI; the label only says which edition is the outlier, if one is.
   const kind = $("span", { className: "kind", hidden: true });
-  const label = $("span", { className: "score" }, icon("scale"),
+  const label = $("span", { className: "score" },
     finding.outlier ? `Outlier: ${langName(finding.lang)}` : "", ...numbers(finding));
   // Outliers first, then the API's order; a card shows the first SHOWN unless expanded.
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
@@ -521,13 +521,14 @@ function card(finding, dismiss) {
     translateQuotes(pool);
     if (more) more.replaceChildren(icon("list"), state.all ? "Show fewer" : `Show all ${members.length} editions`, icon(state.all ? "up" : "chevron"));
     const english = (p) => state.english[p.lang] && !state.original.has(p.lang);
-    if (state.context) translatePassages(pool.filter(english));
+    // A hidden finding (marked irrelevant) shows its paragraphs in the original: not worth a translation.
+    if (state.context && !state.dismissed) translatePassages(pool.filter(english));
     quotes.replaceChildren(...pool.map((p) => {
       const en = english(p);
       const englishQuote = () => marked(state.english[p.lang].quote);
       const originalQuote = () => marked(withMarks(p.sentence, state.phrases[p.lang]));
       const passage = state.passages[p.lang];
-      const quote = state.context && en
+      const quote = state.context && en && !state.dismissed
         ? $("blockquote", {}, ...(passage ? [$("span", { className: "quoted" }, ...marked(passage))]
             : state.passagesError ? [$("span", { className: "error", textContent: state.passagesError })]
             : [spinner(), "Translating the paragraphs…"]))
@@ -550,6 +551,7 @@ function card(finding, dismiss) {
       title.className = "";
       title.textContent = x.title;
       if (x.discrepancy && x.kind) Object.assign(kind, { className: `kind ${x.kind}`, textContent: KIND_NAMES[x.kind], hidden: false });
+      if (!x.discrepancy) Object.assign(kind, { className: "kind none", textContent: "Irrelevant", hidden: false });
       for (const [lang, q] of Object.entries(x.quotes)) {
         state.english[lang] = { quote: q.english, heading: q.heading };
         state.phrases[lang] = q.phrases;
@@ -562,6 +564,7 @@ function card(finding, dismiss) {
         verdict.textContent = "Marked irrelevant by the AI check: these passages neither disagree on facts nor "
           + "differ clearly in tone or framing. Their distance on the axis comes from other differences, such "
           + "as what they include, their length or detail.";
+        state.dismissed = true;
         dismiss(article);
       }
     })
