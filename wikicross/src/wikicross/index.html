@@ -7,7 +7,7 @@
 <style>
   :root { --link: #36c; --border: #c8ccd1; --muted: #54595d; --chip: #eaecf0; --warn: #a66200; --bad: #d33; --serif: "Linux Libertine", "Georgia", "Times", serif; }
   body { margin: 0; background: #f8f9fa; color: #202122; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
-  /* Name left, search centred on the page, AI toggle right; stacked on narrow screens. */
+  /* Name left, search centred on the page; stacked on narrow screens. */
   header { background: #fff; border-bottom: 1px solid var(--border); padding: .6rem 1.5rem; display: grid;
            grid-template-columns: 1fr minmax(0, 640px) 1fr; gap: 1.5rem; align-items: center; }
   @media (max-width: 860px) { header { grid-template-columns: 1fr; gap: .6rem; } }
@@ -17,7 +17,12 @@
   .logo { width: 1.6rem; height: 1.6rem; flex: none; }
   form { display: flex; }
   form input { flex: 1; padding: .45rem .6rem; font-size: 1rem; border: 1px solid #a2a9b1; border-radius: 2px 0 0 2px; }
-  .toggle { display: inline-flex; gap: .4rem; align-items: center; font-size: .9rem; cursor: pointer; justify-self: end; }
+  .toggle { display: inline-flex; gap: .4rem; align-items: center; font-size: .9rem; cursor: pointer; }
+  /* Filters above the findings: the language picker (a menu like the editions') and "Hide dialects". */
+  .filters { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
+  .filters .editions { margin: 0; }
+  .picker label { display: block; break-inside: avoid; padding: .1rem 0; cursor: pointer; }
+  .picker .actions { column-span: all; display: flex; gap: .5rem; margin-bottom: .5rem; }
   main { max-width: 1000px; margin: 0 auto; padding: .5rem 1.5rem 3rem; }
   h1, h2 { font-family: var(--serif); font-weight: normal; }
   h1 { font-size: 1.9rem; margin: 1rem 0 .3rem; border-bottom: 1px solid #a2a9b1; }
@@ -61,9 +66,19 @@
   .chip { background: var(--chip); border-radius: 2px; padding: .1rem .45rem; }
   .score { color: var(--warn); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .3rem; align-items: center; }
   .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
+  .card h3.pending { font: italic 1rem sans-serif; color: var(--muted); }
   .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
   .summary:empty { display: none; }
   .pending { color: var(--muted); font-style: italic; }
+  /* A quote's translate button: hovering or focusing it shows the other version, clicking swaps them. */
+  .tr { position: relative; display: inline-flex; }
+  .tr > button { all: unset; display: inline-flex; cursor: pointer; color: var(--link); padding: .1rem; border-radius: 2px; }
+  .tr > button[aria-pressed="true"] { background: var(--chip); }
+  .tr > button:focus-visible { outline: 2px solid var(--link); }
+  .tr .tip { display: none; position: absolute; right: 0; top: 100%; z-index: 20; width: min(380px, 80vw); margin-top: .3rem;
+             background: #fff; border: 1px solid var(--border); border-radius: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
+             padding: .5rem .7rem; font: 1rem/1.5 var(--serif); white-space: pre-wrap; color: #202122; }
+  .tr:hover .tip, .tr:focus-within .tip { display: block; }
   /* Keep in sync with the spinner in extension/content.js. */
   .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid var(--chip); border-top-color: var(--link); border-radius: 50%;
              animation: spin .8s linear infinite; vertical-align: -.15em; margin-right: .4em; flex: none; }
@@ -102,7 +117,6 @@
     <datalist id="titles"></datalist>
     <button class="btn primary">Compare</button>
   </form>
-  <label class="toggle" title="Check each pair with an LLM, summarise it, and allow English translation"><input type="checkbox" id="ai"> AI summaries</label>
 </header>
 <main id="out">
   <p class="muted">Pick an article to see where all its Wikipedia versions frame things differently.</p>
@@ -143,7 +157,7 @@ const icon = (name) => {
   return t.content.firstChild;
 };
 const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
-const q = document.getElementById("q"), out = document.getElementById("out"), ai = document.getElementById("ai");
+const q = document.getElementById("q"), out = document.getElementById("out");
 const post = async (url, body) => {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = await r.json();
@@ -174,23 +188,25 @@ q.addEventListener("input", () => {
   }, 200);
 });
 
-// The query lives in the URL (?title=…&lang=…&page=…) so results can be shared and Back/Forward work;
-// `lang` (the edition the title is from) comes from the extension's link. The title is only ever put
-// into input.value, textContent and URLSearchParams: never parsed as HTML.
+// The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=0) so results can be shared
+// and Back/Forward work; `lang` (the edition the title is from) comes from the extension's link. The
+// title is only ever put into input.value, textContent and URLSearchParams: never parsed as HTML.
 const PER_PAGE = 10;
-let current = 0, shown = null;
+let current = 0;
 const urlQuery = () => {
   const p = new URLSearchParams(location.search);
-  return { title: p.get("title")?.trim(), lang: p.get("lang"), page: Math.max(1, parseInt(p.get("page"), 10) || 1) };
+  return { title: p.get("title")?.trim(), lang: p.get("lang"), page: Math.max(1, parseInt(p.get("page"), 10) || 1),
+           langs: p.get("langs")?.split(",").filter(Boolean) || null, dialects: p.get("dialects") !== "0" };
 };
-const queryString = ({ title, lang, page }) => `${new URLSearchParams({ title, ...(lang && { lang }), ...(page > 1 && { page }) })}`;
+// Only the parameters that differ from the defaults.
+const params = ({ lang, langs, dialects }) => ({ ...(lang && { lang }), ...(langs && { langs: langs.join(",") }), ...(!dialects && { dialects: 0 }) });
+const queryString = (query) => `${new URLSearchParams({ title: query.title, ...params(query), ...(query.page > 1 && { page: query.page }) })}`;
 async function search(query, push) {
-  const { title, lang, page } = query;
+  const { title, page } = query;
   if (push) history.pushState(null, "", `?${queryString(query)}`);
   q.value = title;
   document.title = `${title} — WikiCross`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
-  shown = null;
   // Loading view: the server's current stage (fetching editions, embedding, comparing), polled each
   // second, and the time so far. Only the stage is announced to screen readers, not every second.
   const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
@@ -207,7 +223,7 @@ async function search(query, push) {
   }, 1000);
   let r, data;
   try {
-    r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: PER_PAGE, offset: (page - 1) * PER_PAGE, ...(lang && { lang }) })}`);
+    r = await fetch(`/api/diff?${new URLSearchParams({ title, limit: PER_PAGE, offset: (page - 1) * PER_PAGE, ...params(query) })}`);
     data = await r.json().catch(() => ({ detail: `Server error ${r.status}` }));
   } catch (err) {
     data = { detail: `WikiCross server not reachable: ${err.message}` };
@@ -216,17 +232,16 @@ async function search(query, push) {
   }
   if (mine !== current) return;
   if (!r?.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
-  shown = { data, query };
-  render(shown);
+  render({ data, query });
 }
 
 document.getElementById("f").addEventListener("submit", (e) => {
   e.preventDefault();
-  const query = { title: q.value.trim(), page: 1 };  // a typed title may be from any edition: no lang
+  // A typed title may be from any edition: no lang; another topic has other languages: no langs.
+  const query = { title: q.value.trim(), page: 1, dialects: urlQuery().dialects };
   if (query.title) search(query, queryString(query) !== location.search.slice(1));
 });
 window.addEventListener("popstate", () => { const query = urlQuery(); if (query.title) search(query, false); });
-ai.addEventListener("change", () => shown && render(shown));
 if (urlQuery().title) search(urlQuery(), false);
 
 // Every edition, folded into a menu: a topic can have dozens. Each link opens that edition.
@@ -235,6 +250,34 @@ function editionsMenu(articles) {
     $("summary", { textContent: `${articles.length} editions` }),
     $("div", { className: "langs" }, ...articles.map((a) => $("a", { href: /^https?:\/\//.test(a.url) ? a.url : "#", target: "_blank", rel: "noopener" },
       $("b", { textContent: `${langName(a.lang)} (${a.lang})` }), ` · ${a.title}`))));
+}
+
+// Which editions are compared: a language picker (Apply runs the search again; the server compares
+// only those) and a quick "Hide dialects" (editions without a two-letter code).
+function filters(languages, query) {
+  const sorted = [...languages].sort((a, b) => langName(a).localeCompare(langName(b)));
+  const chosen = new Set(query.langs || languages);
+  const boxes = sorted.map((l) => $("input", { type: "checkbox", value: l, checked: chosen.has(l) }));
+  const button = (text, onClick, primary) => {
+    const b = $("button", { className: `btn small${primary ? " primary" : ""}`, type: "button", textContent: text });
+    b.addEventListener("click", onClick);
+    return b;
+  };
+  const apply = button("Apply", () => {
+    const langs = boxes.filter((b) => b.checked).map((b) => b.value);
+    search({ ...query, langs: langs.length === languages.length ? null : langs, page: 1 }, true);
+  }, true);
+  const update = () => { apply.disabled = boxes.filter((b) => b.checked).length < 2; };  // a comparison needs two
+  const all = (on) => { boxes.forEach((b) => { b.checked = on; }); update(); };
+  boxes.forEach((b) => b.addEventListener("change", update));
+  const picker = $("details", { className: "editions picker" },
+    $("summary", { textContent: query.langs ? `Languages: ${query.langs.length} of ${languages.length}` : `Languages: all ${languages.length}` }),
+    $("div", { className: "langs" },
+      $("div", { className: "actions" }, button("All", () => all(true)), button("None", () => all(false)), apply),
+      ...boxes.map((b) => $("label", {}, b, ` ${langName(b.value)} (${b.value})`))));
+  const dialects = $("input", { type: "checkbox", checked: !query.dialects });
+  dialects.addEventListener("change", () => search({ ...query, dialects: !dialects.checked, page: 1 }, true));
+  return $("div", { className: "filters" }, picker, $("label", { className: "toggle" }, dialects, "Hide dialects"));
 }
 
 function render({ data, query }) {
@@ -263,6 +306,7 @@ function render({ data, query }) {
   out.replaceChildren(
     $("h1", { textContent: head.title }),
     editionsMenu(data.articles),
+    filters(data.languages, query),
     ...(data.total ? [
       $("h2", { textContent: `${data.total} differences` }),
       $("p", { className: "muted", textContent: `Strongest first. Showing ${from + 1}–${from + data.differences.length}.` }),
@@ -358,61 +402,130 @@ const closeMenus = (target) => { for (const d of document.querySelectorAll("deta
 document.addEventListener("click", (e) => closeMenus(e.target));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(null); });
 
+// A finding. The AI (one /api/explain call for the quotes on show) gives its title, a description
+// quoting the framing words, and each quote in English with those words marked; the original keeps the
+// same words marked. Quotes show in English; each one's translate button shows the original on hover
+// and swaps to it on click. Quotes beyond the first SHOWN, and paragraphs, are translated when shown.
 function card(finding, dismiss) {
-  const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
-  const state = { highlights: {}, english: null, showEnglish: false, context: false, all: false,
+  const state = { english: {}, phrases: {}, original: new Set(), aiDone: false, translating: false, translateError: "",
+                  passages: {}, passagesBusy: false, passagesError: "", context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
-  const others = finding.members.map((m) => m.lang).filter((l) => l !== finding.lang);
-  const toward = finding.deviation > 0 ? finding.ends[0] : finding.ends[1];
-  const than = others.length > 3 ? names(others) : `the ${names(others)}`;
-  const title = $("h3", { textContent: `The ${langName(finding.lang)} edition ${toward} than ${than} edition${others.length > 1 ? "s" : ""}.` });
   const outliers = finding.outlier ? [finding.lang] : [];
   const label = $("span", { className: "score" }, icon("scale"),
     finding.outlier ? `Outlier: ${langName(finding.lang)}` : "Different framing", ...numbers(finding));
   // Outliers first, then the API's order; a card shows the first SHOWN unless expanded.
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
   const first = members.slice(0, SHOWN);
+  const title = $("h3", { className: "pending" }, spinner(), "Asking the AI how they differ…");
   const summary = $("p", { className: "summary" });
-  const verdict = $("p", { className: "verdict" });  // AI only: its progress, or why it was marked irrelevant
+  const verdict = $("p", { className: "verdict" });  // why the AI marked it irrelevant, or why it failed
   const quotes = $("div", { className: "quotes" });
   const article = $("article", { className: "card" });
-  const quoteOf = (p) => p.sentence;
-
   const more = members.length > SHOWN ? $("button", { className: "btn small", type: "button" }) : null;
-  // Paragraphs in English: the passages translated, the quote marked in them; asked for once, on demand.
-  const translatePassages = async () => {
-    state.passages = "pending";
-    const texts = Object.fromEntries(first.map((p) => [p.lang, withMarks(p.text, [p.sentence])]));
-    try { state.passages = await post("/api/translate", { texts, target: "en" }); }
-    catch (err) { state.passages = { error: `Could not translate the paragraphs: ${err.message}` }; }
+
+  // Quotes the AI call does not cover (beyond the first SHOWN, or all if it failed), in one call.
+  const translateQuotes = async (pool) => {
+    const todo = pool.filter((p) => !state.english[p.lang] && (state.aiDone || !first.includes(p)));
+    if (!todo.length || state.translating) return;
+    state.translating = true;
+    const texts = {};
+    for (const p of todo) {
+      texts[p.lang] = p.sentence;
+      if (p.heading) texts[`${p.lang}-heading`] = p.heading;
+    }
+    try {
+      const t = await post("/api/translate", { texts, target: "en" });
+      for (const p of todo) state.english[p.lang] = { quote: t[p.lang], heading: t[`${p.lang}-heading`] ?? p.heading };
+      state.translateError = "";
+    } catch (err) { state.translateError = `Could not translate: ${err.message}`; }
+    state.translating = false;
     renderQuotes();
   };
-  const renderQuotes = () => {
-    const pool = members;
-    if (state.showEnglish && state.context && !state.passages) translatePassages();
-    if (more) {
-      more.hidden = pool.length <= SHOWN;
-      more.replaceChildren(icon("list"), state.all ? "Show fewer" : `Show all ${pool.length} editions`, icon(state.all ? "up" : "chevron"));
-    }
-    quotes.replaceChildren(...(state.all ? pool : pool.slice(0, SHOWN)).map((p) => {
-    const en = state.showEnglish && state.english && p.lang in state.english;
-    const heading = (en ? state.english[`${p.lang}-heading`] : p.heading) || "(intro)";
-    // In English, the translated quote, or its translated passage; expanding the context further is
-    // only in the original language.
-    const passage = en && state.context && state.passages;
-    const quote = passage ? $("blockquote", {}, ...(passage === "pending" ? [spinner(), "Translating the paragraphs…"]
-        : passage.error ? [$("span", { className: "error", textContent: passage.error })]
-        : [$("span", { className: "quoted" }, ...marked(passage[p.lang] ?? p.text))]))
-      : en ? $("blockquote", {}, $("span", { className: "quoted" }, ...marked(state.english[p.lang])))
-      : state.context && p.sentence ? expandable(p, state.ctx[p.lang], () => marked(withMarks(p.text, [p.sentence])))
-      : $("blockquote", {}, $("span", { className: "quoted" }, ...marked(withMarks(quoteOf(p), state.highlights[p.lang]))));
-    const open = $("a", { className: "open", href: snippetUrl(p), target: "_blank", rel: "noopener",
-                          title: "Open this quote on Wikipedia", ariaLabel: `Open this quote on ${langName(p.lang)} Wikipedia` }, icon("link"));
-    return $("div", { className: outliers.includes(p.lang) ? "quote outlier" : "quote" },
-      $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: langName(p.lang) }), ` ${p.title} § ${heading} `, open)),
-      quote);
-    }));
+  // Paragraphs in English: the passages translated, the quote marked in them.
+  const translatePassages = async (pool) => {
+    const todo = pool.filter((p) => !(p.lang in state.passages));
+    if (!todo.length || state.passagesBusy) return;
+    state.passagesBusy = true;
+    try {
+      Object.assign(state.passages, await post("/api/translate", { texts: Object.fromEntries(todo.map((p) => [p.lang, withMarks(p.text, [p.sentence])])), target: "en" }));
+      state.passagesError = "";
+    } catch (err) { state.passagesError = `Could not translate the paragraphs: ${err.message}`; }
+    state.passagesBusy = false;
+    renderQuotes();
   };
+
+  // The translate button of a quote: its popup shows the version not on show; a click swaps them.
+  const swap = (p, en, english, original) => {
+    if (p.lang === "en") return "";
+    if (!state.english[p.lang]) {
+      const busy = !state.aiDone || state.translating;
+      return busy ? $("span", { className: "pending", title: "Translating…" }, spinner()) : "";
+    }
+    const button = $("button", { type: "button", ariaPressed: String(!en),
+      ariaLabel: en ? `Show the original ${langName(p.lang)} quote` : "Show the English translation" }, icon("translate"));
+    button.dataset.lang = p.lang;
+    button.addEventListener("click", () => {
+      if (!state.original.delete(p.lang)) state.original.add(p.lang);
+      renderQuotes();
+      quotes.querySelector(`button[data-lang="${p.lang}"]`)?.focus();  // the re-render replaced it
+    });
+    return $("span", { className: "tr" }, button,
+      $("div", { className: "tip", role: "tooltip" },
+        $("div", { className: "section", textContent: en ? `Original (${langName(p.lang)})` : "English translation" }),
+        ...(en ? original() : english())));
+  };
+
+  const renderQuotes = () => {
+    const pool = state.all ? members : first;
+    translateQuotes(pool);
+    if (more) more.replaceChildren(icon("list"), state.all ? "Show fewer" : `Show all ${members.length} editions`, icon(state.all ? "up" : "chevron"));
+    const english = (p) => state.english[p.lang] && !state.original.has(p.lang);
+    if (state.context) translatePassages(pool.filter(english));
+    quotes.replaceChildren(...pool.map((p) => {
+      const en = english(p);
+      const englishQuote = () => marked(state.english[p.lang].quote);
+      const originalQuote = () => marked(withMarks(p.sentence, state.phrases[p.lang]));
+      const passage = state.passages[p.lang];
+      const quote = state.context && en
+        ? $("blockquote", {}, ...(passage ? [$("span", { className: "quoted" }, ...marked(passage))]
+            : state.passagesError ? [$("span", { className: "error", textContent: state.passagesError })]
+            : [spinner(), "Translating the paragraphs…"]))
+        : state.context ? expandable(p, state.ctx[p.lang], () => marked(withMarks(p.text, [p.sentence])))
+        : $("blockquote", {}, $("span", { className: "quoted" }, ...(en ? englishQuote() : originalQuote())));
+      const heading = (en ? state.english[p.lang].heading : p.heading) || "(intro)";
+      const open = $("a", { className: "open", href: snippetUrl(p), target: "_blank", rel: "noopener",
+                            title: "Open this quote on Wikipedia", ariaLabel: `Open this quote on ${langName(p.lang)} Wikipedia` }, icon("link"));
+      return $("div", { className: outliers.includes(p.lang) ? "quote outlier" : "quote" },
+        $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: langName(p.lang) }), ` ${p.title} § ${heading} `, open),
+          swap(p, en, englishQuote, originalQuote)),
+        quote);
+    }), ...(state.translateError ? [$("p", { className: "error", textContent: state.translateError })] : []));
+  };
+
+  post("/api/explain", { passages: first.map((p) => ({ lang: p.lang, heading: p.heading || "", text: p.text, sentence: p.sentence })) })
+    .then((x) => {
+      title.className = "";
+      title.textContent = x.title;
+      summary.replaceChildren(...marked(x.description));
+      for (const [lang, q] of Object.entries(x.quotes)) {
+        state.english[lang] = { quote: q.english, heading: q.heading };
+        state.phrases[lang] = q.phrases;
+      }
+      if (!x.discrepancy) {
+        // Why it is out of the list; the description says what each edition states.
+        verdict.className = "verdict reason";
+        verdict.textContent = "Marked irrelevant by the AI check: these passages do not differ clearly in tone "
+          + "or framing. Their distance on the axis comes from other differences, such as the facts they "
+          + "include, their length or detail.";
+        dismiss(article);
+      }
+    })
+    .catch((err) => {
+      title.remove();
+      verdict.className = "error";
+      verdict.textContent = `AI unavailable, quotes in their original language: ${err.message}`;
+    })
+    .finally(() => { state.aiDone = true; renderQuotes(); });
   renderQuotes();
 
   const tools = $("div", { className: "tools" });
@@ -420,56 +533,13 @@ function card(finding, dismiss) {
     more.addEventListener("click", () => { state.all = !state.all; renderQuotes(); });
     tools.append(more);
   }
-  if (members[0].sentence) {
-    const context = $("button", { className: "btn small", type: "button" }, icon("paragraph"), "Show paragraphs", icon("chevron"));
-    context.addEventListener("click", () => {
-      state.context = !state.context;
-      context.replaceChildren(icon("paragraph"), state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
-      renderQuotes();
-    });
-    tools.append(context);
-  }
-  if (ai.checked) {
-    const toggle = $("button", { className: "btn small primary", type: "button", disabled: true }, icon("translate"), "View quotes in English");
-    const setToggle = (text) => toggle.replaceChildren(icon("translate"), text);
-    verdict.className = "pending";
-    verdict.replaceChildren(spinner(), "Checking with AI…");
-    post("/api/explain", { passages: first.map(({ lang, heading, text }) => ({ lang, heading, text })) })
-      .then((x) => {
-        verdict.className = "verdict";
-        verdict.replaceChildren();
-        if (!x.discrepancy) {
-          // Why it is out of the list; the summary below says what each edition states.
-          verdict.className = "verdict reason";
-          verdict.textContent = "Marked irrelevant by the AI check: these passages do not differ clearly in tone "
-            + "or framing. Their distance on the axis comes from other differences, such as the facts they "
-            + "include, their length or detail.";
-          dismiss(article);
-        }
-        summary.textContent = x.summary;
-        for (const [lang, phrases] of Object.entries(x.highlights)) state.highlights[lang] = [...(state.highlights[lang] || []), ...phrases];
-        renderQuotes();
-      })
-      .catch((err) => { verdict.className = "error"; verdict.textContent = `AI check unavailable: ${err.message}`; })
-      .finally(() => { toggle.disabled = false; });
-    toggle.addEventListener("click", async () => {
-      if (!state.english && !state.showEnglish) {
-        toggle.disabled = true; toggle.replaceChildren(spinner(), "Translating…");
-        const texts = {};
-        for (const p of first) {
-          texts[p.lang] = withMarks(quoteOf(p), state.highlights[p.lang]);
-          if (p.heading) texts[`${p.lang}-heading`] = p.heading;
-        }
-        try { state.english = await post("/api/translate", { texts, target: "en" }); }
-        catch (err) { toggle.disabled = false; setToggle(`Translation failed (${err.message}): retry`); return; }
-        toggle.disabled = false;
-      }
-      state.showEnglish = !state.showEnglish;
-      setToggle(state.showEnglish ? "View original quotes" : "View quotes in English");
-      renderQuotes();
-    });
-    tools.append(toggle);
-  }
+  const context = $("button", { className: "btn small", type: "button" }, icon("paragraph"), "Show paragraphs", icon("chevron"));
+  context.addEventListener("click", () => {
+    state.context = !state.context;
+    context.replaceChildren(icon("paragraph"), state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
+    renderQuotes();
+  });
+  tools.append(context);
 
   // The most important articles named (outliers first), the others in a "+N more" menu like the editions'.
   const rest = members.slice(SHOWN);

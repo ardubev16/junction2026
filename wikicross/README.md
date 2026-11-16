@@ -146,25 +146,33 @@ No LLM is needed: articles, passages and sentences are matched across languages 
 vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sentences are grouped
 into one group per fact, and each group is checked for the same thing described differently, by
 position on three axes: praised ↔ condemned (evaluation), fact ↔ disputed (certainty), and loaded,
-emotive ↔ neutral, matter-of-fact wording (wording). With AI summaries on, the AI checks each finding
+emotive ↔ neutral, matter-of-fact wording (wording). The web app then asks an LLM about each finding
 for a clear difference in tone or framing; findings it does not confirm are collapsed.
 
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
-**AI summaries** (checkbox on the page, off by default): an LLM checks each finding, says what each
-edition states, and can translate the quotes to English keeping the highlights. Findings it does not
-confirm move under a "Show N findings the AI marked as irrelevant" button, each saying why. Cached in
-`llm_cache`. The web app shows the total number of differences, ten per page.
+**AI in the web app** (on by default; detection never uses it): one `/api/explain` call per finding
+gives its title (how the framing differs, naming the editions), a description quoting the framing
+words, and each shown quote in English with those words highlighted; the original keeps the same
+words highlighted. Quotes show in English: each quote's translate button shows the original on hover
+(or keyboard focus) and swaps to it on click. Quotes past the first three ("Show all") and paragraphs
+are translated with `/api/translate` when shown. Findings the AI does not confirm move under a "Show N
+findings the AI marked as irrelevant" button, each saying why. If the LLM fails, a card has no title
+and shows the quotes in their original language. Cached in `llm_cache`. The web app shows the total
+number of differences, ten per page, and filters the compared editions: a language picker
+(`&langs=`) and "Hide dialects" (`&dialects=0`), both kept in the URL.
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
 `GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, and
 their `total`; each finding has every edition's `deviations` on its axis, shown under the "i" next
-to its label; `&focus=fi` puts the findings involving that edition first; `&dialects=false` leaves
+to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` compares
+only those editions; `&dialects=false` leaves
 out editions without a two-letter ISO 639-1 code, i.e. regional languages and varieties such as
 Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian Taraškievica
-`be-tarask`), `GET /api/progress?title=Talvisota` (stage of a running diff),
+`be-tarask`; `languages` lists every edition of the topic, filtered or not),
+`GET /api/progress?title=Talvisota` (stage of a running diff),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
-`POST /api/explain {"passages": [{"lang", "heading", "text"}, …]}` (one finding: is the tone or
-framing clearly different?),
+`POST /api/explain {"passages": [{"lang", "heading", "text", "sentence"}, …]}` (one finding:
+`discrepancy`, `title`, `description` and `quotes` per language: `english`, `heading`, `phrases`),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.

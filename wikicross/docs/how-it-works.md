@@ -2,8 +2,8 @@
 
 WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently**:
 every Latin- or Cyrillic-script edition is fetched live from Wikipedia on the topic's first request
-(`wiki.py`). It needs no LLM: only bge-m3 vectors, compared inside MariaDB. An optional LLM step (off
-by default) can summarise and translate.
+(`wiki.py`). Detection needs no LLM: only bge-m3 vectors, compared inside MariaDB. The web page then
+asks an LLM for each finding's title and description and for English translations of the quotes.
 
 Passages in two of fi, sv and en are matched over every passage in the database with HNSW, as below.
 Any pair involving another language is matched only inside the topic, by an exact join: HNSW filtered
@@ -27,7 +27,7 @@ flowchart TD
   S --> G[Group matched sentences across languages: one group per fact]
   G --> F2[Framing: position on semantic axes, furthest edition → outlier]
   F2 --> R[JSON: differences, best first]
-  R --> UI[Web page and Chrome extension: quotes side by side, each linked to its place on Wikipedia, optional AI]
+  R --> UI[Web page and Chrome extension: quotes side by side, each linked to its place on Wikipedia; AI titles in the web page]
 ```
 
 Two different questions are answered by two different mechanisms:
@@ -103,8 +103,8 @@ sequenceDiagram
   opt "Show paragraphs", then "Expand up / down" (web page only)
     B->>API: GET /api/context (neighbouring sentences, from the sentence table)
   end
-  opt "AI summaries" ticked
-    B->>API: POST /api/explain, /api/translate (LLM, cached in llm_cache)
+  par each finding on the page (web page only)
+    B->>API: POST /api/explain: title, description, quotes in English (LLM, cached in llm_cache)
   end
 ```
 
@@ -289,8 +289,8 @@ flowchart LR
 - **Framing statistics** (`axis_stats()`) are computed today by scanning every sentence once per
   process; at scale, compute them once per bulk load and store them in a table.
 - **Updates.** Re-embed and re-compare only what changed: see the next section.
-- **The LLM stays optional.** At scale it is best used to verify the top findings per topic (a few
-  per topic), not every matched pair.
+- **The LLM stays out of detection.** It titles and describes the findings people look at (one call
+  per finding on a page), not every matched pair.
 
 ## Recomputing embeddings when an article changes
 
