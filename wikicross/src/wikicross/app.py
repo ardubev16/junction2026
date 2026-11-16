@@ -408,35 +408,42 @@ class ExplainRequest(BaseModel):
     passages: list[Passage]  # parts about the same subject, one per language
 
 
+KINDS = ("factual", "bias", "framing")  # the kinds of difference the AI tells apart (`kind`)
+
+
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
-    """Whether the quotes (one per language, each with its passage) disagree on the facts or frame the
-    same subject clearly differently; a title and a description of how, and each quote in English with
-    the words that differ marked."""
+    """Whether the quotes (one per language, each with its passage) disagree on the facts or present
+    the same subject clearly differently, which `kind` (KINDS) of difference it is; a title and a
+    description of it, and each quote in English with the words that differ marked."""
     if len(req.passages) < 2:
         raise HTTPException(400, "need at least two passages")
     answer = chat(
         "You compare quotes about the same subject from different language editions of Wikipedia, each "
-        "given with the passage around it, for two kinds of difference. Factual disagreement: they state "
-        "different facts about the same thing that cannot all be true (numbers, dates, names, places, "
-        "outcomes, causes, who did what). Impartiality: describing the same thing in a clearly different "
-        "tone, with loaded or emotive words where another is neutral, more favourably or critically, or "
-        "presenting as settled what another presents as disputed. One edition including facts the others "
-        "leave out, length or detail alone do not count. discrepancy: whether either kind of difference is "
-        "clear. title: in English, at most 10 words, naming which edition says what, e.g. \"Finnish calls it "
-        "an invasion, Russian a border conflict\" or \"Finnish dates it 1918, Swedish 1920\". quotes: for "
-        "each language code, english: the quote translated to English (unchanged if it is English), with "
-        "<mark> and </mark> around the 1-3 short parts that differ; heading: the section heading in "
-        "English; phrases: those same parts copied verbatim from the original quote. description: in "
-        "English, 2-4 sentences explaining in detail how the editions differ, saying whether they "
-        "disagree on facts or on framing, quoting the marked parts of the English quotes, each quoted part "
-        "wrapped in <mark> and </mark> exactly as in its quote. Do not suggest edits or actions.",
+        "given with the passage around it. kind: factual when they state different facts about the same "
+        "thing that cannot all be true (numbers, dates, names, places, outcomes, causes, who did what); "
+        "bias when one is clearly more favourable or critical, or uses loaded or emotive words where "
+        "another is neutral; framing when the facts agree but are presented differently, such as settled "
+        "in one and disputed in another, or with a different emphasis or perspective. If more than one "
+        "applies, the strongest. One edition including facts the others leave out, length or detail alone "
+        "do not count. discrepancy: whether such a difference is clear. title: in English, at most 10 "
+        "words, naming which edition says what, e.g. \"Finnish calls it an invasion, Russian a border "
+        "conflict\" or \"Finnish dates it 1918, Swedish 1920\". quotes: for each language code, english: "
+        "the quote translated to English (unchanged if it is English), with <mark> and </mark> around the "
+        "1-3 short parts that differ; heading: the section heading in English; phrases: those same parts "
+        "copied verbatim from the original quote. description: in English, 2-4 sentences explaining in "
+        "detail what each edition says and how they differ, quoting the marked parts of the English "
+        "quotes, each quoted part wrapped in <mark> and </mark> exactly as in its quote. Every sentence "
+        "must add substance: never name or justify the kind of difference (no \"this is a factual "
+        "contradiction\", \"they cannot all be true\", \"not merely a difference in tone or detail\"), "
+        "never restate the title. Do not suggest edits or actions.",
         "\n\n".join(f"[{p.lang}] section: {p.heading or '(intro)'}\nquote: {p.sentence}\npassage: {p.text}"
                     for p in req.passages),
         {
             "type": "object",
             "properties": {
                 "discrepancy": {"type": "boolean"},
+                "kind": {"type": "string", "enum": list(KINDS)},
                 "title": {"type": "string"},
                 "description": {"type": "string"},
                 "quotes": {
@@ -453,7 +460,7 @@ def explain(req: ExplainRequest):
                     "required": [p.lang for p in req.passages],
                 },
             },
-            "required": ["discrepancy", "title", "description", "quotes"],
+            "required": ["discrepancy", "kind", "title", "description", "quotes"],
         },
     )
     quotes = answer.get("quotes") if isinstance(answer.get("quotes"), dict) else {}
@@ -471,6 +478,7 @@ def explain(req: ExplainRequest):
         }
     return {
         "discrepancy": answer.get("discrepancy") is True,
+        "kind": answer.get("kind") if answer.get("kind") in KINDS else None,
         "title": str(answer.get("title", "")),
         "description": str(answer.get("description", "")),
         "quotes": out,

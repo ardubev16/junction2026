@@ -6,6 +6,7 @@ from wikicross import app as m
 def test_explain_keeps_only_phrases_in_the_quote_and_skips_missing_translations(monkeypatch):
     answer = {
         "discrepancy": True,
+        "kind": "bias",
         "title": "Finnish calls it a war, Russian a conflict",
         "description": "Finnish says <mark>war</mark>, Russian <mark>conflict</mark>.",
         "quotes": {
@@ -24,3 +25,6 @@ def test_explain_keeps_only_phrases_in_the_quote_and_skips_missing_translations(
     x = r.json()
     assert x["title"] == answer["title"] and x["description"] == answer["description"] and x["discrepancy"] is True
     assert x["quotes"] == {"fi": {"english": "It was a <mark>war</mark>.", "heading": "History", "phrases": ["sota"]}}
+    assert x["kind"] == "bias"
+    answer["kind"] = "contradiction"  # not one of KINDS: no badge rather than an unknown one
+    assert TestClient(m.app, client=("127.0.0.1", 1)).post("/api/explain", json={"passages": passages}).json()["kind"] is None
