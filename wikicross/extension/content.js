@@ -1,6 +1,6 @@
-// WikiCross on Wikipedia: where the other language editions frame the same thing differently, or
-// contradict this one. In the article view and the edit views. All page text goes in
-// through textContent, never innerHTML. Keep in sync with src/wikicross/index.html (see AGENTS.md).
+// WikiCross on Wikipedia: where the other language editions frame the same thing differently. In the
+// article view and the edit views. All page text goes in through textContent, never innerHTML. Keep in
+// sync with src/wikicross/index.html (see AGENTS.md).
 (() => {
   const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
   const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
@@ -22,6 +22,12 @@
     link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
     list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
     info: '<circle cx="10" cy="10" r="7.5"/><path d="M10 9v5M10 6.2v.1"/>',
+    pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
+    chevron: '<path d="m5 8 5 5 5-5"/>',
+    up: '<path d="m5 12 5-5 5 5"/>',
+    paragraph: '<path d="M10 3v14M14 3v14M16 3H8.5a3.5 3.5 0 0 0 0 7H10"/>',
+    translate: '<path d="M3 5h8M7 3v2M5 5c0 4 3 7 6 8M9 5c0 3-2 6-6 8M11 17l3.5-8 3.5 8M12.2 14.5h4.6"/>',
+    eye: '<path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/>',
   };
   const icon = (name) => {
     const t = document.createElement("template");
@@ -41,13 +47,28 @@
     el.append(...kids);
     return el;
   };
-  const get = (path, query) => new Promise((resolve, reject) => {
-    chrome.runtime.sendMessage({ type: "get", path, params: query }, (reply) => {
+  // The backend, through background.js: {data} or {error, status}.
+  const ask = (message) => new Promise((resolve, reject) => {
+    chrome.runtime.sendMessage(message, (reply) => {
       if (chrome.runtime.lastError || !reply) reject(Object.assign(new Error(chrome.runtime.lastError?.message || "No answer from the extension."), { status: 0 }));
       else if (reply.error) reject(Object.assign(new Error(reply.error), { status: reply.status }));
       else resolve(reply.data);
     });
   });
+  const get = (path, query) => ask({ type: "get", path, params: query });
+  const post = (path, body) => ask({ type: "post", path, body });
+  const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
+  // Text with every highlighted phrase wrapped in <mark>…</mark>, as a string (sent to the translator).
+  const withMarks = (text, phrases = []) =>
+    [...new Set(phrases)].reduce((t, p) => t.split(p).join(`<mark>${p}</mark>`), text);
+  // That string as DOM nodes; never innerHTML, so article text cannot inject markup.
+  const marked = (s) => {
+    let inMark = false;
+    return s.split(/(<\/?mark>)/).flatMap((piece) => {
+      if (piece === "<mark>" || piece === "</mark>") { inMark = piece === "<mark>"; return []; }
+      return piece ? [inMark ? $("mark", { textContent: piece }) : piece] : [];
+    });
+  };
 
   const host = document.createElement("div");
   host.id = "wikicross-host";
@@ -55,6 +76,7 @@
   root.append($("style", { textContent: `
     :host { all: initial; }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }  /* button styles set display, which would show hidden buttons */
     .icon { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; flex: none; }
     .toggle { position: fixed; right: 16px; bottom: 16px; z-index: 2147483000; display: inline-flex; gap: .4rem; align-items: center;
               font: bold 14px/1 sans-serif; padding: .6rem .9rem; border-radius: 2px; border: 1px solid #36c; background: #36c; color: #fff; cursor: pointer;
@@ -85,19 +107,63 @@
     .numbers h4 { margin: 0 0 .4rem; font-size: 14px; } .numbers p { margin: .3rem 0; }
     .numbers table { border-collapse: collapse; } .numbers td { padding: 0 1rem 0 0; }
     .numbers td.num { text-align: right; font-variant-numeric: tabular-nums; } .numbers tr.this td { font-weight: bold; }
-    .what { font-weight: bold; margin: .2rem 0 .4rem; }
-    .member { border-left: 3px solid #eaecf0; padding: .2rem .5rem; margin: .35rem 0; font-family: "Linux Libertine", Georgia, serif; }
-    .member.here { border-left-color: #36c; background: #f8f9fa; }
-    .member.outlier { border-left-color: #a66200; }
-    .who { font: 12px sans-serif; color: #54595d; display: flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
-    .who b { color: #202122; }
-    mark { background: #fef6e7; border-bottom: 2px solid #edab00; padding: 0 1px; }
+    /* Keep in sync with the card styles in src/wikicross/index.html. */
+    .meta { display: flex; justify-content: space-between; gap: .5rem; align-items: center; flex-wrap: wrap; font-size: 12px; position: relative; }
+    .pair { display: inline-flex; gap: .3rem; align-items: center; flex-wrap: wrap; }
+    .chip { background: #eaecf0; border-radius: 2px; padding: .05rem .4rem; }
+    .card h3 { margin: .35rem 0 .2rem; font: bold 15px/1.35 sans-serif; }
+    .card h3.pending { font: italic 13px sans-serif; color: #54595d; }
+    .summary { font: 14px/1.55 "Linux Libertine", Georgia, serif; margin: 0 0 .5rem; } .summary:empty { display: none; }
+    .verdict { margin: 0 0 .4rem; } .verdict:empty { display: none; } .reason { color: #54595d; font-style: italic; }
+    .pending { color: #54595d; font-style: italic; }
+    /* Each quote a box: header, text, footer. Rows from the subgrid: a finding's headers line up. */
+    .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: .6rem; margin-top: .5rem; }
+    .quote { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: .3rem; border: 1px solid #c8ccd1;
+             border-radius: 2px; padding: .45rem .6rem; background: #fff; }
+    .quote.here { border-color: #36c; }
+    .quote.outlier { background: #fdf4e6; border-color: #e8c48f; }
+    .quote.linked { outline: 2px solid var(--hl-line); outline-offset: 1px; }
+    .quote h4 { margin: 0; font: 12px sans-serif; color: #54595d; display: flex; gap: .35rem; align-items: start; flex-wrap: wrap; }
+    .quote h4 b { color: #202122; border-bottom: 3px solid var(--hl-line); }
+    .quote blockquote { margin: 0; font: 14px/1.5 "Linux Libertine", Georgia, serif; white-space: pre-wrap; }
+    .quote .foot { display: flex; justify-content: space-between; align-items: end; gap: .4rem; }
+    .tr { position: relative; display: inline-flex; margin-left: auto; }
+    .tr > button { all: unset; display: inline-flex; cursor: pointer; color: #36c; padding: .1rem; border-radius: 2px; }
+    .tr > button[aria-pressed="true"] { background: #eaecf0; }
+    .tr > button:focus-visible { outline: 2px solid #36c; }
+    .tr .tip { display: none; position: absolute; right: 0; bottom: 100%; z-index: 20; width: min(340px, 80vw); margin-bottom: .3rem;
+               background: #fff; border: 1px solid #c8ccd1; border-radius: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
+               padding: .5rem .7rem; font: 14px/1.5 "Linux Libertine", Georgia, serif; white-space: pre-wrap; color: #202122; }
+    .tr:hover .tip, .tr:focus-within .tip { display: block; }
+    .context { color: #54595d; }
+    .section { color: #54595d; font: bold 11px sans-serif; }
+    .expand { display: flex; width: 100%; gap: .3rem; align-items: center; justify-content: center; font: 12px sans-serif; color: #36c;
+              background: #eaf3ff; border: 0; padding: .1rem; cursor: pointer; }
+    .expand:hover { background: #d5e6ff; } .expand:disabled { opacity: .5; cursor: default; }
+    .tools { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+    /* One colour per quote of a finding: its language name, its highlights, and the description's quotes of it. */
+    .c0 { --hl: #e3ecfd; --hl-line: #36c; } .c1 { --hl: #dcf3e6; --hl-line: #14866d; }
+    .c2 { --hl: #efe3f8; --hl-line: #8e44ad; } .c3 { --hl: #fde2dc; --hl-line: #c0392b; }
+    mark { background: var(--hl, #fef6e7); border-bottom: 2px solid var(--hl-line, #edab00); padding: 0 1px; }
+    /* Menus: a card's "+N more" and the language picker. */
+    .editions summary { margin: 0; width: fit-content; }
+    .editions .langs { position: absolute; left: 0; top: 100%; z-index: 10; width: 100%; max-height: 50vh; overflow: auto; columns: 10em;
+                       background: #fff; border: 1px solid #c8ccd1; border-radius: 2px; padding: .5rem .7rem; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+    .editions .langs a, .picker label { display: block; break-inside: avoid; padding: .05rem 0; }
+    .picker label { cursor: pointer; }
+    .picker .actions { column-span: all; display: flex; gap: .4rem; margin-bottom: .4rem; }
+    .filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; font-size: 13px; margin: .2rem 0 .4rem; position: relative; }
+    .filters .toggle-label { display: inline-flex; gap: .3rem; align-items: center; cursor: pointer; }
+    .irrelevant { border-top: 1px dashed #c8ccd1; margin-top: .6rem; }
     a { color: #36c; text-decoration: none; display: inline-flex; gap: .2rem; align-items: center; } a:hover { text-decoration: underline; }
     button.small { font: bold 12px sans-serif; padding: .15rem .5rem; border: 1px solid #a2a9b1; background: #f8f9fa; border-radius: 2px; cursor: pointer;
                    display: inline-flex; gap: .3rem; align-items: center; color: #202122; }
+    button.small.primary { background: #36c; border-color: #36c; color: #fff; }
+    button.small:disabled { opacity: .5; cursor: default; }
     .close { border: 0; background: none; cursor: pointer; color: #54595d; padding: 0; }
     .muted { color: #54595d; } .error { color: #d33; }
-    details summary { cursor: pointer; color: #36c; margin-top: .8rem; }
+    details summary { cursor: pointer; color: #36c; }
+    details.elsewhere > summary { margin-top: .8rem; }
     /* Keep in sync with the spinner in src/wikicross/index.html. */
     .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid #eaecf0; border-top-color: #36c; border-radius: 50%;
                animation: spin .8s linear infinite; vertical-align: -.15em; flex: none; }
@@ -248,45 +314,270 @@
     return [info, box];
   }
 
-  function finding(f) {
-    const outliers = new Set(f.outlier ? [f.lang] : []);
-    const names = (langs) => langs.length > 3 ? `the ${langs.length} other` : langs.map(langName).join(" and ");
-    const others = f.members.map((m) => m.lang).filter((l) => l !== f.lang);
-    const what = `The ${langName(f.lang)} edition ${f.deviation > 0 ? f.ends[0] : f.ends[1]} than ${others.length > 3 ? names(others) : `the ${names(others)}`} edition${others.length > 1 ? "s" : ""}.`;
+  // Paragraph view ("Show paragraphs"): a quote's whole passage, expanding up and down through the
+  // article a few sentences per click. Keep in sync with src/wikicross/index.html.
+  const STEP = 3;
+  const contextOf = (m) => ({ before: [], after: [], top: [m.seq, 0], bottom: [m.seq, 65535], end: {}, busy: false, error: "" });
+  function expandable(m, ctx, quote) {
+    const wrap = $("div", { className: "expandable" });
+    const button = (dir) => {
+      if (ctx.end[dir]) return "";
+      const b = $("button", { className: "expand", type: "button", disabled: ctx.busy, title: `Show ${STEP} more sentences ${dir === "up" ? "above" : "below"}` },
+        icon(dir === "up" ? "up" : "chevron"), dir === "up" ? "Expand up" : "Expand down");
+      b.addEventListener("click", async () => {
+        ctx.busy = true; draw();
+        const [seq, n] = dir === "up" ? ctx.top : ctx.bottom;
+        try {
+          const rows = await get("/api/context", { lang: m.lang, page_id: m.page_id, seq, n, direction: dir, count: STEP });
+          if (rows.length) {
+            if (dir === "up") { ctx.before.unshift(...rows); ctx.top = [rows[0].seq, rows[0].n]; }
+            else { ctx.after.push(...rows); ctx.bottom = [rows.at(-1).seq, rows.at(-1).n]; }
+          }
+          ctx.end[dir] = rows.length < STEP;
+          ctx.error = "";
+        } catch (err) { ctx.error = `Could not load more: ${err.message}`; }
+        ctx.busy = false; draw();
+      });
+      return b;
+    };
+    const draw = () => {
+      const segments = [...ctx.before.map((r) => ({ ...r, nodes: [r.text] })), { seq: m.seq, heading: m.heading, nodes: quote(), quote: true },
+        ...ctx.after.map((r) => ({ ...r, nodes: [r.text] }))];
+      const body = $("blockquote", {});
+      segments.forEach((s, i) => {
+        const prev = segments[i - 1];
+        if (prev && s.heading !== prev.heading) body.append("\n", $("span", { className: "section", textContent: `§ ${s.heading || "(intro)"}` }), "\n");
+        else if (prev) body.append(s.seq !== prev.seq ? "\n" : " ");
+        body.append($("span", { className: s.quote ? "quoted" : "context" }, ...s.nodes));
+      });
+      wrap.replaceChildren(button("up"), body, button("down"), ctx.error ? $("p", { className: "error", textContent: ctx.error }) : "");
+    };
+    draw();
+    return wrap;
+  }
+
+  // Which quote each highlighted part of the description comes from. Keep in sync with linkQuotes() in
+  // src/wikicross/index.html.
+  function linkQuotes(summary, members, state, quotes) {
+    const norm = (s) => s.trim().toLowerCase();
+    const marksOf = (p) => [...(state.english[p.lang]?.quote || "").matchAll(/<mark>(.*?)<\/mark>/gs)].map((m) => norm(m[1]))
+      .concat((state.phrases[p.lang] || []).map(norm));
+    for (const mark of summary.querySelectorAll("mark")) {
+      const text = norm(mark.textContent);
+      let i = members.findIndex((p) => marksOf(p).includes(text));
+      if (i < 0) i = members.findIndex((p) => marksOf(p).some((t) => t.includes(text) || text.includes(t)));
+      if (i < 0) continue;
+      const p = members[i], box = () => quotes.querySelector(`.quote[data-lang="${p.lang}"]`);
+      mark.className = `c${i % 4}`;
+      mark.title = `From the ${langName(p.lang)} quote`;
+      mark.addEventListener("mouseenter", () => box()?.classList.add("linked"));
+      mark.addEventListener("mouseleave", () => box()?.classList.remove("linked"));
+    }
+  }
+
+  // A finding, as card() in src/wikicross/index.html (keep in sync): AI title, description and English
+  // quotes, each quote in a coloured box with its translate button, "Show all" and "Show paragraphs".
+  // Here this page's edition comes first, with "Show on page" / "Find in source", and the AI is asked
+  // only once the card is scrolled into view (`observe`): the panel lists up to 30 findings.
+  function finding(f, dismiss, observe) {
+    const state = { english: {}, phrases: {}, original: new Set(), aiDone: false, translating: false, translateError: "",
+                    passages: {}, passagesBusy: false, passagesError: "", context: false, all: false,
+                    ctx: Object.fromEntries(f.members.map((m) => [m.lang, contextOf(m)])) };
+    const outliers = f.outlier ? [f.lang] : [];
     const label = $("span", { className: "label" }, icon("scale"),
       f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing", ...numbers(f));
-    const card = $("div", { className: "card" }, label, $("div", { className: "what", textContent: what }));
     // This edition first (it is the one on the page), then outliers, then the API's order.
-    const rank = (m) => (m.lang === lang ? 0 : outliers.has(m.lang) ? 1 : 2);
+    const rank = (m) => (m.lang === lang ? 0 : outliers.includes(m.lang) ? 1 : 2);
     const members = [...f.members].sort((a, b) => rank(a) - rank(b));
-    const member = (m) => {
-      const who = $("div", { className: "who" }, $("b", { textContent: m.lang === lang ? `This edition (${m.lang})` : `${langName(m.lang)} (${m.lang})` }),
-        ` ${m.title} § ${m.heading || "(intro)"}`, outliers.has(m.lang) ? " · outlier" : "");
-      if (m.lang !== lang) {
-        who.append($("a", { href: snippetUrl(m), target: "_blank", rel: "noopener", title: "Open this quote on Wikipedia" }, "open", icon("link")));
+    const first = members.slice(0, SHOWN);
+    const title = $("h3", { className: "pending" }, spinner(), " Asking the AI how they differ…");
+    const summary = $("p", { className: "summary" });
+    const verdict = $("p", { className: "verdict" });
+    const quotes = $("div", { className: "quotes" });
+    const card = $("div", { className: "card" });
+    const more = members.length > SHOWN ? $("button", { className: "small", type: "button" }) : null;
+    const own = members.find((m) => m.lang === lang);
+    const source = textarea && textarea.offsetParent;
+
+    const translateQuotes = async (pool) => {
+      const todo = pool.filter((p) => !state.english[p.lang] && (state.aiDone || !first.includes(p)));
+      if (!todo.length || state.translating) return;
+      state.translating = true;
+      const texts = {};
+      for (const p of todo) {
+        texts[p.lang] = p.sentence;
+        if (p.heading) texts[`${p.lang}-heading`] = p.heading;
       }
-      if (m.lang === lang) {
-        const source = textarea && textarea.offsetParent;
-        const find = $("button", { className: "small", type: "button", title: source ? "Select this in the wikitext" : "Highlight this on the page" },
-          icon("find"), source ? "Find in source" : "Show on page");
-        const locate = () => { if (!showOnPage(m)) find.replaceChildren(icon("find"), "Not found on this page"); };
-        find.addEventListener("click", locate);
-        // The whole card shows it too; its links and buttons keep their own action.
-        card.classList.add("locatable");
-        card.addEventListener("click", (e) => { if (!e.target.closest("a, button")) locate(); });
-        who.append(find);
-      }
-      return $("div", { className: `member${m.lang === lang ? " here" : ""}${outliers.has(m.lang) ? " outlier" : ""}` }, who,
-        $("div", { textContent: m.sentence }));
+      try {
+        const t = await post("/api/translate", { texts, target: "en" });
+        for (const p of todo) state.english[p.lang] = { quote: t[p.lang], heading: t[`${p.lang}-heading`] ?? p.heading };
+        state.translateError = "";
+      } catch (err) { state.translateError = `Could not translate: ${err.message}`; }
+      state.translating = false;
+      renderQuotes();
     };
-    card.append(...members.slice(0, SHOWN).map(member));
-    if (members.length > SHOWN) {
-      const all = $("button", { className: "small", type: "button" }, icon("list"), `Show all ${members.length} editions`);
-      all.addEventListener("click", () => all.replaceWith(...members.slice(SHOWN).map(member)));
-      card.append(all);
+    const translatePassages = async (pool) => {
+      const todo = pool.filter((p) => !(p.lang in state.passages));
+      if (!todo.length || state.passagesBusy) return;
+      state.passagesBusy = true;
+      try {
+        Object.assign(state.passages, await post("/api/translate", { texts: Object.fromEntries(todo.map((p) => [p.lang, withMarks(p.text, [p.sentence])])), target: "en" }));
+        state.passagesError = "";
+      } catch (err) { state.passagesError = `Could not translate the paragraphs: ${err.message}`; }
+      state.passagesBusy = false;
+      renderQuotes();
+    };
+
+    const swap = (p, en, english, original) => {
+      if (p.lang === "en") return "";
+      if (!state.english[p.lang]) {
+        const busy = !state.aiDone || state.translating;
+        return busy ? $("span", { className: "pending tr", title: "Translating…" }, spinner()) : "";
+      }
+      const button = $("button", { type: "button", ariaPressed: String(!en),
+        ariaLabel: en ? `Show the original ${langName(p.lang)} quote` : "Show the English translation" }, icon("translate"));
+      button.dataset.lang = p.lang;
+      button.addEventListener("click", () => {
+        if (!state.original.delete(p.lang)) state.original.add(p.lang);
+        renderQuotes();
+        quotes.querySelector(`button[data-lang="${p.lang}"]`)?.focus();  // the re-render replaced it
+      });
+      return $("span", { className: "tr" }, button,
+        $("div", { className: "tip", role: "tooltip" },
+          $("div", { className: "section", textContent: en ? `Original (${langName(p.lang)})` : "English translation" }),
+          ...(en ? original() : english())));
+    };
+
+    const locate = (find) => { if (!showOnPage(own)) find.replaceChildren(icon("find"), "Not found on this page"); };
+    const findButton = () => {
+      const find = $("button", { className: "small", type: "button", title: source ? "Select this in the wikitext" : "Highlight this on the page" },
+        icon("find"), source ? "Find in source" : "Show on page");
+      find.addEventListener("click", () => locate(find));
+      return find;
+    };
+
+    const renderQuotes = () => {
+      const pool = state.all ? members : first;
+      translateQuotes(pool);
+      if (more) more.replaceChildren(icon("list"), state.all ? "Show fewer" : `Show all ${members.length} editions`, icon(state.all ? "up" : "chevron"));
+      const english = (p) => state.english[p.lang] && !state.original.has(p.lang);
+      if (state.context) translatePassages(pool.filter(english));
+      quotes.replaceChildren(...pool.map((p) => {
+        const en = english(p);
+        const englishQuote = () => marked(state.english[p.lang].quote);
+        const originalQuote = () => marked(withMarks(p.sentence, state.phrases[p.lang]));
+        const passage = state.passages[p.lang];
+        const quote = state.context && en
+          ? $("blockquote", {}, ...(passage ? [$("span", { className: "quoted" }, ...marked(passage))]
+              : state.passagesError ? [$("span", { className: "error", textContent: state.passagesError })]
+              : [spinner(), " Translating the paragraphs…"]))
+          : state.context ? expandable(p, state.ctx[p.lang], () => marked(withMarks(p.text, [p.sentence])))
+          : $("blockquote", {}, $("span", { className: "quoted" }, ...(en ? englishQuote() : originalQuote())));
+        const heading = (en ? state.english[p.lang].heading : p.heading) || "(intro)";
+        const i = members.indexOf(p);
+        const box = $("div", { className: `quote c${i % 4}${p.lang === lang ? " here" : ""}${outliers.includes(p.lang) ? " outlier" : ""}` },
+          $("h4", {}, $("b", { textContent: p.lang === lang ? `${langName(p.lang)} · this page` : langName(p.lang) }),
+            $("span", { textContent: `§ ${heading}` }),
+            p.lang === lang ? "" : $("a", { href: snippetUrl(p), target: "_blank", rel: "noopener", title: `Open this quote on Wikipedia: ${p.title}`,
+                                            ariaLabel: `Open this quote on ${langName(p.lang)} Wikipedia` }, icon("link"))),
+          quote, $("div", { className: "foot" }, p.lang === lang ? findButton() : "", swap(p, en, englishQuote, originalQuote)));
+        box.dataset.lang = p.lang;
+        return box;
+      }), ...(state.translateError ? [$("p", { className: "error", textContent: state.translateError })] : []));
+    };
+
+    const explain = () => post("/api/explain", { passages: first.map((p) => ({ lang: p.lang, heading: p.heading || "", text: p.text, sentence: p.sentence })) })
+      .then((x) => {
+        title.className = "";
+        title.textContent = x.title;
+        for (const [l, q] of Object.entries(x.quotes)) {
+          state.english[l] = { quote: q.english, heading: q.heading };
+          state.phrases[l] = q.phrases;
+        }
+        summary.replaceChildren(...marked(x.description));
+        linkQuotes(summary, members, state, quotes);
+        if (!x.discrepancy) {
+          verdict.className = "verdict reason";
+          verdict.textContent = "Marked irrelevant by the AI check: these passages do not differ clearly in tone "
+            + "or framing. Their distance on the axis comes from other differences, such as the facts they "
+            + "include, their length or detail.";
+          dismiss(card);
+        }
+      })
+      .catch((err) => {
+        title.remove();
+        verdict.className = "error";
+        verdict.textContent = `AI unavailable, quotes in their original language: ${err.message}`;
+      })
+      .finally(() => { state.aiDone = true; renderQuotes(); });
+    renderQuotes();
+
+    const tools = $("div", { className: "tools" });
+    if (more) {
+      more.addEventListener("click", () => { state.all = !state.all; renderQuotes(); });
+      tools.append(more);
     }
+    const context = $("button", { className: "small", type: "button" }, icon("paragraph"), "Show paragraphs", icon("chevron"));
+    context.addEventListener("click", () => {
+      state.context = !state.context;
+      context.replaceChildren(icon("paragraph"), state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
+      renderQuotes();
+    });
+    tools.append(context);
+
+    if (own) {
+      // The whole card shows this page's quote too; its links, buttons, menus and highlights keep their own action.
+      card.classList.add("locatable");
+      card.addEventListener("click", (e) => { if (!e.target.closest("a, button, details, mark, .tip")) locate(card.querySelector(".foot button.small")); });
+    }
+    const rest = members.slice(SHOWN);
+    card.append(
+      $("div", { className: "meta" },
+        $("span", { className: "pair" }, ...first.flatMap((m, i) => [
+          i ? icon("pair") : "",
+          $("span", { className: "chip" }, $("b", { textContent: langName(m.lang) }))]),
+          rest.length ? $("details", { className: "editions" }, $("summary", { textContent: `+${rest.length} more` }),
+            $("div", { className: "langs" }, ...rest.map((m) => $("a", { href: snippetUrl(m), target: "_blank", rel: "noopener",
+              title: `${m.title} § ${m.heading || "(intro)"}` }, $("b", { textContent: langName(m.lang) }))))) : ""),
+        label),
+      title, verdict, summary, quotes, tools);
+    observe(card, explain);
     return card;
   }
+
+  // Which editions are compared, as in the web app: a language picker and "Hide dialects". Kept for this
+  // page view only (a reload starts from all editions). Keep in sync with filters() in index.html.
+  let query = { langs: null, dialects: true };
+  function filters(languages) {
+    const sorted = [...languages].sort((a, b) => langName(a).localeCompare(langName(b)));
+    const chosen = new Set(query.langs || languages);
+    const boxes = sorted.map((l) => $("input", { type: "checkbox", value: l, checked: chosen.has(l) }));
+    const button = (text, onClick, primary) => {
+      const b = $("button", { className: `small${primary ? " primary" : ""}`, type: "button", textContent: text });
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    const apply = button("Apply", () => {
+      const langs = boxes.filter((b) => b.checked).map((b) => b.value);
+      load({ ...query, langs: langs.length === languages.length ? null : langs });
+    }, true);
+    const update = () => { apply.disabled = boxes.filter((b) => b.checked).length < 2; };  // a comparison needs two
+    const all = (on) => { boxes.forEach((b) => { b.checked = on; }); update(); };
+    boxes.forEach((b) => b.addEventListener("change", update));
+    const picker = $("details", { className: "editions picker" },
+      $("summary", { textContent: query.langs ? `Languages: ${query.langs.length} of ${languages.length}` : `Languages: all ${languages.length}` }),
+      $("div", { className: "langs" },
+        $("div", { className: "actions" }, button("All", () => all(true)), button("None", () => all(false)), apply),
+        ...boxes.map((b) => $("label", {}, b, ` ${langName(b.value)} (${b.value})`))));
+    const dialects = $("input", { type: "checkbox", checked: !query.dialects });
+    dialects.addEventListener("change", () => load({ ...query, dialects: !dialects.checked }));
+    return $("div", { className: "filters" }, picker, $("label", { className: "toggle-label" }, dialects, "Hide dialects"));
+  }
+  // An open menu ("+N more", the language picker) closes on a click outside it, or on Escape.
+  const closeMenus = (target) => { for (const d of root.querySelectorAll("details.editions[open]")) if (!target || !d.contains(target)) d.open = false; };
+  root.addEventListener("click", (e) => closeMenus(e.target));
+  document.addEventListener("click", (e) => { if (e.target !== host) closeMenus(null); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(null); });
 
   function render(data) {
     const mine = data.differences.filter((f) => f.members.some((m) => m.lang === lang));
@@ -300,25 +591,46 @@
     // The logo and name open this topic in the web app, in a new tab (background.js knows its address).
     const home = $("button", { className: "home", type: "button", title: "Open this topic in the WikiCross web app" }, logo(), "WikiCross");
     home.addEventListener("click", () => chrome.runtime.sendMessage({ type: "open", title, lang }));
-    if (!data.articles.some((a) => a.lang === lang)) {
+    // Findings the AI check does not confirm leave the list for a hidden one at the end, behind a button.
+    const irrelevant = $("div", { className: "irrelevant", hidden: true });
+    const reveal = $("button", { className: "small", type: "button", hidden: true, ariaExpanded: "false" });
+    let dismissed = 0;
+    const relabel = () => reveal.replaceChildren(icon("eye"),
+      `${irrelevant.hidden ? "Show" : "Hide"} ${dismissed} finding${dismissed === 1 ? "" : "s"} the AI marked as irrelevant`);
+    reveal.addEventListener("click", () => { irrelevant.hidden = !irrelevant.hidden; reveal.ariaExpanded = String(!irrelevant.hidden); relabel(); });
+    const dismiss = (card) => { dismissed++; irrelevant.append(card); reveal.hidden = false; relabel(); };
+    // Each card asks the AI once it is scrolled into view in the panel.
+    const seen = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { seen.unobserve(e.target); starts.get(e.target)?.(); }
+    }, { root: panel });
+    const starts = new WeakMap();
+    const observe = (card, start) => { starts.set(card, start); seen.observe(card); };
+    body.append(filters(data.languages));
+    if (!data.languages.includes(lang)) {
       body.append($("p", { className: "muted", textContent: `This version (${langName(lang)}) is not compared: its script is not supported yet. Below, what the others state differently.` }));
+    } else if (!data.articles.some((a) => a.lang === lang)) {
+      body.append($("p", { className: "muted", textContent: `This version (${langName(lang)}) is left out by the filters. Below, what the others state differently.` }));
     } else if (!n) body.append($("p", { className: "muted", textContent: "Nothing in this edition is framed differently from the other editions." }));
-    body.append(...mine.map((f) => finding(f)));
+    body.append(...mine.map((f) => finding(f, dismiss, observe)));
     if (elsewhere.length) {
-      body.append($("details", {}, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
-        ...elsewhere.map((f) => finding(f))));
+      body.append($("details", { className: "elsewhere" }, $("summary", { textContent: `${elsewhere.length} more between the other editions` }),
+        ...elsewhere.map((f) => finding(f, dismiss, observe))));
     }
+    body.append(reveal, irrelevant);
     panel.replaceChildren($("header", {}, $("h2", {}, home), close), body);
   }
 
   function showMessage(text, error) {
-    panel.replaceChildren($("div", { className: "body" }, $("p", { className: error ? "error" : "muted", textContent: text })));
+    const reset = $("button", { className: "small", type: "button", textContent: "Compare all editions" });
+    reset.addEventListener("click", () => load({ langs: null, dialects: true }));
+    panel.replaceChildren($("div", { className: "body" }, $("p", { className: error ? "error" : "muted", textContent: text }),
+      query.langs || !query.dialects ? reset : ""));
   }
 
   let requested = false;
-  function load() {
+  function load(next = query) {
     requested = true;
-    const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
+    query = next;
     toggle.replaceChildren(spinner(), "WikiCross");
     // The server's current stage, polled each second while it works; only the stage is announced.
     const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
@@ -330,8 +642,10 @@
       if (stage.textContent !== `${p.stage}…`) stage.textContent = `${p.stage}…`;
       seconds.textContent = `${p.seconds} s`;
     }).catch(() => {}), 1000);
-    get("/api/diff", { title, lang, focus: lang, limit: 30 }).then(render).catch((err) => {
-      if (!editing && err.status === 404) return host.remove();  // no other edition: stay out of the way
+    const filtered = { ...(query.langs && { langs: query.langs.join(",") }), ...(!query.dialects && { dialects: false }) };
+    get("/api/diff", { title, lang, focus: lang, limit: 30, ...filtered }).then(render).catch((err) => {
+      // no other edition: stay out of the way (but a filter leaving too few is the reader's to undo)
+      if (!editing && err.status === 404 && !Object.keys(filtered).length) return host.remove();
       toggle.replaceChildren(err.status ? "WikiCross · –" : "WikiCross · ?");
       showMessage(err.message, true);
     }).finally(() => clearInterval(poll));

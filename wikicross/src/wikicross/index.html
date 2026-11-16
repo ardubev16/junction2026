@@ -28,6 +28,7 @@
   h1 { font-size: 1.9rem; margin: 1rem 0 .3rem; border-bottom: 1px solid #a2a9b1; }
   a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
   .muted { color: var(--muted); }
+  [hidden] { display: none !important; }  /* .btn sets display, which would show hidden buttons */
   .editions { position: relative; font-size: .9rem; margin-bottom: 1rem; }
   .editions summary { cursor: pointer; color: var(--link); width: fit-content; }
   .editions .langs { position: absolute; z-index: 10; margin-top: .3rem; width: min(900px, 90vw); max-height: 60vh; overflow: auto;

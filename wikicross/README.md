@@ -92,11 +92,13 @@ The extension still points at `http://127.0.0.1:8000`: for the deployment, chang
 
 ### Chrome extension
 
-`extension/` shows the same findings on every Wikipedia (`*.wikipedia.org`, article pages): a
-"WikiCross · N" button opens
-a panel listing what this edition states differently from the others, with the other editions'
-sentences and links to them; its logo and name open the topic in the web app, in a new tab.
-**Clicking a finding shows its
+`extension/` shows the same findings, with the web app's features, on every Wikipedia
+(`*.wikipedia.org`, article pages): a "WikiCross · N" button opens a panel listing what this edition
+states differently from the others, each finding with its AI title and description, the quotes in
+English in coloured boxes (translate button: the original), "Show all", "Show paragraphs", the
+language and dialect filters and the irrelevant list. This edition's quote comes first; the AI is
+asked as cards scroll into view. Its logo and name open the topic in the web app, in a new tab.
+**"Show on page" (or clicking the card) shows the
 evidence on the page**: in the article view and VisualEditor just that sentence is highlighted and
 scrolled to; in the source editor it is selected in the wikitext, link markup and `<ref>`s included.
 
@@ -108,7 +110,7 @@ scrolled to; in the source editor it is selected in the wikitext, link markup an
 In the article view the extension asks the backend only when the button is clicked, so reading
 Wikipedia does not fetch and embed every topic visited; a page whose topic has no other edition loses
 its button. Findings cover all Wikipedia versions of the article, those involving the page's own
-edition first (`/api/diff?focus=fi`); a card shows four editions, the rest on "Show all".
+edition first (`/api/diff?focus=fi`); a card shows three editions, the rest on "Show all".
 It calls the backend from its service worker (host permission, no CORS change needed); for another
 backend address, change `BACKEND` in `extension/background.js` and `host_permissions` in
 `extension/manifest.json`. Findings come from when the editions were fetched, not the live page: a
