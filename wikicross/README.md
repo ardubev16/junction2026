@@ -155,8 +155,10 @@ Full explanation with diagrams, measured costs, tradeoffs and notes on scaling t
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
 **AI** (on by default, in the web app and the extension; detection never uses it): one `/api/explain`
-call per finding gives its title (who says what: a factual disagreement or a different framing,
-naming the editions), a description quoting the words that differ,
+call per finding gives its kind, shown as a badge on the card's first row (**factual disagreement**:
+facts that cannot all be true; **bias**: more favourable or critical, loaded words; **framing**: the
+same facts presented differently), its title (who says what, naming the editions), a description
+of what each edition says, quoting the words that differ (never sentences that only name the kind),
 and each shown quote in English with those words highlighted; the original keeps the same
 words highlighted. Quotes show in English: each quote's translate button shows the original on hover
 (or keyboard focus) and swaps to it on click. Quotes past the first three ("Show all") and paragraphs

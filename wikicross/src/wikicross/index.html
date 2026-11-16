@@ -25,7 +25,11 @@
   .picker .actions { column-span: all; display: flex; gap: .5rem; margin-bottom: .5rem; }
   main { max-width: 1000px; margin: 0 auto; padding: .5rem 1.5rem 3rem; }
   h1, h2 { font-family: var(--serif); font-weight: normal; }
-  h1 { font-size: 1.9rem; margin: 1rem 0 .3rem; border-bottom: 1px solid #a2a9b1; }
+  h1 { font-size: 1.9rem; margin: 0; }
+  /* The page title with the editions menu on its right, on one ruled row. */
+  .pagehead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap;
+              margin: 1rem 0 .6rem; border-bottom: 1px solid #a2a9b1; }
+  .pagehead .editions { margin: 0; } .pagehead .editions .langs { right: 0; }
   a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
   .muted { color: var(--muted); }
   [hidden] { display: none !important; }  /* .btn sets display, which would show hidden buttons */
@@ -61,11 +65,10 @@
   .numbers table { border-collapse: collapse; margin: .4rem 0; } .numbers td { padding: .05rem 1rem .05rem 0; }
   .numbers td.num { text-align: right; font-variant-numeric: tabular-nums; } .numbers tr.this td { font-weight: bold; }
   .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; position: relative; }
-  .meta .pair { display: inline-flex; gap: .4rem; align-items: center; flex-wrap: wrap; }
-  /* A card's "+N more" opens across the card's width, not the page's. */
-  .meta .editions { margin: 0; position: static; } .meta .editions .langs { left: 0; top: 100%; width: 100%; box-sizing: border-box; }
-  .chip { background: var(--chip); border-radius: 2px; padding: .1rem .45rem; }
-  .score { color: var(--warn); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .3rem; align-items: center; }
+  /* The kind of difference the AI found, first thing on a card. Keep in sync with extension/content.js. */
+  .kind { font: bold .75rem sans-serif; text-transform: uppercase; letter-spacing: .04em; padding: .2rem .55rem; border-radius: 2px; color: #fff; }
+  .kind.factual { background: #d33; } .kind.bias { background: #8e44ad; } .kind.framing { background: #36c; }
+  .score { color: var(--warn); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .3rem; align-items: center; margin-left: auto; }
   .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
   .card h3.pending { font: italic 1rem sans-serif; color: var(--muted); }
   .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
@@ -138,7 +141,7 @@
 <script>
 const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
 const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
-const SHOWN = 3;  // articles named and quoted per card; the rest in "+N more" and "Show all"
+const SHOWN = 3;  // quotes per card; the rest on "Show all"
 const $ = (tag, attrs = {}, ...kids) => {
   const el = Object.assign(document.createElement(tag), attrs);
   el.append(...kids);
@@ -148,7 +151,6 @@ const $ = (tag, attrs = {}, ...kids) => {
 // innerHTML only ever sees these constant strings.
 const ICONS = {
   alert: '<path d="M10 2.5 18.5 17.5h-17z"/><path d="M10 8v4M10 14.8v.2"/>',
-  pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
   scale: '<path d="M10 3v14M6 17h8M3 6h14M5.5 6 3 12h5zM14.5 6 12 12h5z"/>',
   chevron: '<path d="m5 8 5 5 5-5"/>',
   left: '<path d="m12 5-5 5 5 5"/>',
@@ -314,8 +316,7 @@ function render({ data, query }) {
   const pager = pages > 1 ? $("nav", { className: "pager", ariaLabel: "Pages of differences" },
     step(query.page - 1, "Previous", "left"), $("span", { textContent: `Page ${query.page} of ${pages}` }), step(query.page + 1, "Next", "right")) : "";
   out.replaceChildren(
-    $("h1", { textContent: head.title }),
-    editionsMenu(data.articles),
+    $("div", { className: "pagehead" }, $("h1", { textContent: head.title }), editionsMenu(data.articles)),
     filters(data.languages, query),
     ...(data.total ? [
       $("h2", { textContent: `${data.total} differences` }),
@@ -423,11 +424,13 @@ function linkQuotes(summary, members, state, quotes) {
   const norm = (s) => s.trim().toLowerCase();
   const marksOf = (p) => [...(state.english[p.lang]?.quote || "").matchAll(/<mark>(.*?)<\/mark>/gs)].map((m) => norm(m[1]))
     .concat((state.phrases[p.lang] || []).map(norm));
+  const seen = {};  // a phrase in several quotes: its n-th mention goes to the n-th quote holding it
   for (const mark of summary.querySelectorAll("mark")) {
     const text = norm(mark.textContent);
-    let i = members.findIndex((p) => marksOf(p).includes(text));
-    if (i < 0) i = members.findIndex((p) => marksOf(p).some((t) => t.includes(text) || text.includes(t)));
-    if (i < 0) continue;
+    let holders = members.map((p, k) => (marksOf(p).includes(text) ? k : -1)).filter((k) => k >= 0);
+    if (!holders.length) holders = members.map((p, k) => (marksOf(p).some((t) => t.includes(text) || text.includes(t)) ? k : -1)).filter((k) => k >= 0);
+    if (!holders.length) continue;
+    const i = holders[(seen[text] = (seen[text] ?? -1) + 1) % holders.length];
     const p = members[i], box = () => quotes.querySelector(`.quote[data-lang="${p.lang}"]`);
     mark.className = `c${i % 4}`;
     mark.title = `From the ${langName(p.lang)} quote`;
@@ -435,6 +438,8 @@ function linkQuotes(summary, members, state, quotes) {
     mark.addEventListener("mouseleave", () => box()?.classList.remove("linked"));
   }
 }
+
+const KIND_NAMES = { factual: "Factual disagreement", bias: "Bias", framing: "Framing" };  // app.py KINDS
 
 // A finding. The AI (one /api/explain call for the quotes on show) gives its title, a description
 // quoting the framing words, and each quote in English with those words marked; the original keeps the
@@ -445,8 +450,10 @@ function card(finding, dismiss) {
                   passages: {}, passagesBusy: false, passagesError: "", context: false, all: false,
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
   const outliers = finding.outlier ? [finding.lang] : [];
+  // The kind badge waits for the AI; the label only says which edition is the outlier, if one is.
+  const kind = $("span", { className: "kind", hidden: true });
   const label = $("span", { className: "score" }, icon("scale"),
-    finding.outlier ? `Outlier: ${langName(finding.lang)}` : "Different framing", ...numbers(finding));
+    finding.outlier ? `Outlier: ${langName(finding.lang)}` : "", ...numbers(finding));
   // Outliers first, then the API's order; a card shows the first SHOWN unless expanded.
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
   const first = members.slice(0, SHOWN);
@@ -542,6 +549,7 @@ function card(finding, dismiss) {
     .then((x) => {
       title.className = "";
       title.textContent = x.title;
+      if (x.discrepancy && x.kind) Object.assign(kind, { className: `kind ${x.kind}`, textContent: KIND_NAMES[x.kind], hidden: false });
       for (const [lang, q] of Object.entries(x.quotes)) {
         state.english[lang] = { quote: q.english, heading: q.heading };
         state.phrases[lang] = q.phrases;
@@ -578,17 +586,8 @@ function card(finding, dismiss) {
   });
   tools.append(context);
 
-  // The most important articles named (outliers first), the others in a "+N more" menu like the editions'.
-  const rest = members.slice(SHOWN);
   article.append(
-    $("div", { className: "meta" },
-      $("span", { className: "pair" }, ...first.flatMap((m, i) => [
-        i ? icon("pair") : "",
-        $("span", { className: "chip" }, $("b", { textContent: langName(m.lang) }))]),
-        rest.length ? $("details", { className: "editions" }, $("summary", { textContent: `+${rest.length} more` }),
-          $("div", { className: "langs" }, ...rest.map((m) => $("a", { href: snippetUrl(m), target: "_blank", rel: "noopener",
-            title: `${m.title} § ${m.heading || "(intro)"}` }, $("b", { textContent: langName(m.lang) }))))) : ""),
-      label),
+    $("div", { className: "meta" }, kind, label),
     title, verdict, summary, quotes, tools);
   return article;
 }

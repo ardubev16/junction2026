@@ -22,7 +22,6 @@
     link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
     list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
     info: '<circle cx="10" cy="10" r="7.5"/><path d="M10 9v5M10 6.2v.1"/>',
-    pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
     chevron: '<path d="m5 8 5 5 5-5"/>',
     up: '<path d="m5 12 5-5 5 5"/>',
     translate: '<path d="M3 5h8M7 3v2M5 5c0 4 3 7 6 8M9 5c0 3-2 6-6 8M11 17l3.5-8 3.5 8M12.2 14.5h4.6"/>',
@@ -93,7 +92,7 @@
     .body { padding: .4rem .8rem .8rem; }
     .card { border: 1px solid #c8ccd1; border-radius: 2px; padding: .6rem .7rem; margin: .5rem 0; }
     .card.locatable { cursor: pointer; } .card.locatable:hover { border-color: #36c; }
-    .label { color: #a66200; font: bold 12px sans-serif; display: inline-flex; gap: .3rem; align-items: center; }
+    .label { color: #a66200; font: bold 12px sans-serif; display: inline-flex; gap: .3rem; align-items: center; margin-left: auto; }
     /* The "i" next to a finding's label: an icon in the label's colour, still a button for keyboards. */
     .info { all: unset; display: inline-flex; cursor: pointer; color: inherit; }
     .info:focus-visible { outline: 2px solid #36c; outline-offset: 2px; border-radius: 50%; }
@@ -108,8 +107,9 @@
     .numbers td.num { text-align: right; font-variant-numeric: tabular-nums; } .numbers tr.this td { font-weight: bold; }
     /* Keep in sync with the card styles in src/wikicross/index.html. */
     .meta { display: flex; justify-content: space-between; gap: .5rem; align-items: center; flex-wrap: wrap; font-size: 12px; position: relative; }
-    .pair { display: inline-flex; gap: .3rem; align-items: center; flex-wrap: wrap; }
-    .chip { background: #eaecf0; border-radius: 2px; padding: .05rem .4rem; }
+    /* The kind of difference the AI found, first thing on a card. Keep in sync with src/wikicross/index.html. */
+    .kind { font: bold 11px sans-serif; text-transform: uppercase; letter-spacing: .04em; padding: .15rem .5rem; border-radius: 2px; color: #fff; }
+    .kind.factual { background: #d33; } .kind.bias { background: #8e44ad; } .kind.framing { background: #36c; }
     .card h3 { margin: .35rem 0 .2rem; font: bold 15px/1.35 sans-serif; }
     .card h3.pending { font: italic 13px sans-serif; color: #54595d; }
     .summary { font: 14px/1.55 "Linux Libertine", Georgia, serif; margin: 0 0 .5rem; } .summary:empty { display: none; }
@@ -318,11 +318,13 @@
     const norm = (s) => s.trim().toLowerCase();
     const marksOf = (p) => [...(state.english[p.lang]?.quote || "").matchAll(/<mark>(.*?)<\/mark>/gs)].map((m) => norm(m[1]))
       .concat((state.phrases[p.lang] || []).map(norm));
+    const seen = {};  // a phrase in several quotes: its n-th mention goes to the n-th quote holding it
     for (const mark of summary.querySelectorAll("mark")) {
       const text = norm(mark.textContent);
-      let i = members.findIndex((p) => marksOf(p).includes(text));
-      if (i < 0) i = members.findIndex((p) => marksOf(p).some((t) => t.includes(text) || text.includes(t)));
-      if (i < 0) continue;
+      let holders = members.map((p, k) => (marksOf(p).includes(text) ? k : -1)).filter((k) => k >= 0);
+      if (!holders.length) holders = members.map((p, k) => (marksOf(p).some((t) => t.includes(text) || text.includes(t)) ? k : -1)).filter((k) => k >= 0);
+      if (!holders.length) continue;
+      const i = holders[(seen[text] = (seen[text] ?? -1) + 1) % holders.length];
       const p = members[i], box = () => quotes.querySelector(`.quote[data-lang="${p.lang}"]`);
       mark.className = `c${i % 4}`;
       mark.title = `From the ${langName(p.lang)} quote`;
@@ -330,6 +332,8 @@
       mark.addEventListener("mouseleave", () => box()?.classList.remove("linked"));
     }
   }
+
+  const KIND_NAMES = { factual: "Factual disagreement", bias: "Bias", framing: "Framing" };  // app.py KINDS
 
   // A finding, as card() in src/wikicross/index.html (keep in sync): AI title, description and English
   // quotes, each quote in a coloured box with its translate button, and "Show all". Here this page's
@@ -340,8 +344,10 @@
     const state = { english: {}, phrases: {}, original: new Set(), aiDone: false, translating: false, translateError: "",
                     all: false };
     const outliers = f.outlier ? [f.lang] : [];
+    // The kind badge waits for the AI; the label only says which edition is the outlier, if one is.
+    const kind = $("span", { className: "kind", hidden: true });
     const label = $("span", { className: "label" }, icon("scale"),
-      f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing", ...numbers(f));
+      f.outlier ? `Outlier: ${langName(f.lang)}` : "", ...numbers(f));
     // This edition first (it is the one on the page), then outliers, then the API's order.
     const rank = (m) => (m.lang === lang ? 0 : outliers.includes(m.lang) ? 1 : 2);
     const members = [...f.members].sort((a, b) => rank(a) - rank(b));
@@ -427,6 +433,7 @@
       .then((x) => {
         title.className = "";
         title.textContent = x.title;
+        if (x.discrepancy && x.kind) Object.assign(kind, { className: `kind ${x.kind}`, textContent: KIND_NAMES[x.kind], hidden: false });
         for (const [l, q] of Object.entries(x.quotes)) {
           state.english[l] = { quote: q.english, heading: q.heading };
           state.phrases[l] = q.phrases;
@@ -460,16 +467,8 @@
       card.classList.add("locatable");
       card.addEventListener("click", (e) => { if (!e.target.closest("a, button, details, mark, .tip")) locate(card.querySelector(".foot button.small")); });
     }
-    const rest = members.slice(SHOWN);
     card.append(
-      $("div", { className: "meta" },
-        $("span", { className: "pair" }, ...first.flatMap((m, i) => [
-          i ? icon("pair") : "",
-          $("span", { className: "chip" }, $("b", { textContent: langName(m.lang) }))]),
-          rest.length ? $("details", { className: "editions" }, $("summary", { textContent: `+${rest.length} more` }),
-            $("div", { className: "langs" }, ...rest.map((m) => $("a", { href: snippetUrl(m), target: "_blank", rel: "noopener",
-              title: `${m.title} § ${m.heading || "(intro)"}` }, $("b", { textContent: langName(m.lang) }))))) : ""),
-        label),
+      $("div", { className: "meta" }, kind, label),
       title, verdict, summary, quotes, tools);
     observe(card, explain);
     return card;
