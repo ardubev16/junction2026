@@ -9,6 +9,7 @@ import time
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
+from statistics import fmean
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -268,6 +269,30 @@ def progress_of(title: str):
     return {"stage": stage, "seconds": round(time.monotonic() - start)}
 
 
+def narrow(found: list[dict], kept: set[str]) -> list[dict]:
+    """The findings among the editions in `kept`, from those computed over every edition, without
+    recomputing them. Each finding keeps the sentences of those editions, and its deviations are redone
+    from the stored ones: d_i = z_i - mean(z_j, j != i) gives z_i = d_i (n-1)/n up to a shift, which
+    cancels. A finding whose furthest edition is now under FRAMING_MIN_Z, or with one edition left, goes.
+    shortcut: the axis stays the one chosen over every edition, and a group linked only through a
+    left-out edition stays one finding; run differences() on `kept` instead if that matters."""
+    out = []
+    for f in found:
+        n = len(f["deviations"])
+        z = {lang: d * (n - 1) / n for lang, d in f["deviations"].items() if lang in kept}
+        members = [m for m in f["members"] if m["lang"] in kept]
+        if len(z) < 2 or len(members) < 2:
+            continue
+        deviations = {lang: zl - fmean(v for other, v in z.items() if other != lang) for lang, zl in z.items()}
+        lang = max(deviations, key=lambda k: abs(deviations[k]))
+        if abs(deviations[lang]) < compare.FRAMING_MIN_Z:
+            continue
+        out.append({**f, "lang": lang, "deviation": deviations[lang], "outlier": len(members) >= 3, "members": members,
+                    "deviations": {k: round(d, 2) for k, d in deviations.items()}})
+    out.sort(key=lambda f: -abs(f["deviation"]))
+    return out
+
+
 def compare_editions(title: str, lang: str | None, progress, dialects: bool = True, langs: set[str] | None = None) -> dict:
     with connect() as conn, conn.cursor() as cur:
         # The page's own edition only: on another one the same title can be another topic (de "Gift").
@@ -306,8 +331,9 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         if len(articles) < 2:
             raise HTTPException(404, "fewer than two languages left: pick more" if len(every) >= 2
                                 else f"{title!r} exists in one language only")
-        progress(f"Splitting {len(articles)} editions into passages and embedding the new ones")
-        ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in articles])
+        # Always compared over every edition (computed once, then cached); filters only trim the result.
+        progress(f"Splitting {len(every)} editions into passages and embedding the new ones")
+        ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in every])
 
         # Whole-article distance between languages, from each edition's article vector.
         cur.execute(
@@ -325,7 +351,7 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         # shortcut: passage matching also searches other topics' passages (HNSW over the corpus), so a
         # topic loaded later can change a match here without changing `state`; delete the topic's
         # diff_cache row to recompute. A precompute job would refresh affected topics instead.
-        state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in articles)]).encode()).digest()
+        state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in every)]).encode()).digest()
         cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
         if row := cur.fetchone():
             found = json.loads(row[0])
@@ -336,8 +362,10 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
                 progress("Comparing sentences: framing")
 
             progress("Matching passages across languages")
-            found = differences(cur, wikidata_id, sentences_then_compare, kept)
+            found = differences(cur, wikidata_id, sentences_then_compare, {a[0] for a in every})
             cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps(found)))
+        if len(kept) < len(every):
+            found = narrow(found, kept)
 
     return {
         "wikidata_id": wikidata_id,
@@ -382,23 +410,27 @@ class ExplainRequest(BaseModel):
 
 @app.post("/api/explain")
 def explain(req: ExplainRequest):
-    """Whether the quotes (one per language, each with its passage) frame the same subject clearly
-    differently; a title and a description of how, and each quote in English with those words marked."""
+    """Whether the quotes (one per language, each with its passage) disagree on the facts or frame the
+    same subject clearly differently; a title and a description of how, and each quote in English with
+    the words that differ marked."""
     if len(req.passages) < 2:
         raise HTTPException(400, "need at least two passages")
     answer = chat(
         "You compare quotes about the same subject from different language editions of Wikipedia, each "
-        "given with the passage around it, for differences in impartiality: describing the same thing in a "
-        "clearly different tone, with loaded or emotive words where another is neutral, more favourably or "
-        "critically, or presenting as settled what another presents as disputed. Different facts, length or "
-        "detail alone do not count. discrepancy: whether such a difference is clear. "
-        "title: in English, at most 10 words, naming which edition frames it how, e.g. \"Finnish calls it an "
-        "invasion, Russian a border conflict\". quotes: for each language code, english: the quote translated "
-        "to English (unchanged if it is English), with <mark> and </mark> around the 1-3 short parts that "
-        "carry the framing; heading: the section heading in English; phrases: those same parts copied "
-        "verbatim from the original quote. description: in English, 2-4 sentences explaining in detail how "
-        "the editions differ, quoting the marked parts of the English quotes, each quoted part wrapped in "
-        "<mark> and </mark> exactly as in its quote. Do not suggest edits or actions.",
+        "given with the passage around it, for two kinds of difference. Factual disagreement: they state "
+        "different facts about the same thing that cannot all be true (numbers, dates, names, places, "
+        "outcomes, causes, who did what). Impartiality: describing the same thing in a clearly different "
+        "tone, with loaded or emotive words where another is neutral, more favourably or critically, or "
+        "presenting as settled what another presents as disputed. One edition including facts the others "
+        "leave out, length or detail alone do not count. discrepancy: whether either kind of difference is "
+        "clear. title: in English, at most 10 words, naming which edition says what, e.g. \"Finnish calls it "
+        "an invasion, Russian a border conflict\" or \"Finnish dates it 1918, Swedish 1920\". quotes: for "
+        "each language code, english: the quote translated to English (unchanged if it is English), with "
+        "<mark> and </mark> around the 1-3 short parts that differ; heading: the section heading in "
+        "English; phrases: those same parts copied verbatim from the original quote. description: in "
+        "English, 2-4 sentences explaining in detail how the editions differ, saying whether they "
+        "disagree on facts or on framing, quoting the marked parts of the English quotes, each quoted part "
+        "wrapped in <mark> and </mark> exactly as in its quote. Do not suggest edits or actions.",
         "\n\n".join(f"[{p.lang}] section: {p.heading or '(intro)'}\nquote: {p.sentence}\npassage: {p.text}"
                     for p in req.passages),
         {
