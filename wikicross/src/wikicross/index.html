@@ -75,7 +75,7 @@
   .tr > button { all: unset; display: inline-flex; cursor: pointer; color: var(--link); padding: .1rem; border-radius: 2px; }
   .tr > button[aria-pressed="true"] { background: var(--chip); }
   .tr > button:focus-visible { outline: 2px solid var(--link); }
-  .tr .tip { display: none; position: absolute; right: 0; top: 100%; z-index: 20; width: min(380px, 80vw); margin-top: .3rem;
+  .tr .tip { display: none; position: absolute; right: 0; bottom: 100%; z-index: 20; width: min(380px, 80vw); margin-bottom: .3rem;
              background: #fff; border: 1px solid var(--border); border-radius: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
              padding: .5rem .7rem; font: 1rem/1.5 var(--serif); white-space: pre-wrap; color: #202122; }
   .tr:hover .tip, .tr:focus-within .tip { display: block; }
@@ -91,16 +91,25 @@
   .error { color: #d33; }
   .tools { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
   .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .8rem; }
-  .quote h4 { margin: 0 0 .3rem; font-size: .85rem; font-weight: normal; display: flex; justify-content: space-between; gap: .5rem; align-items: center; }
-  .quote blockquote { margin: 0; padding: .5rem .8rem; border-left: 4px solid var(--chip); font-family: var(--serif); white-space: pre-wrap; }
+  /* Each quote a box: header, text, translate button. Rows from the subgrid: a finding's headers line up. */
+  .quote { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: .4rem; border: 1px solid var(--border);
+           border-radius: 2px; padding: .6rem .8rem; background: #fff; }
+  .quote.outlier { background: #fdf4e6; border-color: #e8c48f; }
+  .quote.linked { outline: 2px solid var(--hl-line); outline-offset: 1px; }
+  .quote h4 { margin: 0; font-size: .85rem; font-weight: normal; display: flex; gap: .4rem; align-items: start; flex-wrap: wrap; }
+  .quote h4 b { border-bottom: 3px solid var(--hl-line); }
+  .quote blockquote { margin: 0; font-family: var(--serif); white-space: pre-wrap; }
+  .quote .foot { display: flex; justify-content: flex-end; align-items: end; }
   .context { color: var(--muted); }
   .section { color: var(--muted); font: bold .8rem sans-serif; }
   .expand { display: flex; width: 100%; gap: .3rem; align-items: center; justify-content: center; font: .8rem sans-serif; color: var(--link);
             background: #eaf3ff; border: 0; padding: .1rem; cursor: pointer; }
   .expand:hover { background: #d5e6ff; }
   .expand:disabled { opacity: .5; cursor: default; }
-  mark { background: #fef6e7; border-bottom: 2px solid #edab00; padding: 0 1px; }
-  .quote.outlier blockquote { border-left-color: var(--warn); }
+  /* One colour per quote of a finding: its language name, its highlights, and the description's quotes of it. */
+  .c0 { --hl: #e3ecfd; --hl-line: #36c; } .c1 { --hl: #dcf3e6; --hl-line: #14866d; }
+  .c2 { --hl: #efe3f8; --hl-line: #8e44ad; } .c3 { --hl: #fde2dc; --hl-line: #c0392b; }
+  mark { background: var(--hl, #fef6e7); border-bottom: 2px solid var(--hl-line, #edab00); padding: 0 1px; }
 </style>
 </head>
 <body>
@@ -402,6 +411,27 @@ const closeMenus = (target) => { for (const d of document.querySelectorAll("deta
 document.addEventListener("click", (e) => closeMenus(e.target));
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeMenus(null); });
 
+// Which quote each highlighted part of the description comes from: it takes that quote's colour (c0…c3,
+// by the quote's place in `members`), names it on hover, and outlines the quote box meanwhile. Matched by
+// the quotes' marked words, exactly, then by containment; an unmatched part keeps the plain highlight.
+// Keep in sync with extension/content.js.
+function linkQuotes(summary, members, state, quotes) {
+  const norm = (s) => s.trim().toLowerCase();
+  const marksOf = (p) => [...(state.english[p.lang]?.quote || "").matchAll(/<mark>(.*?)<\/mark>/gs)].map((m) => norm(m[1]))
+    .concat((state.phrases[p.lang] || []).map(norm));
+  for (const mark of summary.querySelectorAll("mark")) {
+    const text = norm(mark.textContent);
+    let i = members.findIndex((p) => marksOf(p).includes(text));
+    if (i < 0) i = members.findIndex((p) => marksOf(p).some((t) => t.includes(text) || text.includes(t)));
+    if (i < 0) continue;
+    const p = members[i], box = () => quotes.querySelector(`.quote[data-lang="${p.lang}"]`);
+    mark.className = `c${i % 4}`;
+    mark.title = `From the ${langName(p.lang)} quote`;
+    mark.addEventListener("mouseenter", () => box()?.classList.add("linked"));
+    mark.addEventListener("mouseleave", () => box()?.classList.remove("linked"));
+  }
+}
+
 // A finding. The AI (one /api/explain call for the quotes on show) gives its title, a description
 // quoting the framing words, and each quote in English with those words marked; the original keeps the
 // same words marked. Quotes show in English; each one's translate button shows the original on hover
@@ -494,11 +524,13 @@ function card(finding, dismiss) {
         : $("blockquote", {}, $("span", { className: "quoted" }, ...(en ? englishQuote() : originalQuote())));
       const heading = (en ? state.english[p.lang].heading : p.heading) || "(intro)";
       const open = $("a", { className: "open", href: snippetUrl(p), target: "_blank", rel: "noopener",
-                            title: "Open this quote on Wikipedia", ariaLabel: `Open this quote on ${langName(p.lang)} Wikipedia` }, icon("link"));
-      return $("div", { className: outliers.includes(p.lang) ? "quote outlier" : "quote" },
-        $("h4", {}, $("span", { className: "chip" }, $("b", { textContent: langName(p.lang) }), ` ${p.title} § ${heading} `, open),
-          swap(p, en, englishQuote, originalQuote)),
-        quote);
+                            title: `Open this quote on Wikipedia: ${p.title}`, ariaLabel: `Open this quote on ${langName(p.lang)} Wikipedia` }, icon("link"));
+      const i = members.indexOf(p);
+      const box = $("div", { className: `quote c${i % 4}${outliers.includes(p.lang) ? " outlier" : ""}` },
+        $("h4", {}, $("b", { textContent: langName(p.lang) }), $("span", { className: "muted", textContent: `§ ${heading}` }), open),
+        quote, $("div", { className: "foot" }, swap(p, en, englishQuote, originalQuote)));
+      box.dataset.lang = p.lang;
+      return box;
     }), ...(state.translateError ? [$("p", { className: "error", textContent: state.translateError })] : []));
   };
 
@@ -506,11 +538,12 @@ function card(finding, dismiss) {
     .then((x) => {
       title.className = "";
       title.textContent = x.title;
-      summary.replaceChildren(...marked(x.description));
       for (const [lang, q] of Object.entries(x.quotes)) {
         state.english[lang] = { quote: q.english, heading: q.heading };
         state.phrases[lang] = q.phrases;
       }
+      summary.replaceChildren(...marked(x.description));
+      linkQuotes(summary, members, state, quotes);
       if (!x.discrepancy) {
         // Why it is out of the list; the description says what each edition states.
         verdict.className = "verdict reason";
