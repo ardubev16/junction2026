@@ -2,7 +2,7 @@
 // manifest.json, avoids CORS: the page itself (https://*.wikipedia.org) could not call localhost.
 // To use another backend, change BACKEND and "host_permissions" together.
 const BACKEND = "http://127.0.0.1:8000";
-const GETS = ["/api/diff", "/api/progress", "/api/context"];
+const GETS = ["/api/diff", "/api/progress"];
 const POSTS = ["/api/explain", "/api/translate"];
 
 // The backend's answer as {data} or {error, status}.

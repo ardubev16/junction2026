@@ -25,7 +25,6 @@
     pair: '<path d="M2 10h16M5 7l-3 3 3 3M15 7l3 3-3 3"/>',
     chevron: '<path d="m5 8 5 5 5-5"/>',
     up: '<path d="m5 12 5-5 5 5"/>',
-    paragraph: '<path d="M10 3v14M14 3v14M16 3H8.5a3.5 3.5 0 0 0 0 7H10"/>',
     translate: '<path d="M3 5h8M7 3v2M5 5c0 4 3 7 6 8M9 5c0 3-2 6-6 8M11 17l3.5-8 3.5 8M12.2 14.5h4.6"/>',
     eye: '<path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/>',
   };
@@ -135,11 +134,7 @@
                background: #fff; border: 1px solid #c8ccd1; border-radius: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
                padding: .5rem .7rem; font: 14px/1.5 "Linux Libertine", Georgia, serif; white-space: pre-wrap; color: #202122; }
     .tr:hover .tip, .tr:focus-within .tip { display: block; }
-    .context { color: #54595d; }
     .section { color: #54595d; font: bold 11px sans-serif; }
-    .expand { display: flex; width: 100%; gap: .3rem; align-items: center; justify-content: center; font: 12px sans-serif; color: #36c;
-              background: #eaf3ff; border: 0; padding: .1rem; cursor: pointer; }
-    .expand:hover { background: #d5e6ff; } .expand:disabled { opacity: .5; cursor: default; }
     .tools { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
     /* One colour per quote of a finding: its language name, its highlights, and the description's quotes of it. */
     .c0 { --hl: #e3ecfd; --hl-line: #36c; } .c1 { --hl: #dcf3e6; --hl-line: #14866d; }
@@ -284,9 +279,12 @@
 
   // A quote's place on its Wikipedia page, as a text fragment the browser scrolls to and highlights. Only
   // its first and last words: the rendered page puts footnote marks ([12]) inside sentences. Keep in sync
-  // with src/wikicross/index.html.
+  // with src/wikicross/index.html. The end stops at the last word's full stop, without the punctuation
+  // at either end: many editions put footnote marks before the full stop ("…Энкеля»[4]."), and a mark
+  // after it comes as glued text ("tilauksesta.lähde?" for "tilauksesta.[lähde?]"), neither as on the page.
   const snippetUrl = (m) => {
-    const words = m.sentence.trim().split(/\s+/), enc = (w) => encodeURIComponent(w.join(" ")).replace(/-/g, "%2D");
+    const words = m.sentence.trim().replace(/[.!?]\S*$/u, "").replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "").split(/\s+/);
+    const enc = (w) => encodeURIComponent(w.join(" ")).replace(/-/g, "%2D");
     const text = words.length <= 6 ? enc(words) : `${enc(words.slice(0, 3))},${enc(words.slice(-3))}`;
     return `https://${m.lang}.wikipedia.org/wiki/${encodeURIComponent(m.title.replace(/ /g, "_"))}#:~:text=${text}`;
   };
@@ -314,48 +312,6 @@
     return [info, box];
   }
 
-  // Paragraph view ("Show paragraphs"): a quote's whole passage, expanding up and down through the
-  // article a few sentences per click. Keep in sync with src/wikicross/index.html.
-  const STEP = 3;
-  const contextOf = (m) => ({ before: [], after: [], top: [m.seq, 0], bottom: [m.seq, 65535], end: {}, busy: false, error: "" });
-  function expandable(m, ctx, quote) {
-    const wrap = $("div", { className: "expandable" });
-    const button = (dir) => {
-      if (ctx.end[dir]) return "";
-      const b = $("button", { className: "expand", type: "button", disabled: ctx.busy, title: `Show ${STEP} more sentences ${dir === "up" ? "above" : "below"}` },
-        icon(dir === "up" ? "up" : "chevron"), dir === "up" ? "Expand up" : "Expand down");
-      b.addEventListener("click", async () => {
-        ctx.busy = true; draw();
-        const [seq, n] = dir === "up" ? ctx.top : ctx.bottom;
-        try {
-          const rows = await get("/api/context", { lang: m.lang, page_id: m.page_id, seq, n, direction: dir, count: STEP });
-          if (rows.length) {
-            if (dir === "up") { ctx.before.unshift(...rows); ctx.top = [rows[0].seq, rows[0].n]; }
-            else { ctx.after.push(...rows); ctx.bottom = [rows.at(-1).seq, rows.at(-1).n]; }
-          }
-          ctx.end[dir] = rows.length < STEP;
-          ctx.error = "";
-        } catch (err) { ctx.error = `Could not load more: ${err.message}`; }
-        ctx.busy = false; draw();
-      });
-      return b;
-    };
-    const draw = () => {
-      const segments = [...ctx.before.map((r) => ({ ...r, nodes: [r.text] })), { seq: m.seq, heading: m.heading, nodes: quote(), quote: true },
-        ...ctx.after.map((r) => ({ ...r, nodes: [r.text] }))];
-      const body = $("blockquote", {});
-      segments.forEach((s, i) => {
-        const prev = segments[i - 1];
-        if (prev && s.heading !== prev.heading) body.append("\n", $("span", { className: "section", textContent: `§ ${s.heading || "(intro)"}` }), "\n");
-        else if (prev) body.append(s.seq !== prev.seq ? "\n" : " ");
-        body.append($("span", { className: s.quote ? "quoted" : "context" }, ...s.nodes));
-      });
-      wrap.replaceChildren(button("up"), body, button("down"), ctx.error ? $("p", { className: "error", textContent: ctx.error }) : "");
-    };
-    draw();
-    return wrap;
-  }
-
   // Which quote each highlighted part of the description comes from. Keep in sync with linkQuotes() in
   // src/wikicross/index.html.
   function linkQuotes(summary, members, state, quotes) {
@@ -376,13 +332,13 @@
   }
 
   // A finding, as card() in src/wikicross/index.html (keep in sync): AI title, description and English
-  // quotes, each quote in a coloured box with its translate button, "Show all" and "Show paragraphs".
-  // Here this page's edition comes first, with "Show on page" / "Find in source", and the AI is asked
-  // only once the card is scrolled into view (`observe`): the panel lists up to 30 findings.
+  // quotes, each quote in a coloured box with its translate button, and "Show all". Here this page's
+  // edition comes first, with "Show on page" / "Find in source" (the page itself is the context: no
+  // "Show paragraphs"), and the AI is asked only once the card is scrolled into view (`observe`): the
+  // panel lists up to 30 findings.
   function finding(f, dismiss, observe) {
     const state = { english: {}, phrases: {}, original: new Set(), aiDone: false, translating: false, translateError: "",
-                    passages: {}, passagesBusy: false, passagesError: "", context: false, all: false,
-                    ctx: Object.fromEntries(f.members.map((m) => [m.lang, contextOf(m)])) };
+                    all: false };
     const outliers = f.outlier ? [f.lang] : [];
     const label = $("span", { className: "label" }, icon("scale"),
       f.outlier ? `Outlier: ${langName(f.lang)}` : "Different framing", ...numbers(f));
@@ -416,18 +372,6 @@
       state.translating = false;
       renderQuotes();
     };
-    const translatePassages = async (pool) => {
-      const todo = pool.filter((p) => !(p.lang in state.passages));
-      if (!todo.length || state.passagesBusy) return;
-      state.passagesBusy = true;
-      try {
-        Object.assign(state.passages, await post("/api/translate", { texts: Object.fromEntries(todo.map((p) => [p.lang, withMarks(p.text, [p.sentence])])), target: "en" }));
-        state.passagesError = "";
-      } catch (err) { state.passagesError = `Could not translate the paragraphs: ${err.message}`; }
-      state.passagesBusy = false;
-      renderQuotes();
-    };
-
     const swap = (p, en, english, original) => {
       if (p.lang === "en") return "";
       if (!state.english[p.lang]) {
@@ -461,18 +405,11 @@
       translateQuotes(pool);
       if (more) more.replaceChildren(icon("list"), state.all ? "Show fewer" : `Show all ${members.length} editions`, icon(state.all ? "up" : "chevron"));
       const english = (p) => state.english[p.lang] && !state.original.has(p.lang);
-      if (state.context) translatePassages(pool.filter(english));
       quotes.replaceChildren(...pool.map((p) => {
         const en = english(p);
         const englishQuote = () => marked(state.english[p.lang].quote);
         const originalQuote = () => marked(withMarks(p.sentence, state.phrases[p.lang]));
-        const passage = state.passages[p.lang];
-        const quote = state.context && en
-          ? $("blockquote", {}, ...(passage ? [$("span", { className: "quoted" }, ...marked(passage))]
-              : state.passagesError ? [$("span", { className: "error", textContent: state.passagesError })]
-              : [spinner(), " Translating the paragraphs…"]))
-          : state.context ? expandable(p, state.ctx[p.lang], () => marked(withMarks(p.text, [p.sentence])))
-          : $("blockquote", {}, $("span", { className: "quoted" }, ...(en ? englishQuote() : originalQuote())));
+        const quote = $("blockquote", {}, $("span", { className: "quoted" }, ...(en ? englishQuote() : originalQuote())));
         const heading = (en ? state.english[p.lang].heading : p.heading) || "(intro)";
         const i = members.indexOf(p);
         const box = $("div", { className: `quote c${i % 4}${p.lang === lang ? " here" : ""}${outliers.includes(p.lang) ? " outlier" : ""}` },
@@ -498,9 +435,9 @@
         linkQuotes(summary, members, state, quotes);
         if (!x.discrepancy) {
           verdict.className = "verdict reason";
-          verdict.textContent = "Marked irrelevant by the AI check: these passages do not differ clearly in tone "
-            + "or framing. Their distance on the axis comes from other differences, such as the facts they "
-            + "include, their length or detail.";
+          verdict.textContent = "Marked irrelevant by the AI check: these passages neither disagree on facts nor "
+            + "differ clearly in tone or framing. Their distance on the axis comes from other differences, such "
+            + "as what they include, their length or detail.";
           dismiss(card);
         }
       })
@@ -517,13 +454,6 @@
       more.addEventListener("click", () => { state.all = !state.all; renderQuotes(); });
       tools.append(more);
     }
-    const context = $("button", { className: "small", type: "button" }, icon("paragraph"), "Show paragraphs", icon("chevron"));
-    context.addEventListener("click", () => {
-      state.context = !state.context;
-      context.replaceChildren(icon("paragraph"), state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));
-      renderQuotes();
-    });
-    tools.append(context);
 
     if (own) {
       // The whole card shows this page's quote too; its links, buttons, menus and highlights keep their own action.

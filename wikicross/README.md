@@ -95,8 +95,8 @@ The extension still points at `http://127.0.0.1:8000`: for the deployment, chang
 `extension/` shows the same findings, with the web app's features, on every Wikipedia
 (`*.wikipedia.org`, article pages): a "WikiCross · N" button opens a panel listing what this edition
 states differently from the others, each finding with its AI title and description, the quotes in
-English in coloured boxes (translate button: the original), "Show all", "Show paragraphs", the
-language and dialect filters and the irrelevant list. This edition's quote comes first; the AI is
+English in coloured boxes (translate button: the original), "Show all", the language and dialect
+filters and the irrelevant list (no "Show paragraphs": the page itself is the context). This edition's quote comes first; the AI is
 asked as cards scroll into view. Its logo and name open the topic in the web app, in a new tab.
 **"Show on page" (or clicking the card) shows the
 evidence on the page**: in the article view and VisualEditor just that sentence is highlighted and
@@ -149,26 +149,29 @@ vectors in MariaDB (HNSW for passages, an exact join for sentences), matched sen
 into one group per fact, and each group is checked for the same thing described differently, by
 position on three axes: praised ↔ condemned (evaluation), fact ↔ disputed (certainty), and loaded,
 emotive ↔ neutral, matter-of-fact wording (wording). The web app then asks an LLM about each finding
-for a clear difference in tone or framing; findings it does not confirm are collapsed.
+for a factual disagreement or a clear difference in tone or framing; findings it confirms as neither are collapsed.
 
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
-**AI in the web app** (on by default; detection never uses it): one `/api/explain` call per finding
-gives its title (how the framing differs, naming the editions), a description quoting the framing
-words, and each shown quote in English with those words highlighted; the original keeps the same
+**AI** (on by default, in the web app and the extension; detection never uses it): one `/api/explain`
+call per finding gives its title (who says what: a factual disagreement or a different framing,
+naming the editions), a description quoting the words that differ,
+and each shown quote in English with those words highlighted; the original keeps the same
 words highlighted. Quotes show in English: each quote's translate button shows the original on hover
 (or keyboard focus) and swaps to it on click. Quotes past the first three ("Show all") and paragraphs
 are translated with `/api/translate` when shown. Findings the AI does not confirm move under a "Show N
 findings the AI marked as irrelevant" button, each saying why. If the LLM fails, a card has no title
 and shows the quotes in their original language. Cached in `llm_cache`. The web app shows the total
 number of differences, ten per page, and filters the compared editions: a language picker
-(`&langs=`) and "Hide dialects" (`&dialects=0`), both kept in the URL.
+(`&langs=`) and "Hide dialects" (`&dialects=0`), both kept in the URL. Filtering does not recompute:
+a topic is compared once over every edition (cached), and a filter trims that result (`narrow()`:
+each finding keeps the chosen editions' sentences, its deviations redone from the stored ones).
 
 API: `GET /api/titles?q=Talvi` (titles in ≥2 languages, then English Wikipedia's suggestions),
 `GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, and
 their `total`; each finding has every edition's `deviations` on its axis, shown under the "i" next
-to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` compares
+to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` keeps
 only those editions; `&dialects=false` leaves
 out editions without a two-letter ISO 639-1 code, i.e. regional languages and varieties such as
 Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian Taraškievica
