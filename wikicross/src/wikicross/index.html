@@ -17,6 +17,21 @@
   .logo { width: 1.6rem; height: 1.6rem; flex: none; }
   form { display: flex; }
   form input { flex: 1; padding: .45rem .6rem; font-size: 1rem; border: 1px solid #a2a9b1; border-radius: 2px 0 0 2px; }
+  /* Search suggestions, like Wikipedia's: thumbnail, title (the typed text underlined), short description. */
+  .combo { position: relative; flex: 1; display: flex; }
+  .suggestions { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; margin: 0; padding: 0; list-style: none; background: #fff;
+                 border: 1px solid #a2a9b1; border-top: 0; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 70vh; overflow: auto; }
+  .suggestions li { display: flex; gap: .7rem; align-items: center; padding: .35rem .6rem; cursor: pointer; border-top: 1px solid #eaecf0; }
+  .suggestions li[aria-selected="true"], .suggestions li:hover { background: #eaf3ff; }
+  .suggestions .thumb { width: 56px; height: 56px; flex: none; border-radius: 2px; background: #eaecf0; color: #a2a9b1;
+                        display: grid; place-items: center; overflow: hidden; }
+  .suggestions .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .suggestions .thumb .icon { width: 28px; height: 28px; }
+  .suggestions .text { min-width: 0; }
+  .suggestions b { display: block; } .suggestions u { text-decoration-thickness: 2px; text-underline-offset: 2px; }
+  .suggestions small { display: block; color: var(--muted); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suggestions .lang { font: bold .7rem sans-serif; color: var(--muted); border: 1px solid var(--border); border-radius: 2px;
+                       padding: 0 .3rem; margin-left: .4rem; text-transform: uppercase; vertical-align: .1em; }
   .toggle { display: inline-flex; gap: .4rem; align-items: center; font-size: .9rem; cursor: pointer; }
   /* Filters above the findings: the language picker (a menu like the editions') and "Hide dialects". */
   .filters { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -126,9 +141,12 @@
       <circle cx="15.8" cy="15.8" r="3.3"/><path d="m18.3 18.3 2.9 2.9"/>
     </svg>WikiCross
   </a>
-  <form id="f">
-    <input type="search" id="q" list="titles" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
-    <datalist id="titles"></datalist>
+  <form id="f" role="search">
+    <div class="combo">
+      <input type="search" id="q" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggestions"
+             aria-label="Search an article" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
+      <ul id="suggestions" class="suggestions" role="listbox" aria-label="Suggested articles" hidden></ul>
+    </div>
     <button class="btn primary">Compare</button>
   </form>
 </header>
@@ -158,6 +176,7 @@ const ICONS = {
   up: '<path d="m5 12 5-5 5 5"/>',
   link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
   list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
+  article: '<path d="M5 2.5h10v15H5z"/><path d="M8 6.5h4M8 9.5h4M8 12.5h4"/>',
   paragraph: '<path d="M10 3v14M14 3v14M16 3H8.5a3.5 3.5 0 0 0 0 7H10"/>',
   translate: '<path d="M3 5h8M7 3v2M5 5c0 4 3 7 6 8M9 5c0 3-2 6-6 8M11 17l3.5-8 3.5 8M12.2 14.5h4.6"/>',
   eye: '<path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/>',
@@ -189,16 +208,67 @@ const marked = (s) => {
   });
 };
 
-let timer;
+// Search suggestions (a combobox): one per topic, from /api/titles, with the typed text underlined in
+// the title. Arrow keys move through them, Enter or a click opens one in its edition, Escape closes.
+const list = document.getElementById("suggestions");
+let timer, suggested = [], active = -1;
+const closeSuggestions = () => {
+  list.hidden = true;
+  q.ariaExpanded = "false";
+  q.removeAttribute("aria-activedescendant");
+  active = -1;
+};
+const underline = (title, typed) => {
+  const i = title.toLowerCase().indexOf(typed.toLowerCase());
+  return i < 0 ? [title] : [title.slice(0, i), $("u", { textContent: title.slice(i, i + typed.length) }), title.slice(i + typed.length)];
+};
+const choose = (s) => {
+  closeSuggestions();
+  const query = { title: s.title, lang: s.lang, page: 1, dialects: urlQuery().dialects };
+  search(query, queryString(query) !== location.search.slice(1));
+};
+const highlight = (i) => {
+  active = i;
+  [...list.children].forEach((li, k) => { li.ariaSelected = String(k === i); });
+  q.setAttribute("aria-activedescendant", list.children[i].id);
+  list.children[i].scrollIntoView({ block: "nearest" });
+};
 q.addEventListener("input", () => {
   clearTimeout(timer);
-  if (q.value.length < 2) return;
+  const typed = q.value.trim();
+  if (typed.length < 2) return closeSuggestions();
   timer = setTimeout(async () => {
-    const r = await fetch(`/api/titles?q=${encodeURIComponent(q.value)}`);
-    document.getElementById("titles").replaceChildren(
-      ...(await r.json()).map((t) => $("option", { value: t.title, label: t.lang })));
+    let items;
+    try { items = await (await fetch(`/api/titles?q=${encodeURIComponent(typed)}`)).json(); } catch { return; }
+    if (q.value.trim() !== typed || !Array.isArray(items) || document.activeElement !== q) return;  // typed on, or left
+    suggested = items;
+    list.replaceChildren(...items.map((s, k) => {
+      const li = $("li", { id: `suggestion-${k}`, role: "option", ariaSelected: "false" },
+        $("span", { className: "thumb" }, /^https:\/\//.test(s.thumbnail || "") ? $("img", { src: s.thumbnail, alt: "", loading: "lazy" }) : icon("article")),
+        $("span", { className: "text" },
+          $("b", {}, ...underline(s.title, typed), s.lang !== "en" ? $("span", { className: "lang", textContent: s.lang }) : ""),
+          s.description ? $("small", { textContent: s.description }) : ""));
+      li.addEventListener("mousedown", (e) => e.preventDefault());  // keep the focus in the search field
+      li.addEventListener("click", () => choose(s));
+      return li;
+    }));
+    active = -1;
+    list.hidden = !items.length;
+    q.ariaExpanded = String(items.length > 0);
   }, 200);
 });
+q.addEventListener("keydown", (e) => {
+  if (list.hidden) return;
+  const n = suggested.length, down = e.key === "ArrowDown";
+  if (down || e.key === "ArrowUp") {
+    e.preventDefault();
+    highlight(active < 0 ? (down ? 0 : n - 1) : (active + (down ? 1 : -1) + n) % n);
+  } else if (e.key === "Enter" && active >= 0) {
+    e.preventDefault();
+    choose(suggested[active]);
+  } else if (e.key === "Escape") closeSuggestions();
+});
+q.addEventListener("blur", closeSuggestions);
 
 // The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=0) so results can be shared
 // and Back/Forward work; `lang` (the edition the title is from) comes from the extension's link. The
@@ -249,6 +319,7 @@ async function search(query, push) {
 
 document.getElementById("f").addEventListener("submit", (e) => {
   e.preventDefault();
+  closeSuggestions();
   // A typed title may be from any edition: no lang; another topic has other languages: no langs.
   const query = { title: q.value.trim(), page: 1, dialects: urlQuery().dialects };
   if (query.title) search(query, queryString(query) !== location.search.slice(1));

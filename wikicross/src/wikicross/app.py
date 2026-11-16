@@ -59,10 +59,11 @@ _hits: dict[tuple[str, str], deque] = defaultdict(deque)
 
 
 def zone(path: str) -> str | None:
-    """The rate-limit zone of a path: LLM calls cost per request; progress is polled each second."""
+    """The rate-limit zone of a path: LLM calls cost per request; progress is polled each second and
+    title suggestions come with every few keystrokes, both cheap, so neither is counted."""
     if path in ("/api/explain", "/api/translate"):
         return "llm"
-    return "api" if path.startswith("/api/") and path != "/api/progress" else None
+    return "api" if path.startswith("/api/") and path not in ("/api/progress", "/api/titles") else None
 
 
 def allowed(host: str) -> bool:
@@ -200,26 +201,64 @@ def ensure_sentences(cur, pages: list[tuple[str, int]]) -> None:
     cur.connection.commit()
 
 
+def representative(editions: list[tuple[str, str, int]]) -> tuple[str, str]:
+    """(lang, title) to show for a topic among its (lang, title, text length) editions: English, else
+    the longest. shortcut: length stands in for popularity; page views would need another API call."""
+    lang, title, _ = next((e for e in editions if e[0] == "en"), None) or max(editions, key=lambda e: e[2])
+    return lang, title
+
+
+def page_info(lang: str, titles: list[str]) -> dict[str, dict]:
+    """Wikipedia's short description and thumbnail of these pages of one edition, by title."""
+    data = wiki.api(f"{lang}.wikipedia.org", action="query", titles="|".join(titles), redirects=1,
+                    prop="pageimages|description", piprop="thumbnail", pithumbsize=120)
+    return {p["title"]: {"description": p.get("description"), "thumbnail": p.get("thumbnail", {}).get("source")}
+            for p in data.get("query", {}).get("pages", [])}
+
+
 @app.get("/api/titles")
 def titles(q: str):
-    """Titles starting with q that exist in at least two languages, then English Wikipedia's suggestions."""
+    """Up to 10 topics matching q, one each (not one per edition): those compared before whose title in
+    any language starts with q, then English Wikipedia's suggestions. Each shows its English title, else
+    the longest edition's (representative()), with Wikipedia's short description and thumbnail."""
     like = re.sub(r"([\\%_])", r"\\\1", q) + "%"
     with connect() as conn, conn.cursor() as cur:
         cur.execute(
-            """SELECT a.title, a.lang FROM article a
+            """SELECT DISTINCT a.wikidata_id FROM article a
                WHERE a.title LIKE %s AND EXISTS
                  (SELECT 1 FROM article b WHERE b.wikidata_id = a.wikidata_id AND b.lang <> a.lang)
-               ORDER BY a.title LIMIT 20""",
+               ORDER BY a.title LIMIT 10""",
             (like,),
         )
-        out = [{"title": t, "lang": lang} for t, lang in cur.fetchall()]
-    if len(out) < 20:
+        ids = [i for (i,) in cur.fetchall()]
+        editions: dict[str, list] = defaultdict(list)
+        if ids:
+            cur.execute(f"SELECT wikidata_id, lang, title, LENGTH(text) FROM article WHERE wikidata_id IN ({', '.join(['%s'] * len(ids))})", ids)
+            for qid, lang, title, length in cur.fetchall():
+                editions[qid].append((lang, title, length))
+    out = [{"wikidata_id": i, **dict(zip(("lang", "title"), representative(editions[i])))} for i in ids]
+    try:
+        found = wiki.api("en.wikipedia.org", action="query", generator="prefixsearch", gpssearch=q, gpslimit=10,
+                         redirects=1, prop="pageimages|description|pageprops", piprop="thumbnail", pithumbsize=120,
+                         ppprop="wikibase_item").get("query", {}).get("pages", [])
+    except wiki.WikiError:
+        found = []
+    listed = set(ids)
+    for p in sorted(found, key=lambda p: p.get("index", 0)):
+        qid = p.get("pageprops", {}).get("wikibase_item")
+        if len(out) < 10 and qid not in listed:
+            listed.add(qid)
+            out.append({"wikidata_id": qid, "lang": "en", "title": p["title"], "description": p.get("description"),
+                        "thumbnail": p.get("thumbnail", {}).get("source")})
+    # Description and thumbnail of the topics from the database, one call per edition.
+    for lang in {s["lang"] for s in out if "description" not in s}:
+        todo = [s for s in out if s["lang"] == lang and "description" not in s]
         try:
-            found = wiki.api("en.wikipedia.org", action="opensearch", search=q, limit=10, namespace=0)[1]
+            info = page_info(lang, [s["title"] for s in todo])
         except wiki.WikiError:
-            return out
-        listed = {row["title"] for row in out}
-        out += [{"title": t, "lang": "en"} for t in found if t not in listed][: 20 - len(out)]
+            info = {}
+        for s in todo:
+            s.update(info.get(s["title"], {"description": None, "thumbnail": None}))
     return out
 
 
