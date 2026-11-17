@@ -55,16 +55,26 @@ reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. A topic loade
 passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
 row to recompute.
 
-### Design: Codex
+### Front end: Vue and Codex
 
-The web app and the extension use [Codex](https://doc.wikimedia.org/codex/), the Wikimedia design
-system, so they look like Wikipedia: its design tokens (colours, fonts, borders, shadows as CSS
-variables), its CSS-only components (buttons, checkboxes, info chips for the kind of finding, messages,
-progress indicators, popovers, accordions), its icons, and in the web app's header its Vue
-`TypeaheadSearch`, Wikipedia's own search box. They come from npm, pinned in `package.json`, and are
-copied into `src/wikicross/static/vendor/` (served at `/static/`) and `extension/vendor/` by a script;
-the copies are committed, so running WikiCross needs no Node. To update Codex: change the versions in
-`package.json`, then `npm install && npm run vendor`.
+The web app and the extension are one Vue 3 code base in `ui/`, built with Vite, using
+[Codex](https://doc.wikimedia.org/codex/), the Wikimedia design system, so they look like Wikipedia:
+its components (`TypeaheadSearch`, Wikipedia's own search box, buttons, checkboxes, info chips,
+messages, popovers, an accordion), design tokens and icons.
+
+- `ui/shared/`: what both show: the finding card (`FindingCard.vue`), the language filter, the numbers
+  popover, the expanding context, and their CSS (`style.css`).
+- `ui/web/`: the web app (`App.vue`), built into `src/wikicross/web/` and served by `app.py`.
+- `ui/extension/`: the extension's panel (`Panel.vue`) and content script (finding the evidence on the
+  page), built into `extension/dist/content.js`, its CSS inside the panel's shadow root.
+
+The builds are committed, so running WikiCross needs no Node. After changing `ui/`:
+
+```bash
+npm install        # once
+npm run build      # rebuilds src/wikicross/web and extension/dist; commit them with the change
+npm run dev        # the web app with hot reload on http://localhost:5173, /api passed to 127.0.0.1:8000
+```
 
 ### Public deployment (HTTPS)
 
@@ -103,7 +113,7 @@ The extension still points at `http://127.0.0.1:8000`: for the deployment, chang
 
 ### Chrome extension
 
-`extension/` shows the same findings, with the web app's features, on every Wikipedia
+`extension/` shows the same findings, with the same card as the web app (`ui/shared/`), on every Wikipedia
 (`*.wikipedia.org`, article pages): a "WikiCross · N" button opens a panel listing what this edition
 states differently from the others, each finding with its AI title and description, the quotes in
 English in coloured boxes (translate button: the original), "Show all", the language and dialect
@@ -130,7 +140,7 @@ the first time; past about five minutes Chrome may stop the service worker, and 
 the result once the backend has finished. After changing `background.js`, reload the extension in
 `chrome://extensions`: Chrome keeps running the old worker otherwise.
 
-The web app and the extension must stay in sync: see [AGENTS.md](AGENTS.md).
+The web app and the extension share their components: see [AGENTS.md](AGENTS.md).
 
 ### LLM
 

@@ -1,14 +1,17 @@
 {
   "private": true,
-  "description": "Front-end dependencies: the Wikimedia design system (Codex) and Vue, copied into the web app and the extension by `npm run vendor`.",
+  "description": "The web app's and the extension's UI: Vue with Codex, the Wikimedia design system. Built by `npm run build` into src/wikicross/web and extension/dist (both committed).",
   "type": "module",
   "scripts": {
-    "vendor": "node scripts/vendor.mjs"
+    "build": "vite build -c ui/vite.web.config.js && vite build -c ui/vite.extension.config.js",
+    "dev": "vite -c ui/vite.web.config.js"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.11",
     "@wikimedia/codex": "2.8.0",
     "@wikimedia/codex-design-tokens": "2.8.0",
     "@wikimedia/codex-icons": "2.8.0",
+    "vite": "^7.3.8",
     "vue": "3.5.45"
   }
 }

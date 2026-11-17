@@ -550,11 +550,14 @@ def translate(req: TranslateRequest):
     return {lang: str(answer.get(lang, t)) if lang in todo else t for lang, t in req.texts.items()}
 
 
+WEB = Path(__file__).with_name("web")  # the web app, built from ui/ by `npm run build`
+
+
 @app.get("/")
 def index():
     # Revalidate on every load (a 304 when unchanged): browsers otherwise reuse an old page after updates.
-    return FileResponse(Path(__file__).with_name("index.html"), headers={"Cache-Control": "no-cache"})
+    return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
 
-# The web app's front-end libraries (Codex, Vue): copied from npm by `npm run vendor`, see package.json.
-app.mount("/static", StaticFiles(directory=Path(__file__).with_name("static")), name="static")
+# Its scripts and styles: file names carry a hash of their content, so a new build gets new URLs.
+app.mount("/assets", StaticFiles(directory=WEB / "assets"), name="assets")

@@ -1,0 +1,59 @@
+/* Finding cards and filters, in the web app and the extension. Only what Codex has no component for;
+   colours, fonts, borders and shadows are Codex design tokens. */
+.muted { color: var(--color-subtle); }
+.error { color: var(--color-error); }
+.pending { color: var(--color-subtle); font-style: italic; }
+.filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+.picker { width: min(640px, 90vw); }
+.picker .actions { display: flex; gap: .5rem; margin-bottom: .6rem; }
+.picker .columns { columns: 11em; column-gap: 1.5rem; }
+.picker .cdx-checkbox { break-inside: avoid; }
+.numbers { max-width: 440px; }
+.numbers p { margin: .4rem 0; }
+.numbers table { border-collapse: collapse; margin: .4rem 0; } .numbers td { padding: .05rem 1rem .05rem 0; }
+.numbers td.num { text-align: right; font-variant-numeric: tabular-nums; } .numbers tr.this td { font-weight: bold; }
+
+.card { background: var(--background-color-base); border: 1px solid var(--border-color-subtle); border-radius: var(--border-radius-base);
+        padding: 1rem 1.2rem; margin: 1rem 0; }
+.card.locatable { cursor: pointer; } .card.locatable:hover { border-color: var(--border-color-progressive); }
+.meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; flex-wrap: wrap; font-size: var(--font-size-small); }
+.score { color: var(--color-warning); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .1rem; align-items: center; margin-left: auto; }
+.card h3 { font-family: var(--font-family-heading-main); font-weight: normal; font-size: var(--font-size-x-large); margin: .5rem 0 .2rem; }
+.card h3.pending { display: flex; gap: .5rem; align-items: center; font: italic var(--font-size-medium) var(--font-family-system-sans); color: var(--color-subtle); }
+.card > .cdx-message { margin: .5rem 0; }
+.reason { color: var(--color-subtle); font-style: italic; margin: 0 0 .6rem; }
+.summary { font-family: var(--font-family-serif); line-height: var(--line-height-content); margin: 0 0 .8rem; }
+.tools { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
+
+.quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .8rem; }
+.quotes > .cdx-message { grid-column: 1 / -1; }
+/* Each quote a box: header, text, footer. Rows from the subgrid: a finding's headers line up. */
+.quote { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: .4rem; border: 1px solid var(--border-color-subtle);
+         border-radius: var(--border-radius-base); padding: .6rem .8rem; background: var(--background-color-base); }
+.quote.here { border-color: var(--border-color-progressive); }
+.quote.outlier { background: var(--background-color-warning-subtle); border-color: var(--border-color-warning); }
+.quote.linked { outline: 2px solid var(--hl-line); outline-offset: 1px; }
+.quote h4 { margin: 0; font-size: var(--font-size-small); font-weight: normal; display: flex; gap: .4rem; align-items: start; flex-wrap: wrap; }
+.quote h4 b { border-bottom: 3px solid var(--hl-line); }
+.quote h4 a, .quote h4 a .cdx-icon { color: var(--color-link); }
+.quote blockquote { margin: 0; font-family: var(--font-family-serif); line-height: var(--line-height-content); white-space: pre-wrap; }
+.quote .foot { display: flex; justify-content: space-between; align-items: end; gap: .4rem; }
+.pending .cdx-progress-indicator, .quote .cdx-progress-indicator { vertical-align: middle; min-height: 0; }
+.context { color: var(--color-subtle); }
+.section { color: var(--color-subtle); font: bold var(--font-size-x-small) var(--font-family-system-sans); }
+.expand { width: 100%; max-width: none; }
+/* A quote's translate button: hovering or focusing it shows the other version, clicking swaps them. */
+.tr { position: relative; display: inline-flex; margin-left: auto; }
+.tr .tip { display: none; position: absolute; right: 0; bottom: 100%; z-index: var(--z-index-tooltip); width: min(380px, 80vw); margin-bottom: .3rem;
+           background: var(--background-color-base); border: 1px solid var(--border-color-base); border-radius: var(--border-radius-base);
+           box-shadow: var(--box-shadow-drop-medium); padding: .5rem .7rem; font: var(--font-size-medium)/var(--line-height-content) var(--font-family-serif);
+           white-space: pre-wrap; color: var(--color-base); }
+.tr:hover .tip, .tr:focus-within .tip { display: block; }
+/* One colour per quote of a finding (Codex option colours): its language name, its highlights, and the
+   description's quotes of it. */
+.c0 { --hl: var(--background-color-option-blue); --hl-line: var(--border-color-option-blue); }
+.c1 { --hl: var(--background-color-option-green); --hl-line: var(--border-color-option-green); }
+.c2 { --hl: var(--background-color-option-purple); --hl-line: var(--border-color-option-purple); }
+.c3 { --hl: var(--background-color-option-red); --hl-line: var(--border-color-option-red); }
+mark { color: inherit; background: var(--hl, var(--background-color-option-yellow)); border-bottom: 2px solid var(--hl-line, var(--border-color-option-yellow)); padding: 0 1px; }
+.irrelevant { border-top: 1px dashed var(--border-color-base); margin-top: 1rem; }
