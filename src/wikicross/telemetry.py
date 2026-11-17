@@ -11,5 +11,9 @@ STEP_SECONDS = _meter.create_histogram(
     "wikicross.diff.step.duration", unit="s", description="Seconds each /api/diff step took (app.STEPS)"
 )
 CACHE_LOOKUPS = _meter.create_counter(
-    "wikicross.cache.lookups", description="Cache lookups, by cache (diff, llm) and result (hit, miss)"
+    "wikicross.cache.lookups", description="Cache lookups, by cache (diff, llm, translator) and result (hit, miss)"
+)
+TRANSLATIONS = _meter.create_counter(
+    "wikicross.translations",
+    description="Texts translated, by engine (azure; llm for languages Azure Translator lacks) and lang",
 )

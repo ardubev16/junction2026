@@ -253,9 +253,13 @@ translated by [Azure AI Translator](https://learn.microsoft.com/azure/ai-service
 (`src/wikicross/translator.py`, Text API v3), not the LLM: `AZURE_TRANSLATOR_KEY` (the resource's key)
 and, for a regional or multi-service resource, `AZURE_TRANSLATOR_REGION` (e.g. `westeurope`) in
 `.env`; `AZURE_TRANSLATOR_URL` overrides the global endpoint. Texts go as HTML, so the quote's
-`<mark>` highlight lands on the matching English words; their language is detected (one request
-mixes many editions). Each translated text is cached in `llm_cache`, so "Show all" pays only for the
-new quotes.
+`<mark>` highlight lands on the matching English words, and each with its edition's language (`from`,
+one request per language, in parallel; `tl` is Azure's `fil`, Serbian goes as `sr-Cyrl` or `sr-Latn`
+by its script, `simple` is English). Azure lacks about half the editions' languages (Frisian, Low
+German, Esperanto, Asturian, Breton, Venetian, Võro, …; 11% of the stored sentences): those are
+translated by the LLM, logged ("Azure Translator lacks fy: …") and counted in the
+`wikicross.translations` metric (`engine`: `azure` or `llm`, `lang`), so the gaps can be found and
+closed. Each translated text is cached in `llm_cache`, so "Show all" pays only for the new quotes.
 
 ## How
 

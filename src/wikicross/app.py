@@ -713,14 +713,19 @@ def explain(passages: list[dict]) -> dict:
     }
 
 
+ENGLISH = {"en", "simple"}  # editions already in English (Simple English Wikipedia)
+
+
 def translate(texts: dict[str, str]) -> dict[str, str]:
-    """Translate several texts to English with Azure Translator (translator.py), keeping <mark>
-    highlights on the translated words. Keys are "<lang>" or "<lang>-heading"; English text is passed through.
+    """Translate several texts to English (translator.py: Azure, or the LLM for languages it lacks),
+    keeping <mark> highlights on the translated words. Keys are "<lang>" or "<lang>-heading"; English
+    text is passed through.
     """
-    todo = {k: t for k, t in texts.items() if k.split("-")[0] != "en" and t.strip()}
+    todo = {k: t for k, t in texts.items() if k.removesuffix("-heading") not in ENGLISH and t.strip()}
     if not todo:
         return texts
-    answer = dict(zip(todo, translator.to_english(list(todo.values())), strict=True))
+    english = translator.to_english([(k.removesuffix("-heading"), t) for k, t in todo.items()])
+    answer = dict(zip(todo, english, strict=True))
     return {k: answer.get(k, t) for k, t in texts.items()}
 
 
