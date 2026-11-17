@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import compare, embed_gpu, wiki
@@ -553,3 +554,7 @@ def translate(req: TranslateRequest):
 def index():
     # Revalidate on every load (a 304 when unchanged): browsers otherwise reuse an old page after updates.
     return FileResponse(Path(__file__).with_name("index.html"), headers={"Cache-Control": "no-cache"})
+
+
+# The web app's front-end libraries (Codex, Vue): copied from npm by `npm run vendor`, see package.json.
+app.mount("/static", StaticFiles(directory=Path(__file__).with_name("static")), name="static")

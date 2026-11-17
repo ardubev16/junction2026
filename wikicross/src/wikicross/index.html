@@ -4,132 +4,108 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>WikiCross — cross-language discrepancies</title>
+<!-- The Wikimedia design system, Codex (https://doc.wikimedia.org/codex/): its design tokens, its
+     CSS-only components (buttons, checkboxes, info chips, messages, progress indicators, popovers) and,
+     for the search field, its Vue TypeaheadSearch, Wikipedia's own search. Copied from npm into
+     static/vendor by `npm run vendor` (package.json pins the versions). -->
+<link rel="stylesheet" href="/static/vendor/codex-design-tokens.css">
+<link rel="stylesheet" href="/static/vendor/codex.style.css">
+<script type="importmap">
+  { "imports": { "vue": "/static/vendor/vue.runtime.esm-browser.prod.js", "@wikimedia/codex": "/static/vendor/codex.js" } }
+</script>
 <style>
-  :root { --link: #36c; --border: #c8ccd1; --muted: #54595d; --chip: #eaecf0; --warn: #a66200; --bad: #d33; --serif: "Linux Libertine", "Georgia", "Times", serif; }
-  body { margin: 0; background: #f8f9fa; color: #202122; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, Lato, "Helvetica Neue", Arial, sans-serif; }
+  /* Only what Codex has no component for; colours, fonts, borders and shadows are Codex tokens. */
+  body { margin: 0; background: var(--background-color-neutral-subtle); color: var(--color-base);
+         font-family: var(--font-family-system-sans); font-size: var(--font-size-medium); line-height: var(--line-height-content); }
   /* Name left, search centred on the page; stacked on narrow screens. */
-  header { background: #fff; border-bottom: 1px solid var(--border); padding: .6rem 1.5rem; display: grid;
+  header { background: var(--background-color-base); border-bottom: 1px solid var(--border-color-subtle); padding: .6rem 1.5rem; display: grid;
            grid-template-columns: 1fr minmax(0, 640px) 1fr; gap: 1.5rem; align-items: center; }
   @media (max-width: 860px) { header { grid-template-columns: 1fr; gap: .6rem; } }
-  .wordmark { font-family: var(--serif); font-size: 1.5rem; white-space: nowrap; display: inline-flex; gap: .45rem; align-items: center;
-              color: inherit; justify-self: start; }
+  .wordmark { font-family: var(--font-family-heading-main); font-size: var(--font-size-xx-large); white-space: nowrap; display: inline-flex;
+              gap: .45rem; align-items: center; color: inherit; justify-self: start; }
   .wordmark:hover { text-decoration: none; }
   .logo { width: 1.6rem; height: 1.6rem; flex: none; }
-  form { display: flex; }
-  form input { flex: 1; padding: .45rem .6rem; font-size: 1rem; border: 1px solid #a2a9b1; border-radius: 2px 0 0 2px; }
-  /* Search suggestions, like Wikipedia's: thumbnail, title (the typed text underlined), short description. */
-  .combo { position: relative; flex: 1; display: flex; }
-  .suggestions { position: absolute; top: 100%; left: 0; right: 0; z-index: 30; margin: 0; padding: 0; list-style: none; background: #fff;
-                 border: 1px solid #a2a9b1; border-top: 0; box-shadow: 0 4px 12px rgba(0,0,0,.15); max-height: 70vh; overflow: auto; }
-  .suggestions li { display: flex; gap: .7rem; align-items: center; padding: .35rem .6rem; cursor: pointer; border-top: 1px solid #eaecf0; }
-  .suggestions li[aria-selected="true"], .suggestions li:hover { background: #eaf3ff; }
-  .suggestions .thumb { width: 56px; height: 56px; flex: none; border-radius: 2px; background: #eaecf0; color: #a2a9b1;
-                        display: grid; place-items: center; overflow: hidden; }
-  .suggestions .thumb img { width: 100%; height: 100%; object-fit: cover; }
-  .suggestions .thumb .icon { width: 28px; height: 28px; }
-  .suggestions .text { min-width: 0; }
-  .suggestions b { display: block; } .suggestions u { text-decoration-thickness: 2px; text-underline-offset: 2px; }
-  .suggestions small { display: block; color: var(--muted); font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .suggestions .lang { font: bold .7rem sans-serif; color: var(--muted); border: 1px solid var(--border); border-radius: 2px;
-                       padding: 0 .3rem; margin-left: .4rem; text-transform: uppercase; vertical-align: .1em; }
-  .toggle { display: inline-flex; gap: .4rem; align-items: center; font-size: .9rem; cursor: pointer; }
+  #search { min-height: 32px; }  /* the TypeaheadSearch mounts here */
   /* Filters above the findings: the language picker (a menu like the editions') and "Hide dialects". */
   .filters { display: flex; gap: 1.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1rem; }
-  .filters .editions { margin: 0; }
-  .picker label { display: block; break-inside: avoid; padding: .1rem 0; cursor: pointer; }
-  .picker .actions { column-span: all; display: flex; gap: .5rem; margin-bottom: .5rem; }
+  .picker .cdx-checkbox { break-inside: avoid; }
+  .picker .actions { column-span: all; display: flex; gap: .5rem; margin-bottom: .6rem; }
   main { max-width: 1000px; margin: 0 auto; padding: .5rem 1.5rem 3rem; }
-  h1, h2 { font-family: var(--serif); font-weight: normal; }
-  h1 { font-size: 1.9rem; margin: 0; }
+  main > .cdx-message { margin: 1rem 0; }
+  h1, h2 { font-family: var(--font-family-heading-main); font-weight: normal; }
+  h1 { font-size: var(--font-size-xxx-large); margin: 0; }
   /* The page title with the editions menu on its right, on one ruled row. */
-  .pagehead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap;
-              margin: 1rem 0 .6rem; border-bottom: 1px solid #a2a9b1; }
-  .pagehead .editions { margin: 0; } .pagehead .editions .langs { right: 0; }
-  a { color: var(--link); text-decoration: none; } a:hover { text-decoration: underline; }
-  .muted { color: var(--muted); }
-  [hidden] { display: none !important; }  /* .btn sets display, which would show hidden buttons */
-  .editions { position: relative; font-size: .9rem; margin-bottom: 1rem; }
-  .editions summary { cursor: pointer; color: var(--link); width: fit-content; }
-  .editions .langs { position: absolute; z-index: 10; margin-top: .3rem; width: min(900px, 90vw); max-height: 60vh; overflow: auto;
-                     columns: 14em; column-gap: 1.5rem; background: #fff; border: 1px solid var(--border); border-radius: 2px;
-                     padding: .6rem .9rem; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  .pagehead { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
+              margin: 1rem 0 .6rem; padding-bottom: .2rem; border-bottom: 1px solid var(--border-color-base); }
+  .pagehead .langs { right: 0; }
+  a { color: var(--color-link); text-decoration: none; } a:hover { text-decoration: underline; }
+  .muted { color: var(--color-subtle); }
+  [hidden] { display: none !important; }  /* Codex components set display, which would show hidden ones */
+  /* Menus (editions, languages): a <details> whose summary is a quiet Codex button, its panel a Codex menu surface. */
+  .editions { position: relative; }
+  .editions > summary { list-style: none; } .editions > summary::-webkit-details-marker { display: none; }
+  .editions[open] > summary .cdx-icon { transform: rotate(180deg); }
+  .editions .langs { position: absolute; z-index: var(--z-index-dropdown); margin-top: .3rem; width: min(900px, 90vw); max-height: 60vh; overflow: auto;
+                     columns: 14em; column-gap: 1.5rem; background: var(--background-color-base); border: 1px solid var(--border-color-base);
+                     border-radius: var(--border-radius-base); padding: .6rem .9rem; box-shadow: var(--box-shadow-drop-medium); font-size: var(--font-size-small); }
   .editions .langs a { display: block; break-inside: avoid; padding: .1rem 0; }
-  .editions .langs b { color: #202122; font-weight: normal; }
-  .icon { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; vertical-align: -.2em; flex: none; }
-  .btn { display: inline-flex; gap: .4rem; align-items: center; font: bold .9rem sans-serif; padding: .4rem .8rem; border-radius: 2px;
-         border: 1px solid #a2a9b1; background: #f8f9fa; color: #202122; cursor: pointer; }
-  .btn.primary { background: var(--link); border-color: var(--link); color: #fff; }
-  .btn.small { font-size: .8rem; padding: .15rem .5rem; }
-  .btn:disabled { opacity: .5; cursor: default; }
-  form .btn { border-radius: 0 2px 2px 0; }
-  .card { background: #fff; border: 1px solid var(--border); border-radius: 2px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .editions .langs b { color: var(--color-base); font-weight: normal; }
+  .card { background: var(--background-color-base); border: 1px solid var(--border-color-subtle); border-radius: var(--border-radius-base);
+          padding: 1rem 1.2rem; margin: 1rem 0; }
   .verdict:empty { display: none; } .verdict { margin: 0 0 .6rem; }
-  .reason { color: var(--muted); font-style: italic; }
-  .irrelevant { border-top: 1px dashed var(--border); margin-top: 1rem; }
+  .reason { color: var(--color-subtle); font-style: italic; }
+  .irrelevant { border-top: 1px dashed var(--border-color-base); margin-top: 1rem; }
   .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.5rem 0; }
-  /* The "i" next to a finding's label: an icon in the label's colour, still a button for keyboards. */
-  .info { all: unset; display: inline-flex; cursor: pointer; color: inherit; }
-  .info:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 50%; }
-  /* Its popover sits under the icon and scrolls with the page (anchor positioning); it flips if there is no room. */
+  /* The "i" next to a finding's label opens the numbers in a Codex popover (native popover, anchor positioned:
+     it sits under the icon, scrolls with the page and flips if there is no room). */
   .numbers[popover] { position: absolute; inset: auto; margin: .4rem 0 0; position-area: bottom span-left;
-                      position-try-fallbacks: flip-block, flip-inline; }
-  /* The numbers popover: out of the label's bold, coloured, unwrapped text. */
-  .numbers { max-width: 440px; padding: 1rem 1.2rem; border: 1px solid var(--border); border-radius: 2px; box-shadow: 0 4px 16px rgba(0,0,0,.2);
-             color: #202122; font: .9rem/1.5 sans-serif; white-space: normal; }
-  .numbers h4 { margin: 0 0 .5rem; } .numbers p { margin: .4rem 0; }
+                      position-try-fallbacks: flip-block, flip-inline; max-width: 440px; white-space: normal; font-weight: normal; }
+  .numbers[popover]:not(:popover-open) { display: none; }
+  .numbers .cdx-popover__body { font-size: var(--font-size-small); color: var(--color-base); }
+  .numbers p { margin: .4rem 0; }
   .numbers table { border-collapse: collapse; margin: .4rem 0; } .numbers td { padding: .05rem 1rem .05rem 0; }
   .numbers td.num { text-align: right; font-variant-numeric: tabular-nums; } .numbers tr.this td { font-weight: bold; }
-  .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: .85rem; flex-wrap: wrap; position: relative; }
-  /* The kind of difference the AI found, first thing on a card. Keep in sync with extension/content.js. */
-  .kind { font: bold .75rem sans-serif; text-transform: uppercase; letter-spacing: .04em; padding: .2rem .55rem; border-radius: 2px; color: #fff; }
-  .kind.factual { background: #d33; } .kind.bias { background: #8e44ad; } .kind.framing { background: #36c; }
-  .kind.none { background: #72777d; }  /* marked irrelevant by the AI */
-  .score { color: var(--warn); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .3rem; align-items: center; margin-left: auto; }
-  .card h3 { font-size: 1.25rem; margin: .5rem 0 .2rem; }
-  .card h3.pending { font: italic 1rem sans-serif; color: var(--muted); }
-  .summary { font-family: var(--serif); font-size: 1rem; line-height: 1.6; margin: 0 0 .8rem; }
+  .meta { display: flex; justify-content: space-between; gap: 1rem; align-items: center; font-size: var(--font-size-small); flex-wrap: wrap; position: relative; }
+  .score { color: var(--color-warning); font-weight: bold; white-space: nowrap; display: inline-flex; gap: .1rem; align-items: center; margin-left: auto; }
+  .score .cdx-icon { color: inherit; }
+  .card h3 { font-family: var(--font-family-heading-main); font-weight: normal; font-size: var(--font-size-x-large); margin: .5rem 0 .2rem; }
+  .card h3.pending { display: flex; gap: .5rem; align-items: center; font: italic var(--font-size-medium) var(--font-family-system-sans); color: var(--color-subtle); }
+  .summary { font-family: var(--font-family-serif); line-height: var(--line-height-content); margin: 0 0 .8rem; }
   .summary:empty { display: none; }
-  .pending { color: var(--muted); font-style: italic; }
+  .pending { color: var(--color-subtle); font-style: italic; }
   /* A quote's translate button: hovering or focusing it shows the other version, clicking swaps them. */
   .tr { position: relative; display: inline-flex; }
-  .tr > button { all: unset; display: inline-flex; cursor: pointer; color: var(--link); padding: .1rem; border-radius: 2px; }
-  .tr > button[aria-pressed="true"] { background: var(--chip); }
-  .tr > button:focus-visible { outline: 2px solid var(--link); }
-  .tr .tip { display: none; position: absolute; right: 0; bottom: 100%; z-index: 20; width: min(380px, 80vw); margin-bottom: .3rem;
-             background: #fff; border: 1px solid var(--border); border-radius: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.15);
-             padding: .5rem .7rem; font: 1rem/1.5 var(--serif); white-space: pre-wrap; color: #202122; }
+  .tr .tip { display: none; position: absolute; right: 0; bottom: 100%; z-index: var(--z-index-tooltip); width: min(380px, 80vw); margin-bottom: .3rem;
+             background: var(--background-color-base); border: 1px solid var(--border-color-base); border-radius: var(--border-radius-base);
+             box-shadow: var(--box-shadow-drop-medium); padding: .5rem .7rem; font: var(--font-size-medium)/var(--line-height-content) var(--font-family-serif);
+             white-space: pre-wrap; color: var(--color-base); }
   .tr:hover .tip, .tr:focus-within .tip { display: block; }
-  /* Keep in sync with the spinner in extension/content.js. */
-  .spinner { display: inline-block; width: 1em; height: 1em; border: 2px solid var(--chip); border-top-color: var(--link); border-radius: 50%;
-             animation: spin .8s linear infinite; vertical-align: -.15em; margin-right: .4em; flex: none; }
-  .btn.primary .spinner { border-color: rgba(255, 255, 255, .4); border-top-color: #fff; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 3s; } }
   .loading { display: flex; gap: 1rem; align-items: center; margin: 2rem 0; }
-  .loading .spinner { width: 2.2rem; height: 2.2rem; border-width: 3px; }
-  .loading .stage { font-size: 1.1rem; }
-  .error { color: #d33; }
+  .loading .stage { font-size: var(--font-size-large); }
+  .error { color: var(--color-error); }
   .tools { display: flex; gap: .5rem; margin-top: .6rem; flex-wrap: wrap; }
   .quotes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; margin-top: .8rem; }
+  .quotes > .cdx-message { grid-column: 1 / -1; }
   /* Each quote a box: header, text, translate button. Rows from the subgrid: a finding's headers line up. */
-  .quote { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: .4rem; border: 1px solid var(--border);
-           border-radius: 2px; padding: .6rem .8rem; background: #fff; }
-  .quote.outlier { background: #fdf4e6; border-color: #e8c48f; }
+  .quote { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: .4rem; border: 1px solid var(--border-color-subtle);
+           border-radius: var(--border-radius-base); padding: .6rem .8rem; background: var(--background-color-base); }
+  .quote.outlier { background: var(--background-color-warning-subtle); border-color: var(--border-color-warning); }
   .quote.linked { outline: 2px solid var(--hl-line); outline-offset: 1px; }
-  .quote h4 { margin: 0; font-size: .85rem; font-weight: normal; display: flex; gap: .4rem; align-items: start; flex-wrap: wrap; }
+  .quote h4 { margin: 0; font-size: var(--font-size-small); font-weight: normal; display: flex; gap: .4rem; align-items: start; flex-wrap: wrap; }
   .quote h4 b { border-bottom: 3px solid var(--hl-line); }
-  .quote blockquote { margin: 0; font-family: var(--serif); white-space: pre-wrap; }
+  .quote h4 .cdx-icon { color: inherit; }
+  .quote blockquote { margin: 0; font-family: var(--font-family-serif); line-height: var(--line-height-content); white-space: pre-wrap; }
   .quote .foot { display: flex; justify-content: flex-end; align-items: end; }
-  .context { color: var(--muted); }
-  .section { color: var(--muted); font: bold .8rem sans-serif; }
-  .expand { display: flex; width: 100%; gap: .3rem; align-items: center; justify-content: center; font: .8rem sans-serif; color: var(--link);
-            background: #eaf3ff; border: 0; padding: .1rem; cursor: pointer; }
-  .expand:hover { background: #d5e6ff; }
-  .expand:disabled { opacity: .5; cursor: default; }
-  /* One colour per quote of a finding: its language name, its highlights, and the description's quotes of it. */
-  .c0 { --hl: #e3ecfd; --hl-line: #36c; } .c1 { --hl: #dcf3e6; --hl-line: #14866d; }
-  .c2 { --hl: #efe3f8; --hl-line: #8e44ad; } .c3 { --hl: #fde2dc; --hl-line: #c0392b; }
-  mark { background: var(--hl, #fef6e7); border-bottom: 2px solid var(--hl-line, #edab00); padding: 0 1px; }
+  .context { color: var(--color-subtle); }
+  .section { color: var(--color-subtle); font: bold var(--font-size-x-small) var(--font-family-system-sans); }
+  .expand { width: 100%; }
+  /* One colour per quote of a finding (Codex option colours): its language name, its highlights, and the
+     description's quotes of it. */
+  .c0 { --hl: var(--background-color-option-blue); --hl-line: var(--border-color-option-blue); }
+  .c1 { --hl: var(--background-color-option-green); --hl-line: var(--border-color-option-green); }
+  .c2 { --hl: var(--background-color-option-purple); --hl-line: var(--border-color-option-purple); }
+  .c3 { --hl: var(--background-color-option-red); --hl-line: var(--border-color-option-red); }
+  mark { color: inherit; background: var(--hl, var(--background-color-option-yellow)); border-bottom: 2px solid var(--hl-line, var(--border-color-option-yellow)); padding: 0 1px; }
 </style>
 </head>
 <body>
@@ -141,23 +117,21 @@
       <circle cx="15.8" cy="15.8" r="3.3"/><path d="m18.3 18.3 2.9 2.9"/>
     </svg>WikiCross
   </a>
-  <form id="f" role="search">
-    <div class="combo">
-      <input type="search" id="q" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggestions"
-             aria-label="Search an article" placeholder="Search an article: Talvisota, Winter War, Stepan Bandera…" autocomplete="off" required>
-      <ul id="suggestions" class="suggestions" role="listbox" aria-label="Suggested articles" hidden></ul>
-    </div>
-    <button class="btn primary">Compare</button>
-  </form>
+  <div id="search" role="search"></div>
 </header>
 <main id="out">
   <p class="muted">Pick an article to see where all its Wikipedia versions frame things differently.</p>
   <!-- Keep in sync with LIMITS in app.py. -->
-  <p class="error">Fair use: outside the event network, each address can make 60 requests a minute, and 30 a minute
-    for AI summaries and translations. Past that, wait a minute and try again.</p>
+  <div class="cdx-message cdx-message--warning"><span class="cdx-message__icon"></span><div class="cdx-message__content">
+    Fair use: outside the event network, each address can make 60 requests a minute, and 30 a minute
+    for AI summaries and translations. Past that, wait a minute and try again.</div></div>
 </main>
 
-<script>
+<script type="module">
+import { createApp, h, ref } from "vue";
+import { CdxTypeaheadSearch } from "@wikimedia/codex";
+import CDX_ICONS from "/static/vendor/codex-icons.json" with { type: "json" };
+
 const DISPLAY = new Intl.DisplayNames(["en"], { type: "language" });
 const langName = (code) => { try { return DISPLAY.of(code); } catch { return code; } };
 const SHOWN = 3;  // quotes per card; the rest on "Show all"
@@ -166,29 +140,39 @@ const $ = (tag, attrs = {}, ...kids) => {
   el.append(...kids);
   return el;
 };
-// Icons are drawn here, not taken from a font: fonts without these glyphs showed empty squares.
-// innerHTML only ever sees these constant strings.
-const ICONS = {
-  alert: '<path d="M10 2.5 18.5 17.5h-17z"/><path d="M10 8v4M10 14.8v.2"/>',
-  chevron: '<path d="m5 8 5 5 5-5"/>',
-  left: '<path d="m12 5-5 5 5 5"/>',
-  right: '<path d="m8 5 5 5-5 5"/>',
-  up: '<path d="m5 12 5-5 5 5"/>',
-  link: '<path d="M11 3h6v6M17 3l-8 8M14 12v5H3V6h5"/>',
-  list: '<path d="M7 5h10M7 10h10M7 15h10M3 5h.01M3 10h.01M3 15h.01"/>',
-  article: '<path d="M5 2.5h10v15H5z"/><path d="M8 6.5h4M8 9.5h4M8 12.5h4"/>',
-  paragraph: '<path d="M10 3v14M14 3v14M16 3H8.5a3.5 3.5 0 0 0 0 7H10"/>',
-  translate: '<path d="M3 5h8M7 3v2M5 5c0 4 3 7 6 8M9 5c0 3-2 6-6 8M11 17l3.5-8 3.5 8M12.2 14.5h4.6"/>',
-  eye: '<path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6z"/><circle cx="10" cy="10" r="2.5"/>',
-  info: '<circle cx="10" cy="10" r="7.5"/><path d="M10 9v5M10 6.2v.1"/>',
-};
-const icon = (name) => {
+// Codex icons (@wikimedia/codex-icons), as Codex's own Icon component draws them. Keep in sync with
+// extension/content.js. innerHTML only ever sees the icon package's constant paths.
+const ICONS = { alert: "cdxIconAlert", chevron: "cdxIconExpand", up: "cdxIconCollapse", left: "cdxIconPrevious", right: "cdxIconNext",
+                link: "cdxIconLinkExternal", list: "cdxIconListBullet", paragraph: "cdxIconArticle", translate: "cdxIconLanguage",
+                eye: "cdxIconEye", eyeClosed: "cdxIconEyeClosed", info: "cdxIconInfo" };
+const icon = (name, size = "small") => {
+  const i = CDX_ICONS[ICONS[name]], paths = typeof i === "string" ? i : i.ltr ?? i.default;
   const t = document.createElement("template");
-  t.innerHTML = `<svg class="icon" viewBox="0 0 20 20" aria-hidden="true">${ICONS[name]}</svg>`;
+  t.innerHTML = `<span class="cdx-icon cdx-icon--${size}"><svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><g>${paths}</g></svg></span>`;
   return t.content.firstChild;
 };
-const spinner = () => $("span", { className: "spinner", ariaHidden: "true" });
-const q = document.getElementById("q"), out = document.getElementById("out");
+// Codex CSS-only components. A button: `kind` adds modifiers, e.g. "small", "quiet", "primary" (progressive).
+const BUTTON = { small: "cdx-button--size-small", quiet: "cdx-button--weight-quiet", primary: "cdx-button--action-progressive cdx-button--weight-primary",
+                 progressive: "cdx-button--action-progressive", iconOnly: "cdx-button--icon-only" };
+const button = (kind, attrs, ...kids) => $("button", { type: "button", className: ["cdx-button", ...kind.split(" ").filter(Boolean).map((k) => BUTTON[k])].join(" "), ...attrs }, ...kids);
+const spinner = (label = "Loading") => $("span", { className: "cdx-progress-indicator" },
+  $("span", { className: "cdx-progress-indicator__indicator" }, $("progress", { className: "cdx-progress-indicator__indicator__progress", ariaLabel: label })));
+// type: notice, warning, error, success; inline: the compact variant, for messages inside a card.
+const message = (type, text, inline) => $("div", { className: `cdx-message cdx-message--${type}${inline ? " cdx-message--inline" : ""}`, role: type === "error" ? "alert" : "status" },
+  $("span", { className: "cdx-message__icon" }), $("div", { className: "cdx-message__content", textContent: text }));
+let checkboxes = 0;
+const checkbox = (input, text) => {
+  Object.assign(input, { type: "checkbox", className: "cdx-checkbox__input", id: `checkbox-${++checkboxes}` });
+  return $("span", { className: "cdx-checkbox" }, $("span", { className: "cdx-checkbox__wrapper" }, input, $("span", { className: "cdx-checkbox__icon" }),
+    $("span", { className: "cdx-checkbox__label cdx-label" },
+      $("label", { htmlFor: input.id, className: "cdx-label__label" }, $("span", { className: "cdx-label__label__text", textContent: text })))));
+};
+// A menu: a <details> whose summary is a quiet Codex button with an expand icon.
+const menu = (label, className, ...kids) => $("details", { className: `editions ${className}` },
+  $("summary", { className: "cdx-button cdx-button--fake-button cdx-button--fake-button--enabled cdx-button--weight-quiet cdx-button--action-progressive" },
+    label, icon("chevron")),
+  $("div", { className: "langs" }, ...kids));
+const out = document.getElementById("out");
 const post = async (url, body) => {
   const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const data = await r.json();
@@ -208,67 +192,45 @@ const marked = (s) => {
   });
 };
 
-// Search suggestions (a combobox): one per topic, from /api/titles, with the typed text underlined in
-// the title. Arrow keys move through them, Enter or a click opens one in its edition, Escape closes.
-const list = document.getElementById("suggestions");
-let timer, suggested = [], active = -1;
-const closeSuggestions = () => {
-  list.hidden = true;
-  q.ariaExpanded = "false";
-  q.removeAttribute("aria-activedescendant");
-  active = -1;
+// The search field: Codex's TypeaheadSearch, Wikipedia's own search box. Suggestions come from
+// /api/titles, one per topic, with thumbnail and description, the typed text highlighted. A suggestion
+// is a link to its topic in its edition; Enter on typed text compares that title, in this page.
+const searchBox = document.getElementById("search");
+const searchValue = ref(""), searchKey = ref(0), suggestions = ref([]);
+let programmatic = null;  // the title put into the field by a search, not typed: no suggestions for it
+const setSearchValue = (title) => {
+  if (title === searchValue.value) return;
+  programmatic = searchValue.value = title;
+  searchKey.value++;  // TypeaheadSearch takes its text only when mounted
 };
-const underline = (title, typed) => {
-  const i = title.toLowerCase().indexOf(typed.toLowerCase());
-  return i < 0 ? [title] : [title.slice(0, i), $("u", { textContent: title.slice(i, i + typed.length) }), title.slice(i + typed.length)];
+const onInput = async (typed) => {
+  typed = typed.trim();
+  if (typed === programmatic) { programmatic = null; return; }
+  if (typed.length < 2) { suggestions.value = []; return; }
+  let items;
+  try { items = await (await fetch(`/api/titles?q=${encodeURIComponent(typed)}`)).json(); } catch { return; }
+  if (searchBox.querySelector("input")?.value.trim() !== typed || !Array.isArray(items)) return;  // typed on
+  suggestions.value = items.map((s) => ({
+    value: `${s.lang}:${s.title}`, label: s.title, description: s.description || "",
+    supportingText: s.lang !== "en" ? `(${langName(s.lang)})` : "",
+    thumbnail: /^https:\/\//.test(s.thumbnail || "") ? { url: s.thumbnail } : null,
+    url: `?${queryString({ title: s.title, lang: s.lang, page: 1, dialects: urlQuery().dialects })}`,
+  }));
 };
-const choose = (s) => {
-  closeSuggestions();
-  const query = { title: s.title, lang: s.lang, page: 1, dialects: urlQuery().dialects };
-  search(query, queryString(query) !== location.search.slice(1));
+// Typed text, not a suggestion: compare it here (the form would go to "/?search=…").
+searchBox.addEventListener("submit", (e) => e.preventDefault(), true);
+const onSubmit = () => {
+  // A typed title may be from any edition: no lang; another topic has other languages: no langs.
+  const query = { title: searchBox.querySelector("input")?.value.trim(), page: 1, dialects: urlQuery().dialects };
+  if (query.title) search(query, queryString(query) !== location.search.slice(1));
 };
-const highlight = (i) => {
-  active = i;
-  [...list.children].forEach((li, k) => { li.ariaSelected = String(k === i); });
-  q.setAttribute("aria-activedescendant", list.children[i].id);
-  list.children[i].scrollIntoView({ block: "nearest" });
-};
-q.addEventListener("input", () => {
-  clearTimeout(timer);
-  const typed = q.value.trim();
-  if (typed.length < 2) return closeSuggestions();
-  timer = setTimeout(async () => {
-    let items;
-    try { items = await (await fetch(`/api/titles?q=${encodeURIComponent(typed)}`)).json(); } catch { return; }
-    if (q.value.trim() !== typed || !Array.isArray(items) || document.activeElement !== q) return;  // typed on, or left
-    suggested = items;
-    list.replaceChildren(...items.map((s, k) => {
-      const li = $("li", { id: `suggestion-${k}`, role: "option", ariaSelected: "false" },
-        $("span", { className: "thumb" }, /^https:\/\//.test(s.thumbnail || "") ? $("img", { src: s.thumbnail, alt: "", loading: "lazy" }) : icon("article")),
-        $("span", { className: "text" },
-          $("b", {}, ...underline(s.title, typed), s.lang !== "en" ? $("span", { className: "lang", textContent: s.lang }) : ""),
-          s.description ? $("small", { textContent: s.description }) : ""));
-      li.addEventListener("mousedown", (e) => e.preventDefault());  // keep the focus in the search field
-      li.addEventListener("click", () => choose(s));
-      return li;
-    }));
-    active = -1;
-    list.hidden = !items.length;
-    q.ariaExpanded = String(items.length > 0);
-  }, 200);
-});
-q.addEventListener("keydown", (e) => {
-  if (list.hidden) return;
-  const n = suggested.length, down = e.key === "ArrowDown";
-  if (down || e.key === "ArrowUp") {
-    e.preventDefault();
-    highlight(active < 0 ? (down ? 0 : n - 1) : (active + (down ? 1 : -1) + n) % n);
-  } else if (e.key === "Enter" && active >= 0) {
-    e.preventDefault();
-    choose(suggested[active]);
-  } else if (e.key === "Escape") closeSuggestions();
-});
-q.addEventListener("blur", closeSuggestions);
+createApp({
+  setup: () => () => h(CdxTypeaheadSearch, {
+    key: searchKey.value, id: "q", formAction: "/", searchResults: suggestions.value, initialInputValue: searchValue.value,
+    placeholder: "Search an article: Talvisota, Winter War, Stepan Bandera…", searchResultsLabel: "Suggested articles",
+    useButton: true, buttonLabel: "Compare", highlightQuery: true, showThumbnail: true, onInput, onSubmit,
+  }),
+}).mount(searchBox);
 
 // The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=0) so results can be shared
 // and Back/Forward work; `lang` (the edition the title is from) comes from the extension's link. The
@@ -286,13 +248,13 @@ const queryString = (query) => `${new URLSearchParams({ title: query.title, ...p
 async function search(query, push) {
   const { title, page } = query;
   if (push) history.pushState(null, "", `?${queryString(query)}`);
-  q.value = title;
+  setSearchValue(title);
   document.title = `${title} — WikiCross`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
   // Loading view: the server's current stage (fetching editions, embedding, comparing), polled each
   // second, and the time so far. Only the stage is announced to screen readers, not every second.
   const stage = $("span", { textContent: "Looking the topic up…" }), seconds = $("span", { className: "muted", ariaHidden: "true" });
-  out.replaceChildren($("div", { className: "loading" }, spinner(),
+  out.replaceChildren($("div", { className: "loading" }, spinner("Comparing the editions"),
     $("div", {}, $("div", { className: "stage", role: "status" }, stage, " ", seconds),
       $("div", { className: "muted", textContent: "The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this may take a few minutes." }))));
   const poll = setInterval(async () => {
@@ -313,26 +275,18 @@ async function search(query, push) {
     clearInterval(poll);
   }
   if (mine !== current) return;
-  if (!r?.ok) { out.replaceChildren($("p", { className: "error", textContent: data.detail })); return; }
+  if (!r?.ok) { out.replaceChildren(message("error", data.detail)); return; }
   render({ data, query });
 }
 
-document.getElementById("f").addEventListener("submit", (e) => {
-  e.preventDefault();
-  closeSuggestions();
-  // A typed title may be from any edition: no lang; another topic has other languages: no langs.
-  const query = { title: q.value.trim(), page: 1, dialects: urlQuery().dialects };
-  if (query.title) search(query, queryString(query) !== location.search.slice(1));
-});
 window.addEventListener("popstate", () => { const query = urlQuery(); if (query.title) search(query, false); });
 if (urlQuery().title) search(urlQuery(), false);
 
 // Every edition, folded into a menu: a topic can have dozens. Each link opens that edition.
 function editionsMenu(articles) {
-  return $("details", { className: "editions" },
-    $("summary", { textContent: `${articles.length} editions` }),
-    $("div", { className: "langs" }, ...articles.map((a) => $("a", { href: /^https?:\/\//.test(a.url) ? a.url : "#", target: "_blank", rel: "noopener" },
-      $("b", { textContent: `${langName(a.lang)} (${a.lang})` }), ` · ${a.title}`))));
+  return menu(`${articles.length} editions`, "",
+    ...articles.map((a) => $("a", { href: /^https?:\/\//.test(a.url) ? a.url : "#", target: "_blank", rel: "noopener" },
+      $("b", { textContent: `${langName(a.lang)} (${a.lang})` }), ` · ${a.title}`)));
 }
 
 // Which editions are compared: a language picker (Apply runs the search again; the server compares
@@ -340,27 +294,25 @@ function editionsMenu(articles) {
 function filters(languages, query) {
   const sorted = [...languages].sort((a, b) => langName(a).localeCompare(langName(b)));
   const chosen = new Set(query.langs || languages);
-  const boxes = sorted.map((l) => $("input", { type: "checkbox", value: l, checked: chosen.has(l) }));
-  const button = (text, onClick, primary) => {
-    const b = $("button", { className: `btn small${primary ? " primary" : ""}`, type: "button", textContent: text });
+  const boxes = sorted.map((l) => $("input", { value: l, checked: chosen.has(l) }));
+  const action = (text, onClick, primary) => {
+    const b = button(primary ? "small primary" : "small", { textContent: text });
     b.addEventListener("click", onClick);
     return b;
   };
-  const apply = button("Apply", () => {
+  const apply = action("Apply", () => {
     const langs = boxes.filter((b) => b.checked).map((b) => b.value);
     search({ ...query, langs: langs.length === languages.length ? null : langs, page: 1 }, true);
   }, true);
   const update = () => { apply.disabled = boxes.filter((b) => b.checked).length < 2; };  // a comparison needs two
   const all = (on) => { boxes.forEach((b) => { b.checked = on; }); update(); };
   boxes.forEach((b) => b.addEventListener("change", update));
-  const picker = $("details", { className: "editions picker" },
-    $("summary", { textContent: query.langs ? `Languages: ${query.langs.length} of ${languages.length}` : `Languages: all ${languages.length}` }),
-    $("div", { className: "langs" },
-      $("div", { className: "actions" }, button("All", () => all(true)), button("None", () => all(false)), apply),
-      ...boxes.map((b) => $("label", {}, b, ` ${langName(b.value)} (${b.value})`))));
-  const dialects = $("input", { type: "checkbox", checked: !query.dialects });
+  const picker = menu(query.langs ? `Languages: ${query.langs.length} of ${languages.length}` : `Languages: all ${languages.length}`, "picker",
+    $("div", { className: "actions" }, action("All", () => all(true)), action("None", () => all(false)), apply),
+    ...boxes.map((b) => checkbox(b, `${langName(b.value)} (${b.value})`)));
+  const dialects = $("input", { checked: !query.dialects });
   dialects.addEventListener("change", () => search({ ...query, dialects: !dialects.checked, page: 1 }, true));
-  return $("div", { className: "filters" }, picker, $("label", { className: "toggle" }, dialects, "Hide dialects"));
+  return $("div", { className: "filters" }, picker, checkbox(dialects, "Hide dialects"));
 }
 
 function render({ data, query }) {
@@ -368,9 +320,9 @@ function render({ data, query }) {
   const pages = Math.ceil(data.total / PER_PAGE), from = (query.page - 1) * PER_PAGE;
   // Findings the AI check does not confirm leave the list for a hidden one under it, behind a button.
   const irrelevant = $("div", { className: "irrelevant", hidden: true });
-  const reveal = $("button", { className: "btn small", type: "button", hidden: true, ariaExpanded: "false" });
+  const reveal = button("small", { hidden: true, ariaExpanded: "false" });
   let dismissed = 0;
-  const relabel = () => reveal.replaceChildren(icon("eye"),
+  const relabel = () => reveal.replaceChildren(icon(irrelevant.hidden ? "eye" : "eyeClosed"),
     `${irrelevant.hidden ? "Show" : "Hide"} ${dismissed} finding${dismissed === 1 ? "" : "s"} the AI marked as irrelevant`);
   reveal.addEventListener("click", () => {
     irrelevant.hidden = !irrelevant.hidden;
@@ -380,7 +332,7 @@ function render({ data, query }) {
   const dismiss = (article) => { dismissed++; irrelevant.append(article); reveal.hidden = false; relabel(); };
   const go = (page) => { search({ ...query, page }, true); window.scrollTo(0, 0); };
   const step = (page, text, iconName) => {
-    const b = $("button", { className: "btn small", type: "button", disabled: page < 1 || page > pages }, ...(iconName === "left" ? [icon(iconName), text] : [text, icon(iconName)]));
+    const b = button("", { disabled: page < 1 || page > pages }, ...(iconName === "left" ? [icon(iconName, "medium"), text] : [text, icon(iconName, "medium")]));
     b.addEventListener("click", () => go(page));
     return b;
   };
@@ -411,10 +363,11 @@ const STEP = 3;
 const contextOf = (m) => ({ before: [], after: [], top: [m.seq, 0], bottom: [m.seq, 65535], end: {}, busy: false, error: "" });
 function expandable(m, ctx, quote) {
   const wrap = $("div", { className: "expandable" });
-  const button = (dir) => {
+  const expander = (dir) => {
     if (ctx.end[dir]) return "";
-    const b = $("button", { className: "expand", type: "button", disabled: ctx.busy, title: `Show ${STEP} more sentences ${dir === "up" ? "above" : "below"}` },
+    const b = button("small quiet progressive", { disabled: ctx.busy, title: `Show ${STEP} more sentences ${dir === "up" ? "above" : "below"}` },
       icon(dir === "up" ? "up" : "chevron"), dir === "up" ? "Expand up" : "Expand down");
+    b.classList.add("expand");
     b.addEventListener("click", async () => {
       ctx.busy = true; draw();
       const [seq, n] = dir === "up" ? ctx.top : ctx.bottom;
@@ -441,7 +394,7 @@ function expandable(m, ctx, quote) {
       else if (prev) body.append(s.seq !== prev.seq ? "\n" : " ");
       body.append($("span", { className: s.quote ? "quoted" : "context" }, ...s.nodes));
     });
-    wrap.replaceChildren(button("up"), body, button("down"), ctx.error ? $("p", { className: "error", textContent: ctx.error }) : "");
+    wrap.replaceChildren(expander("up"), body, expander("down"), ctx.error ? message("error", ctx.error, true) : "");
   };
   draw();
   return wrap;
@@ -465,19 +418,20 @@ let anchors = 0;  // each "i" is the anchor its popover is placed by
 function numbers(f) {
   const sigma = (d) => { const r = Math.round(d * 10) / 10; return `${r > 0 ? "+" : r < 0 ? "−" : ""}${Math.abs(r).toFixed(1)}σ`; };
   const rows = Object.entries(f.deviations || {}).sort((a, b) => b[1] - a[1]);
-  const box = $("div", { className: "numbers", popover: "auto" },
-    $("h4", { textContent: `How far apart: the ${f.axis} axis` }),
+  const box = $("div", { className: "cdx-popover numbers", popover: "auto" },
+    $("div", { className: "cdx-popover__header" }, $("span", { className: "cdx-popover__header__title", textContent: `How far apart: the ${f.axis} axis` })),
+    $("div", { className: "cdx-popover__body" },
     $("p", { textContent: `Each sentence has a position on this axis: towards +, an edition ${f.ends[0]}; towards −, it ${f.ends[1]}. `
       + "Positions are measured against the language's own sentences, so 1σ is a typical spread within that language." }),
     $("p", { textContent: `${langName(f.lang)} sits ${sigma(f.deviations?.[f.lang] ?? f.deviation)} from the average of the others; a finding needs at least 1.2σ either way. Each edition, from its others' average:` }),
     $("table", {}, ...rows.map(([l, d]) => $("tr", { className: l === f.lang ? "this" : "" },
       $("td", { textContent: langName(l) }), $("td", { className: "num", textContent: sigma(d) })))),
     $("p", { className: "muted", textContent: `The sentences are matched as one statement: their largest cosine distance is ${f.distance.toFixed(2)} `
-      + "(0 is the same meaning; up to 0.35 counts)." }));
+      + "(0 is the same meaning; up to 0.35 counts)." })));
   const anchor = `--numbers-${++anchors}`;
   box.style.positionAnchor = anchor;
-  const info = $("button", { className: "info", type: "button", popoverTargetElement: box, title: "The numbers behind this finding",
-                             ariaLabel: "The numbers behind this finding" }, icon("info"));
+  const info = button("small quiet iconOnly", { popoverTargetElement: box, title: "The numbers behind this finding",
+                                                ariaLabel: "The numbers behind this finding" }, icon("info"));
   info.style.anchorName = anchor;
   return [info, box];
 }
@@ -511,6 +465,13 @@ function linkQuotes(summary, members, state, quotes) {
 }
 
 const KIND_NAMES = { factual: "Factual disagreement", bias: "Bias", framing: "Framing" };  // app.py KINDS
+// Each kind as a Codex info chip status; "none" is a finding the AI marked irrelevant.
+const KIND_STATUS = { factual: "error", bias: "warning", framing: "progressive", none: "subtle" };
+const setKind = (chip, kind, text) => {
+  chip.className = `cdx-info-chip cdx-info-chip--${KIND_STATUS[kind]}`;
+  chip.replaceChildren($("span", { className: "cdx-info-chip__icon" }), $("span", { className: "cdx-info-chip__text", textContent: text }));
+  chip.hidden = false;
+};
 
 // A finding. The AI (one /api/explain call for the quotes on show) gives its title, a description
 // quoting the framing words, and each quote in English with those words marked; the original keeps the
@@ -522,18 +483,18 @@ function card(finding, dismiss) {
                   ctx: Object.fromEntries(finding.members.map((m) => [m.lang, contextOf(m)])) };
   const outliers = finding.outlier ? [finding.lang] : [];
   // The kind badge waits for the AI; the label only says which edition is the outlier, if one is.
-  const kind = $("span", { className: "kind", hidden: true });
+  const kind = $("span", { hidden: true });
   const label = $("span", { className: "score" },
     finding.outlier ? `Outlier: ${langName(finding.lang)}` : "", ...numbers(finding));
   // Outliers first, then the API's order; a card shows the first SHOWN unless expanded.
   const members = [...finding.members.filter((m) => outliers.includes(m.lang)), ...finding.members.filter((m) => !outliers.includes(m.lang))];
   const first = members.slice(0, SHOWN);
-  const title = $("h3", { className: "pending" }, spinner(), "Asking the AI how they differ…");
+  const title = $("h3", { className: "pending" }, spinner("Asking the AI"), "Asking the AI how they differ…");
   const summary = $("p", { className: "summary" });
   const verdict = $("p", { className: "verdict" });  // why the AI marked it irrelevant, or why it failed
   const quotes = $("div", { className: "quotes" });
   const article = $("article", { className: "card" });
-  const more = members.length > SHOWN ? $("button", { className: "btn small", type: "button" }) : null;
+  const more = members.length > SHOWN ? button("small", {}) : null;
 
   // Quotes the AI call does not cover (beyond the first SHOWN, or all if it failed), in one call.
   const translateQuotes = async (pool) => {
@@ -571,17 +532,17 @@ function card(finding, dismiss) {
     if (p.lang === "en") return "";
     if (!state.english[p.lang]) {
       const busy = !state.aiDone || state.translating;
-      return busy ? $("span", { className: "pending", title: "Translating…" }, spinner()) : "";
+      return busy ? $("span", { className: "pending", title: "Translating…" }, spinner("Translating")) : "";
     }
-    const button = $("button", { type: "button", ariaPressed: String(!en),
+    const toggle = button(`small quiet iconOnly${en ? "" : " progressive"}`, { ariaPressed: String(!en),
       ariaLabel: en ? `Show the original ${langName(p.lang)} quote` : "Show the English translation" }, icon("translate"));
-    button.dataset.lang = p.lang;
-    button.addEventListener("click", () => {
+    toggle.dataset.lang = p.lang;
+    toggle.addEventListener("click", () => {
       if (!state.original.delete(p.lang)) state.original.add(p.lang);
       renderQuotes();
       quotes.querySelector(`button[data-lang="${p.lang}"]`)?.focus();  // the re-render replaced it
     });
-    return $("span", { className: "tr" }, button,
+    return $("span", { className: "tr" }, toggle,
       $("div", { className: "tip", role: "tooltip" },
         $("div", { className: "section", textContent: en ? `Original (${langName(p.lang)})` : "English translation" }),
         ...(en ? original() : english())));
@@ -602,7 +563,7 @@ function card(finding, dismiss) {
       const quote = state.context && en && !state.dismissed
         ? $("blockquote", {}, ...(passage ? [$("span", { className: "quoted" }, ...marked(passage))]
             : state.passagesError ? [$("span", { className: "error", textContent: state.passagesError })]
-            : [spinner(), "Translating the paragraphs…"]))
+            : [spinner("Translating"), " Translating the paragraphs…"]))
         : state.context ? expandable(p, state.ctx[p.lang], () => marked(withMarks(p.text, [p.sentence])))
         : $("blockquote", {}, $("span", { className: "quoted" }, ...(en ? englishQuote() : originalQuote())));
       const heading = (en ? state.english[p.lang].heading : p.heading) || "(intro)";
@@ -614,15 +575,15 @@ function card(finding, dismiss) {
         quote, $("div", { className: "foot" }, swap(p, en, englishQuote, originalQuote)));
       box.dataset.lang = p.lang;
       return box;
-    }), ...(state.translateError ? [$("p", { className: "error", textContent: state.translateError })] : []));
+    }), ...(state.translateError ? [message("error", state.translateError, true)] : []));
   };
 
   post("/api/explain", { passages: first.map((p) => ({ lang: p.lang, heading: p.heading || "", text: p.text, sentence: p.sentence })) })
     .then((x) => {
       title.className = "";
       title.textContent = x.title;
-      if (x.discrepancy && x.kind) Object.assign(kind, { className: `kind ${x.kind}`, textContent: KIND_NAMES[x.kind], hidden: false });
-      if (!x.discrepancy) Object.assign(kind, { className: "kind none", textContent: "Irrelevant", hidden: false });
+      if (x.discrepancy && x.kind) setKind(kind, x.kind, KIND_NAMES[x.kind]);
+      if (!x.discrepancy) setKind(kind, "none", "Irrelevant");
       for (const [lang, q] of Object.entries(x.quotes)) {
         state.english[lang] = { quote: q.english, heading: q.heading };
         state.phrases[lang] = q.phrases;
@@ -641,8 +602,7 @@ function card(finding, dismiss) {
     })
     .catch((err) => {
       title.remove();
-      verdict.className = "error";
-      verdict.textContent = `AI unavailable, quotes in their original language: ${err.message}`;
+      verdict.replaceWith(message("warning", `AI unavailable, quotes in their original language: ${err.message}`, true));
     })
     .finally(() => { state.aiDone = true; renderQuotes(); });
   renderQuotes();
@@ -652,7 +612,7 @@ function card(finding, dismiss) {
     more.addEventListener("click", () => { state.all = !state.all; renderQuotes(); });
     tools.append(more);
   }
-  const context = $("button", { className: "btn small", type: "button" }, icon("paragraph"), "Show paragraphs", icon("chevron"));
+  const context = button("small", {}, icon("paragraph"), "Show paragraphs", icon("chevron"));
   context.addEventListener("click", () => {
     state.context = !state.context;
     context.replaceChildren(icon("paragraph"), state.context ? "Show sentences" : "Show paragraphs", icon(state.context ? "up" : "chevron"));

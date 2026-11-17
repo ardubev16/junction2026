@@ -1,0 +1,14 @@
+{
+  "private": true,
+  "description": "Front-end dependencies: the Wikimedia design system (Codex) and Vue, copied into the web app and the extension by `npm run vendor`.",
+  "type": "module",
+  "scripts": {
+    "vendor": "node scripts/vendor.mjs"
+  },
+  "devDependencies": {
+    "@wikimedia/codex": "2.8.0",
+    "@wikimedia/codex-design-tokens": "2.8.0",
+    "@wikimedia/codex-icons": "2.8.0",
+    "vue": "3.5.45"
+  }
+}

@@ -55,6 +55,17 @@ reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. A topic loade
 passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
 row to recompute.
 
+### Design: Codex
+
+The web app and the extension use [Codex](https://doc.wikimedia.org/codex/), the Wikimedia design
+system, so they look like Wikipedia: its design tokens (colours, fonts, borders, shadows as CSS
+variables), its CSS-only components (buttons, checkboxes, info chips for the kind of finding, messages,
+progress indicators, popovers, accordions), its icons, and in the web app's header its Vue
+`TypeaheadSearch`, Wikipedia's own search box. They come from npm, pinned in `package.json`, and are
+copied into `src/wikicross/static/vendor/` (served at `/static/`) and `extension/vendor/` by a script;
+the copies are committed, so running WikiCross needs no Node. To update Codex: change the versions in
+`package.json`, then `npm install && npm run vendor`.
+
 ### Public deployment (HTTPS)
 
 `docker-compose.yml`'s `deploy` profile adds the app (`Dockerfile`) and Caddy (stock `caddy:2` image,

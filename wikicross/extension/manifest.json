@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "WikiCross for Wikipedia",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "On any Wikipedia article and its edit views, shows where the other language editions frame things differently, explained and translated by AI.",
   "host_permissions": ["http://127.0.0.1:8000/*"],
   "background": { "service_worker": "background.js" },
@@ -11,5 +11,8 @@
       "js": ["content.js"],
       "run_at": "document_idle"
     }
+  ],
+  "web_accessible_resources": [
+    { "resources": ["vendor/*"], "matches": ["https://*.wikipedia.org/*"], "use_dynamic_url": true }
   ]
 }
