@@ -8,10 +8,13 @@ import { CdxIcon, CdxProgressIndicator } from "@wikimedia/codex";
 import { cdxIconCheck, cdxIconSubtract } from "@wikimedia/codex-icons";
 import { API, type Progress } from "./types";
 
-const props = withDefaults(defineProps<{
-  title: string;
-  result?: Progress | null;  // the /api/diff answer's `progress`, once it came
-}>(), { result: null });
+const props = withDefaults(
+  defineProps<{
+    title: string;
+    result?: Progress | null; // the /api/diff answer's `progress`, once it came
+  }>(),
+  { result: null },
+);
 const api = inject(API)!;
 const polled = ref<Progress | null>(null);
 
@@ -21,21 +24,31 @@ async function poll() {
     const p = await api.get<Progress>("/api/progress", { title: props.title });
     // Once the request is over its entry is gone: keep the last steps shown until the result replaces them.
     if (p.visited.length || !polled.value) polled.value = p;
-  } catch { /* the result itself reports errors */ }
+  } catch {
+    /* the result itself reports errors */
+  }
 }
 poll();
-const timer = setInterval(() => { if (!props.result) poll(); }, 1000);
+const timer = setInterval(() => {
+  if (!props.result) poll();
+}, 1000);
 onBeforeUnmount(() => clearInterval(timer));
 
 const fmt = (s: number) => `${s < 10 ? s.toFixed(1) : Math.round(s)} s`;
 const progress = computed(() => props.result || polled.value);
 
 type State = "done" | "active" | "skipped" | "todo";
-interface Row { key: string; label: string; state: State; seconds?: number; detail?: string }
+interface Row {
+  key: string;
+  label: string;
+  state: State;
+  seconds?: number;
+  detail?: string;
+}
 const steps = computed((): Row[] => {
   const p = progress.value;
   if (!p) return [];
-  const visited: [string, number][] = p.visited.length ? p.visited : props.result ? [] : [[p.steps[0].key, 0]];  // starting
+  const visited: [string, number][] = p.visited.length ? p.visited : props.result ? [] : [[p.steps[0].key, 0]]; // starting
   const current = props.result ? null : visited[visited.length - 1][0];
   const last = p.steps.findIndex((s) => s.key === visited[visited.length - 1]?.[0]);
   return p.steps.map((s, i) => {
@@ -66,8 +79,13 @@ const steps = computed((): Row[] => {
           <span v-if="s.seconds != null" class="muted time">{{ ` · ${fmt(s.seconds)}` }}</span>
         </span>
       </li>
-      <li class="total"><span class="dot" aria-hidden="true"></span><span>Total{{ ` · ${fmt(progress?.seconds ?? 0)}` }}</span></li>
+      <li class="total">
+        <span class="dot" aria-hidden="true"></span><span>Total{{ ` · ${fmt(progress?.seconds ?? 0)}` }}</span>
+      </li>
     </ol>
-    <p v-if="!result" class="muted">The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this may take a few minutes.</p>
+    <p v-if="!result" class="muted">
+      The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this may take a few
+      minutes.
+    </p>
   </div>
 </template>

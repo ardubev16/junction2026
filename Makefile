@@ -1,7 +1,7 @@
 # Front-end builds: the web app (served by the server) and the Chrome extension's scripts, both from ui/
 # (Vue + Codex, TypeScript: type-checked first). Their output is not committed; the Dockerfile builds the
-# web app itself. Also: checks (ruff, ty, vue-tsc, pytest) and profiling the pipeline of a new article.
-.PHONY: all web extension extension-zip dev clean check fix profile profile-view
+# web app itself. Also: checks (the prek hooks, pytest) and profiling the pipeline of a new article.
+.PHONY: all web extension extension-zip dev clean check profile profile-view
 
 all: web extension
 
@@ -45,16 +45,9 @@ profile-view:
 	@test -n "$(NAME)" || { echo 'usage: make profile-view NAME=Joensuu   (profiles/: $(notdir $(wildcard profiles/*.json)))'; exit 2; }
 	uv run vizviewer "profiles/$(NAME).json"
 
-# Everything a change must pass: Python lint, format and types (ruff, ty), the front end's types
-# (vue-tsc), the tests
+# Everything a change must pass: the pre-commit hooks on every file (.pre-commit-config.yaml: format,
+# lint and types for Python, TypeScript/Vue and the rest; they fix what they can), then the tests.
+# prek is not a Python dependency: uvx runs it.
 check: node_modules
-	uv run ruff check .
-	uv run ruff format --check .
-	uv run ty check
-	npm run typecheck
+	uvx prek run --all-files
 	uv run pytest -q
-
-# What ruff can fix by itself: lint fixes, then formatting
-fix:
-	uv run ruff check --fix .
-	uv run ruff format .

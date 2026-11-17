@@ -1,24 +1,110 @@
-body { margin: 0; background: var(--background-color-neutral-subtle); color: var(--color-base);
-       font-family: var(--font-family-system-sans); font-size: var(--font-size-medium); line-height: var(--line-height-content); }
+body {
+  margin: 0;
+  background: var(--background-color-neutral-subtle);
+  color: var(--color-base);
+  font-family: var(--font-family-system-sans);
+  font-size: var(--font-size-medium);
+  line-height: var(--line-height-content);
+}
 /* Name left, search centred on the page; stacked on narrow screens. */
-header { background: var(--background-color-base); border-bottom: 1px solid var(--border-color-subtle); padding: .6rem 1.5rem; display: grid;
-         grid-template-columns: 1fr minmax(0, 640px) 1fr; gap: 1.5rem; align-items: center; }
-@media (max-width: 860px) { header { grid-template-columns: 1fr; gap: .6rem; } }
-.wordmark { font-family: var(--font-family-heading-main); font-size: var(--font-size-xx-large); white-space: nowrap; display: inline-flex;
-            gap: .45rem; align-items: center; color: inherit; justify-self: start; text-decoration: none; }
-.logo { width: 1.6rem; height: 1.6rem; flex: none; }
-main { max-width: 1000px; margin: 0 auto; padding: .5rem 1.5rem 3rem; }
-main > .cdx-message { margin: 1rem 0; }
-h1, h2 { font-family: var(--font-family-heading-main); font-weight: normal; }
-h1 { font-size: var(--font-size-xxx-large); margin: 0; }
+header {
+  background: var(--background-color-base);
+  border-bottom: 1px solid var(--border-color-subtle);
+  padding: 0.6rem 1.5rem;
+  display: grid;
+  grid-template-columns: 1fr minmax(0, 640px) 1fr;
+  gap: 1.5rem;
+  align-items: center;
+}
+@media (max-width: 860px) {
+  header {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
+  }
+}
+.wordmark {
+  font-family: var(--font-family-heading-main);
+  font-size: var(--font-size-xx-large);
+  white-space: nowrap;
+  display: inline-flex;
+  gap: 0.45rem;
+  align-items: center;
+  color: inherit;
+  justify-self: start;
+  text-decoration: none;
+}
+.logo {
+  width: 1.6rem;
+  height: 1.6rem;
+  flex: none;
+}
+main {
+  max-width: 1000px;
+  margin: 0 auto;
+  padding: 0.5rem 1.5rem 3rem;
+}
+main > .cdx-message {
+  margin: 1rem 0;
+}
+h1,
+h2 {
+  font-family: var(--font-family-heading-main);
+  font-weight: normal;
+}
+h1 {
+  font-size: var(--font-size-xxx-large);
+  margin: 0;
+}
 /* The page title with the editions menu on its right, on one ruled row. */
-.pagehead { display: flex; justify-content: space-between; align-items: center; gap: 1rem; flex-wrap: wrap;
-            margin: 1rem 0 .6rem; padding-bottom: .2rem; border-bottom: 1px solid var(--border-color-base); }
-.editions { width: min(900px, 90vw); }
-.editions .columns { columns: 14em; column-gap: 1.5rem; font-size: var(--font-size-small); }
-.editions a { display: block; break-inside: avoid; padding: .1rem 0; }
-.editions b { color: var(--color-base); font-weight: normal; }
-a { color: var(--color-link); text-decoration: none; } a:hover { text-decoration: underline; }
-.loading { margin: 2rem 0; font-size: var(--font-size-large); }
-.timing { margin-top: .6rem; } .timing .loading { margin: 0; font-size: var(--font-size-medium); }
-.pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.5rem 0; }
+.pagehead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 1rem 0 0.6rem;
+  padding-bottom: 0.2rem;
+  border-bottom: 1px solid var(--border-color-base);
+}
+.editions {
+  width: min(900px, 90vw);
+}
+.editions .columns {
+  columns: 14em;
+  column-gap: 1.5rem;
+  font-size: var(--font-size-small);
+}
+.editions a {
+  display: block;
+  break-inside: avoid;
+  padding: 0.1rem 0;
+}
+.editions b {
+  color: var(--color-base);
+  font-weight: normal;
+}
+a {
+  color: var(--color-link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+.loading {
+  margin: 2rem 0;
+  font-size: var(--font-size-large);
+}
+.timing {
+  margin-top: 0.6rem;
+}
+.timing .loading {
+  margin: 0;
+  font-size: var(--font-size-medium);
+}
+.pager {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: center;
+  margin: 1.5rem 0;
+}

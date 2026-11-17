@@ -1,0 +1,5 @@
+# Builds and lockfiles; Markdown is markdownlint's (Prettier would re-pad its tables).
+src/wikicross/web/
+extension/dist/
+package-lock.json
+*.md

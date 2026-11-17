@@ -27,6 +27,7 @@ const request = async <T>(url: string, init?: RequestInit, retries = 2): Promise
 };
 const api: Api = {
   get: (path, params) => request(`${path}?${searchParams(params)}`),
-  post: (path, body) => request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  post: (path, body) =>
+    request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
 };
 createApp(App).provide(API, api).mount("#app");

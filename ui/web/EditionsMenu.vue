@@ -7,7 +7,8 @@ import type { Article } from "../shared/types";
 import { langName } from "../shared/util";
 
 defineProps<{ articles: Article[] }>();
-const open = ref(false), anchor = ref<ComponentPublicInstance | null>(null);
+const open = ref(false),
+  anchor = ref<ComponentPublicInstance | null>(null);
 const safe = (url: string) => (/^https?:\/\//.test(url) ? url : "#");
 </script>
 
@@ -15,7 +16,14 @@ const safe = (url: string) => (/^https?:\/\//.test(url) ? url : "#");
   <CdxButton ref="anchor" weight="quiet" action="progressive" @click="open = !open">
     {{ articles.length }} editions <CdxIcon :icon="cdxIconExpand" size="small" />
   </CdxButton>
-  <CdxPopover v-model:open="open" :anchor="anchor" placement="bottom-end" class="editions" title="Editions" use-close-button>
+  <CdxPopover
+    v-model:open="open"
+    :anchor="anchor"
+    placement="bottom-end"
+    class="editions"
+    title="Editions"
+    use-close-button
+  >
     <div class="columns">
       <a v-for="a in articles" :key="a.lang" :href="safe(a.url)" target="_blank" rel="noopener">
         <b>{{ langName(a.lang) }} ({{ a.lang }})</b> · {{ a.title }}

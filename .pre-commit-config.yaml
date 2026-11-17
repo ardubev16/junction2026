@@ -1,0 +1,102 @@
+# Run by prek (https://github.com/j178/prek): `prek install` once, then on every commit; `make check` runs
+# them on all files. Python and front-end tools run from the project (uv.lock, package-lock.json), so
+# hooks and editors use the same versions; ty and vue-tsc need the project's dependencies anyway.
+repos:
+  - repo: builtin
+    hooks:
+      - id: check-added-large-files
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-json
+        exclude: ^tsconfig\.json$ # JSON with comments, as TypeScript reads it
+      - id: check-merge-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: check-symlinks
+      - id: check-toml
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: fix-byte-order-marker
+      - id: mixed-line-ending
+        args: [--fix=lf]
+      - id: trailing-whitespace
+
+  - repo: meta
+    hooks:
+      - id: check-useless-excludes
+
+  - repo: https://github.com/codespell-project/codespell
+    rev: 57b21406f092110c18776e39b0bda50d37c945c8 # frozen: v2.4.3
+    hooks:
+      - id: codespell
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # frozen: v8.30.1
+    hooks:
+      - id: gitleaks
+
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 00eaed0068329eb6ca6bcb8de7b46c372d8d1c19 # frozen: 0.13.9
+    hooks:
+      - id: uv-lock
+
+  - repo: https://github.com/DavidAnson/markdownlint-cli2
+    rev: c01a1853c19b175aee6a09f24e2ad9b748c485ad # frozen: v0.24.1
+    hooks:
+      - id: markdownlint-cli2
+
+  - repo: https://github.com/hadolint/hadolint
+    rev: 2eece55955ced00200be9729e9728cb7dacca505 # frozen: v2.15.1
+    hooks:
+      - id: hadolint-docker
+
+  - repo: https://github.com/ComPWA/taplo-pre-commit
+    rev: ade0f95ddcf661c697d4670d2cfcbe95d0048a0a # frozen: v0.9.3
+    hooks:
+      - id: taplo-format
+      - id: taplo-lint
+        args: [--no-schema] # taplo's online schema catalog fails to load; check-toml covers syntax
+
+  - repo: local
+    hooks:
+      # Python
+      - id: ruff
+        name: ruff (lint)
+        language: system
+        entry: uv run --frozen ruff check --fix
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff (format)
+        language: system
+        entry: uv run --frozen ruff format
+        types_or: [python, pyi]
+      - id: ty
+        name: ty (types)
+        language: system
+        entry: uv run --frozen ty check
+        types_or: [python, pyi]
+        pass_filenames: false
+      # Front end (ui/) and the files Prettier formats
+      - id: prettier
+        name: prettier (format)
+        language: system
+        entry: npx --no-install prettier --write --ignore-unknown
+        types_or: [ts, javascript, vue, css, html, json, yaml]
+        exclude: ^package-lock\.json$
+      - id: eslint
+        name: eslint (lint)
+        language: system
+        entry: npx --no-install eslint --fix
+        types_or: [ts, javascript, vue]
+      - id: vue-tsc
+        name: vue-tsc (types)
+        language: system
+        entry: npm run --silent typecheck
+        types_or: [ts, vue]
+        pass_filenames: false
+      # Caddyfile
+      - id: caddy-fmt
+        name: caddy fmt
+        language: docker_image
+        entry: caddy:2 caddy fmt --overwrite
+        files: ^Caddyfile$

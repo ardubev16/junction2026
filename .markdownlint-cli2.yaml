@@ -1,0 +1,7 @@
+# markdownlint (prek): lines up to 120, as the code; tables and code blocks may run longer.
+config:
+  MD013:
+    line_length: 120
+    tables: false
+    code_blocks: false
+  MD060: false # table pipe spacing: compact |---| rows are as readable

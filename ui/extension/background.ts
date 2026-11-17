@@ -27,7 +27,9 @@ async function reply(request: Promise<Response>): Promise<Reply> {
   try {
     const r = await request;
     const body = await r.json().catch(() => ({ detail: `HTTP ${r.status}` }));
-    return r.ok ? { data: body } : { error: typeof body.detail === "string" ? body.detail : `HTTP ${r.status}`, status: r.status };
+    return r.ok
+      ? { data: body }
+      : { error: typeof body.detail === "string" ? body.detail : `HTTP ${r.status}`, status: r.status };
   } catch {
     return { error: `WikiCross backend not reachable at ${BACKEND}: start it with  uv run wikicross`, status: 0 };
   }
@@ -43,8 +45,13 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse: (
     return true; // the answer comes asynchronously
   }
   if (message.type === "post" && POSTS.includes(message.path)) {
-    reply(retrying(`${BACKEND}${message.path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(message.body) }))
-      .then(sendResponse);
+    reply(
+      retrying(`${BACKEND}${message.path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(message.body),
+      }),
+    ).then(sendResponse);
     return true;
   }
   return false;

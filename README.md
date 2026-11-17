@@ -58,8 +58,8 @@ comparison code or model changes; to force it, delete the topic's `diff_cache` r
 | `make web` | build the web app into `src/wikicross/web/` |
 | `make dev` | web app with hot reload on :5173, `/api` proxied to :8000 |
 | `make extension` / `make extension-zip` | build the extension into `extension/dist/` / pack it |
-| `make check` | ruff, ty, vue-tsc and pytest: must pass |
-| `make fix` | ruff's automatic fixes and formatting |
+| `prek install` | run the checks below on every commit (once per clone; [prek](https://github.com/j178/prek), or `uvx prek install`) |
+| `make check` | the pre-commit hooks on all files (format, lint, types: Python, TypeScript/Vue, Markdown, TOML, Dockerfile, Caddyfile; fixing what they can) and pytest: must pass |
 | `make profile TITLE=Joensuu EDITION=fi [NAME=…] [PROFILE_ARGS=--fresh]` | VizTracer profile of a topic's first load, into `profiles/NAME.json` |
 | `make profile-view NAME=…` | open a profile (without NAME: list them) |
 

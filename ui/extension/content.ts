@@ -9,7 +9,7 @@ import { API, type Api, type Member } from "../shared/types";
 import { searchParams } from "../shared/util";
 import own from "./extension.css?inline";
 import type { Message, Reply } from "./messages";
-import Panel from "./Panel.vue";
+import FindingsPanel from "./FindingsPanel.vue";
 
 const lang = location.hostname.split(".")[0];
 const params = new URLSearchParams(location.search);
@@ -17,10 +17,13 @@ const action = params.get("action") || "view";
 const editing = /^(edit|submit)$/.test(action) || /^(edit|editsource)$/.test(params.get("veaction") || "");
 // Articles only (MediaWiki's ns-0 body class, in every skin): not talk or special pages, not the www portal.
 const article = document.body.classList.contains("ns-0") && (editing || action === "view");
-const title = (params.get("title") || decodeURIComponent(location.pathname.replace(/^\/wiki\//, ""))).replace(/_/g, " ");
+const title = (params.get("title") || decodeURIComponent(location.pathname.replace(/^\/wiki\//, ""))).replace(
+  /_/g,
+  " ",
+);
 
 const textarea = document.getElementById("wpTextbox1") as HTMLTextAreaElement | null;
-const inSource = () => !!textarea?.offsetParent;  // the source editor is open
+const inSource = () => !!textarea?.offsetParent; // the source editor is open
 const words = (text: string) => [...new Set(text.toLowerCase().match(/[\p{L}\d]{4,}/gu) || [])];
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -31,11 +34,15 @@ function sentenceSpan(text: string, sentence: string, near: number): [number, nu
   const t = sentence.match(/[\p{L}\p{N}]{3,}/gu) || [];
   if (t.length < 2) return null;
   const pair = (a: string, b: string) => new RegExp(`${escape(a)}[\\s\\S]{0,60}?${escape(b)}`, "giu");
-  for (let i = 0; i + 1 < Math.min(t.length, 5); i++) {  // later word pairs if the first ones were reworded
-    const starts = [...text.matchAll(pair(t[i], t[i + 1]))].sort((a, b) => Math.abs(a.index - near) - Math.abs(b.index - near));
+  for (let i = 0; i + 1 < Math.min(t.length, 5); i++) {
+    // later word pairs if the first ones were reworded
+    const starts = [...text.matchAll(pair(t[i], t[i + 1]))].sort(
+      (a, b) => Math.abs(a.index - near) - Math.abs(b.index - near),
+    );
     if (!starts.length) continue;
     let start = starts[0].index;
-    if (i > 0) {  // its first words are not there as written ("[[Noottikriisi]]n", a long <ref>): back to the sentence's start
+    if (i > 0) {
+      // its first words are not there as written ("[[Noottikriisi]]n", a long <ref>): back to the sentence's start
       const before = text.slice(Math.max(0, start - 150), start);
       const cut = [...before.matchAll(/[.!?]\s+|\n|\/>\s*|<\/ref>\s*/g)].at(-1);
       if (cut) start -= before.length - (cut.index + cut[0].length);
@@ -71,7 +78,10 @@ function findInSource(box: HTMLTextAreaElement, sentence: string): boolean {
   }
   if (!best) return false;
   const lineEnd = src.indexOf("\n", best.start);
-  const range = sentenceSpan(src, sentence, best.start) ?? [src.lastIndexOf("\n", best.start) + 1, lineEnd === -1 ? src.length : lineEnd];
+  const range = sentenceSpan(src, sentence, best.start) ?? [
+    src.lastIndexOf("\n", best.start) + 1,
+    lineEnd === -1 ? src.length : lineEnd,
+  ];
   // Put the caret there first so the browser scrolls the textarea to it, then select.
   box.focus();
   box.setSelectionRange(range[0], range[0]);
@@ -86,11 +96,18 @@ function findInSource(box: HTMLTextAreaElement, sentence: string): boolean {
 function rangeAt(el: Element, start: number, end: number): Range | null {
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
   const range = new Range();
-  let pos = 0, started = false;
+  let pos = 0,
+    started = false;
   for (let node: Node | null; (node = walker.nextNode());) {
     const next = pos + (node as Text).data.length;
-    if (!started && start < next) { range.setStart(node, start - pos); started = true; }
-    if (started && end <= next) { range.setEnd(node, end - pos); return range; }
+    if (!started && start < next) {
+      range.setStart(node, start - pos);
+      started = true;
+    }
+    if (started && end <= next) {
+      range.setEnd(node, end - pos);
+      return range;
+    }
     pos = next;
   }
   return null;
@@ -107,18 +124,23 @@ function findOnPage(sentence: string): boolean {
     const text = (el.textContent ?? "").toLowerCase();
     const score = all.filter((w) => text.includes(w)).length;
     // ties go to the shorter element: the cell, not the row's nested list holding it
-    if (score && (!best || score > best.score || (score === best.score && text.length < best.length))) best = { el, score, length: text.length };
+    if (score && (!best || score > best.score || (score === best.score && text.length < best.length)))
+      best = { el, score, length: text.length };
   }
   if (!best || best.score < Math.max(2, all.length * 0.4)) return false;
   const span = sentenceSpan(best.el.textContent ?? "", sentence, 0);
   let range = span && rangeAt(best.el, ...span);
-  if (!range) { range = new Range(); range.selectNodeContents(best.el); }
+  if (!range) {
+    range = new Range();
+    range.selectNodeContents(best.el);
+  }
   CSS.highlights.set("wikicross", new Highlight(range));
   (range.startContainer.parentElement || best.el).scrollIntoView({ block: "center", behavior: "smooth" });
   return true;
 }
 
-const showOnPage = (m: Member) => (textarea && inSource() ? findInSource(textarea, m.sentence) : findOnPage(m.sentence));
+const showOnPage = (m: Member) =>
+  textarea && inSource() ? findInSource(textarea, m.sentence) : findOnPage(m.sentence);
 
 // The backend, through background.ts: its data, or an error with the HTTP status (0: no answer).
 async function ask<T>(message: Message): Promise<T> {
@@ -152,23 +174,42 @@ if (article) {
   // The page highlight: a CSS Custom Highlight over the evidence, so the page's DOM (and VisualEditor's
   // model of it) is never touched.
   const highlight = document.createElement("style");
-  highlight.textContent = "::highlight(wikicross) { background-color: #fef6e7; text-decoration: underline 2px #edab00; }";
+  highlight.textContent =
+    "::highlight(wikicross) { background-color: #fef6e7; text-decoration: underline 2px #edab00; }";
   document.head.append(highlight);
   // Codex popovers close on a mousedown or focus outside them, checked on the document, where an event
   // from the shadow root looks like it came from the host: keep events inside a popover, or on the button
   // that opens one, from reaching the document.
   for (const type of ["mousedown", "focusin"]) {
     container.addEventListener(type, (e) => {
-      if (e.composedPath().some((n) => n instanceof HTMLElement && (n.classList.contains("cdx-popover") || n.dataset.popoverAnchor !== undefined))) {
+      if (
+        e
+          .composedPath()
+          .some(
+            (n) =>
+              n instanceof HTMLElement &&
+              (n.classList.contains("cdx-popover") || n.dataset.popoverAnchor !== undefined),
+          )
+      ) {
         e.stopPropagation();
       }
     });
   }
-  createApp(Panel, {
-    title, lang, editing,
+  createApp(FindingsPanel, {
+    title,
+    lang,
+    editing,
     locate: showOnPage,
-    locateLabel: () => (inSource() ? { text: "Find in source", title: "Select this in the wikitext" } : { text: "Show on page", title: "Highlight this on the page" }),
-    openHome: () => { chrome.runtime.sendMessage<Message>({ type: "open", title, lang }); },
+    locateLabel: () =>
+      inSource()
+        ? { text: "Find in source", title: "Select this in the wikitext" }
+        : { text: "Show on page", title: "Highlight this on the page" },
+    openHome: () => {
+      chrome.runtime.sendMessage<Message>({ type: "open", title, lang });
+    },
     remove: () => host.remove(),
-  }).provide(API, api).provide("CdxTeleportTarget", container).mount(container);
+  })
+    .provide(API, api)
+    .provide("CdxTeleportTarget", container)
+    .mount(container);
 }

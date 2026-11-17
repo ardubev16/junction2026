@@ -9,25 +9,40 @@
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { CdxButton, CdxIcon, CdxInfoChip, CdxMessage, CdxProgressIndicator } from "@wikimedia/codex";
-import { cdxIconArticle, cdxIconCollapse, cdxIconExpand, cdxIconLanguage, cdxIconLinkExternal, cdxIconListBullet, cdxIconSearch } from "@wikimedia/codex-icons";
-import Marked from "./Marked";
-import Expandable, { contextOf } from "./Expandable";
+import {
+  cdxIconArticle,
+  cdxIconCollapse,
+  cdxIconExpand,
+  cdxIconLanguage,
+  cdxIconLinkExternal,
+  cdxIconListBullet,
+  cdxIconSearch,
+} from "@wikimedia/codex-icons";
+import MarkedText from "./MarkedText";
+import ExpandableQuote, { contextOf } from "./ExpandableQuote";
 import NumbersButton from "./NumbersButton.vue";
 import { API, errorText, type English, type Explanation, type Finding, type Member } from "./types";
 import { KIND_NAMES, KIND_STATUS, SHOWN, langName, linkMarks, markParts, snippetUrl, withMarks } from "./util";
 
-const props = withDefaults(defineProps<{
-  finding: Finding;
-  focusLang?: string | null;                            // the extension's page edition: its quote first
-  observeRoot?: HTMLElement | null;                     // the scrolling element, for a card the AI explains when near view
-  paragraphs?: boolean;                                 // the web app's "Show paragraphs", with expanding context
-  locate?: ((m: Member) => boolean) | null;             // extension: show the page edition's quote on the page
-  locateLabel?: { text: string; title: string };
-  irrelevantTarget?: HTMLElement | null;
-}>(), {
-  focusLang: null, observeRoot: null, paragraphs: false, locate: null,
-  locateLabel: () => ({ text: "Show on page", title: "Highlight this on the page" }), irrelevantTarget: null,
-});
+const props = withDefaults(
+  defineProps<{
+    finding: Finding;
+    focusLang?: string | null; // the extension's page edition: its quote first
+    observeRoot?: HTMLElement | null; // the scrolling element, for a card the AI explains when near view
+    paragraphs?: boolean; // the web app's "Show paragraphs", with expanding context
+    locate?: ((m: Member) => boolean) | null; // extension: show the page edition's quote on the page
+    locateLabel?: { text: string; title: string };
+    irrelevantTarget?: HTMLElement | null;
+  }>(),
+  {
+    focusLang: null,
+    observeRoot: null,
+    paragraphs: false,
+    locate: null,
+    locateLabel: () => ({ text: "Show on page", title: "Highlight this on the page" }),
+    irrelevantTarget: null,
+  },
+);
 const emit = defineEmits<{ dismiss: [] }>();
 const api = inject(API)!;
 
@@ -40,11 +55,22 @@ const own = members.find((m) => m.lang === props.focusLang);
 
 // The AI's explanation: with the finding (/api/diff, ai=true), else asked for once the card nears the
 // view. If it failed, the quotes stay in their language until translated.
-const ai = ref<Explanation | null>(null), aiError = ref(""), settled = ref(false);
-const english = reactive<English>({}), phrases = reactive<Record<string, string[]>>({}), original = reactive(new Set<string>());
-const all = ref(false), context = ref(false), dismissed = ref(false), hovered = ref<string | null>(null), notFound = ref(false);
-const translating = ref(false), translateError = ref("");
-const passages = reactive<Record<string, string>>({}), passagesBusy = ref(false), passagesError = ref("");
+const ai = ref<Explanation | null>(null),
+  aiError = ref(""),
+  settled = ref(false);
+const english = reactive<English>({}),
+  phrases = reactive<Record<string, string[]>>({}),
+  original = reactive(new Set<string>());
+const all = ref(false),
+  context = ref(false),
+  dismissed = ref(false),
+  hovered = ref<string | null>(null),
+  notFound = ref(false);
+const translating = ref(false),
+  translateError = ref("");
+const passages = reactive<Record<string, string>>({}),
+  passagesBusy = ref(false),
+  passagesError = ref("");
 const ctx = reactive(Object.fromEntries(members.map((m) => [m.lang, contextOf(m)])));
 
 const pool = computed(() => (all.value ? members : first));
@@ -60,7 +86,10 @@ function settle(x: Explanation | { error: string }) {
       english[lang] = { quote: q.english, heading: q.heading };
       phrases[lang] = q.phrases;
     }
-    if (!x.discrepancy) { dismissed.value = true; emit("dismiss"); }
+    if (!x.discrepancy) {
+      dismissed.value = true;
+      emit("dismiss");
+    }
   }
   settled.value = true;
 }
@@ -69,12 +98,16 @@ let observer: IntersectionObserver | undefined;
 onMounted(() => {
   if (f.ai) return settle(f.ai);
   // Half a screen early, so the answer is often there by the time the card is.
-  observer = new IntersectionObserver((entries) => {
-    if (!entries.some((e) => e.isIntersecting)) return;
-    observer?.disconnect();
-    api.post<Explanation>("/api/explain", { quotes: first.map(place) })
-      .then(settle, (err) => settle({ error: errorText(err) }));
-  }, { root: props.observeRoot, rootMargin: "50% 0px" });
+  observer = new IntersectionObserver(
+    (entries) => {
+      if (!entries.some((e) => e.isIntersecting)) return;
+      observer?.disconnect();
+      api
+        .post<Explanation>("/api/explain", { quotes: first.map(place) })
+        .then(settle, (err) => settle({ error: errorText(err) }));
+    },
+    { root: props.observeRoot, rootMargin: "50% 0px" },
+  );
   observer.observe(card.value!);
 });
 onBeforeUnmount(() => observer?.disconnect());
@@ -87,10 +120,13 @@ async function translateQuotes() {
   let ok = false;
   try {
     const t = await api.post<Record<string, string>>("/api/translate", { quotes: todo.map(place) });
-    for (const p of todo) english[p.lang] = { quote: t[p.lang] ?? p.sentence, heading: t[`${p.lang}-heading`] ?? p.heading };
+    for (const p of todo)
+      english[p.lang] = { quote: t[p.lang] ?? p.sentence, heading: t[`${p.lang}-heading`] ?? p.heading };
     translateError.value = "";
     ok = true;
-  } catch (err) { translateError.value = `Could not translate: ${errorText(err)}`; }
+  } catch (err) {
+    translateError.value = `Could not translate: ${errorText(err)}`;
+  }
   translating.value = false;
   // Quotes shown meanwhile. Not after a failure: the same quotes would be sent again at once, forever.
   if (ok) translateQuotes();
@@ -108,17 +144,32 @@ async function translatePassages() {
     const t = await api.post<Record<string, string>>("/api/translate", { quotes: todo.map(place), paragraphs: true });
     for (const p of todo) passages[p.lang] = t[p.lang] ?? withMarks(p.text, [p.sentence]);
     passagesError.value = "";
-  } catch (err) { passagesError.value = `Could not translate the paragraphs: ${errorText(err)}`; }
+  } catch (err) {
+    passagesError.value = `Could not translate the paragraphs: ${errorText(err)}`;
+  }
   passagesBusy.value = false;
 }
-watch(() => [context.value, pool.value.filter(inEnglish).map((p) => p.lang).join()], translatePassages);
+watch(
+  () => [
+    context.value,
+    pool.value
+      .filter(inEnglish)
+      .map((p) => p.lang)
+      .join(),
+  ],
+  translatePassages,
+);
 
-const doLocate = () => { notFound.value = !(own && props.locate?.(own)); };
+const doLocate = () => {
+  notFound.value = !(own && props.locate?.(own));
+};
 // The whole card shows the page's quote too; its links, buttons, menus and highlights keep their own action.
 const onCardClick = (e: MouseEvent) => {
   if (props.locate && own && !(e.target as Element).closest("a, button, mark, .tip, .cdx-popover")) doLocate();
 };
-const swapQuote = (p: Member) => { if (!original.delete(p.lang)) original.add(p.lang); };
+const swapQuote = (p: Member) => {
+  if (!original.delete(p.lang)) original.add(p.lang);
+};
 </script>
 
 <template>
@@ -139,47 +190,84 @@ const swapQuote = (p: Member) => { if (!original.delete(p.lang)) original.add(p.
       <CdxMessage v-if="aiError" type="warning" inline>{{ aiError }}</CdxMessage>
       <p v-if="ai && !ai.discrepancy" class="reason">
         Marked irrelevant by the AI check: these passages neither disagree on facts nor differ clearly in tone or
-        framing. Their distance on the axis comes from other differences, such as what they include, their length or detail.
+        framing. Their distance on the axis comes from other differences, such as what they include, their length or
+        detail.
       </p>
-      <p v-if="ai?.description" class="summary"><Marked :parts="description" @hover="hovered = $event" /></p>
+      <p v-if="ai?.description" class="summary"><MarkedText :parts="description" @hover="hovered = $event" /></p>
 
       <div class="quotes">
-        <div v-for="p in pool" :key="p.lang" class="quote"
-             :class="[`c${members.indexOf(p) % 4}`, { here: p.lang === focusLang, outlier: outliers.includes(p.lang), linked: hovered === p.lang }]">
+        <div
+          v-for="p in pool"
+          :key="p.lang"
+          class="quote"
+          :class="[
+            `c${members.indexOf(p) % 4}`,
+            { here: p.lang === focusLang, outlier: outliers.includes(p.lang), linked: hovered === p.lang },
+          ]"
+        >
           <h4>
             <b>{{ langName(p.lang) }}<template v-if="p.lang === focusLang"> · this page</template></b>
             <span class="muted">§ {{ (inEnglish(p) ? english[p.lang].heading : p.heading) || "(intro)" }}</span>
-            <a v-if="p.lang !== focusLang" :href="snippetUrl(p)" target="_blank" rel="noopener"
-               :title="`Open this quote on Wikipedia: ${p.title}`" :aria-label="`Open this quote on ${langName(p.lang)} Wikipedia`">
+            <a
+              v-if="p.lang !== focusLang"
+              :href="snippetUrl(p)"
+              target="_blank"
+              rel="noopener"
+              :title="`Open this quote on Wikipedia: ${p.title}`"
+              :aria-label="`Open this quote on ${langName(p.lang)} Wikipedia`"
+            >
               <CdxIcon :icon="cdxIconLinkExternal" size="small" />
             </a>
           </h4>
 
           <blockquote v-if="context && inEnglish(p) && !dismissed">
-            <span v-if="passages[p.lang]" class="quoted"><Marked :text="passages[p.lang]" /></span>
+            <span v-if="passages[p.lang]" class="quoted"><MarkedText :text="passages[p.lang]" /></span>
             <span v-else-if="passagesError" class="error">{{ passagesError }}</span>
-            <span v-else class="pending"><CdxProgressIndicator>Translating</CdxProgressIndicator> Translating the paragraphs…</span>
+            <span v-else class="pending"
+              ><CdxProgressIndicator>Translating</CdxProgressIndicator> Translating the paragraphs…</span
+            >
           </blockquote>
-          <Expandable v-else-if="context" :member="p" :ctx="ctx[p.lang]" :quote="withMarks(p.text, [p.sentence])" />
-          <blockquote v-else><span class="quoted"><Marked :text="inEnglish(p) ? english[p.lang].quote : withMarks(p.sentence, phrases[p.lang])" /></span></blockquote>
+          <ExpandableQuote
+            v-else-if="context"
+            :member="p"
+            :ctx="ctx[p.lang]"
+            :quote="withMarks(p.text, [p.sentence])"
+          />
+          <blockquote v-else>
+            <span class="quoted"
+              ><MarkedText :text="inEnglish(p) ? english[p.lang].quote : withMarks(p.sentence, phrases[p.lang])"
+            /></span>
+          </blockquote>
 
           <div class="foot">
             <CdxButton v-if="locate && p.lang === focusLang" size="small" :title="locateLabel.title" @click="doLocate">
-              <CdxIcon :icon="cdxIconSearch" size="small" /> {{ notFound ? "Not found on this page" : locateLabel.text }}
+              <CdxIcon :icon="cdxIconSearch" size="small" />
+              {{ notFound ? "Not found on this page" : locateLabel.text }}
             </CdxButton>
             <template v-if="p.lang !== 'en'">
               <span v-if="english[p.lang]" class="tr">
-                <CdxButton size="small" weight="quiet" :action="inEnglish(p) ? 'default' : 'progressive'" :aria-pressed="String(!inEnglish(p))"
-                           :aria-label="inEnglish(p) ? `Show the original ${langName(p.lang)} quote` : 'Show the English translation'"
-                           @click="swapQuote(p)">
+                <CdxButton
+                  size="small"
+                  weight="quiet"
+                  :action="inEnglish(p) ? 'default' : 'progressive'"
+                  :aria-pressed="String(!inEnglish(p))"
+                  :aria-label="
+                    inEnglish(p) ? `Show the original ${langName(p.lang)} quote` : 'Show the English translation'
+                  "
+                  @click="swapQuote(p)"
+                >
                   <CdxIcon :icon="cdxIconLanguage" size="small" />
                 </CdxButton>
                 <div class="tip" role="tooltip">
-                  <div class="section">{{ inEnglish(p) ? `Original (${langName(p.lang)})` : "English translation" }}</div>
-                  <Marked :text="inEnglish(p) ? withMarks(p.sentence, phrases[p.lang]) : english[p.lang].quote" />
+                  <div class="section">
+                    {{ inEnglish(p) ? `Original (${langName(p.lang)})` : "English translation" }}
+                  </div>
+                  <MarkedText :text="inEnglish(p) ? withMarks(p.sentence, phrases[p.lang]) : english[p.lang].quote" />
                 </div>
               </span>
-              <span v-else-if="!settled || translating" class="tr" title="Translating…"><CdxProgressIndicator>Translating</CdxProgressIndicator></span>
+              <span v-else-if="!settled || translating" class="tr" title="Translating…"
+                ><CdxProgressIndicator>Translating</CdxProgressIndicator></span
+              >
             </template>
           </div>
         </div>
@@ -188,7 +276,8 @@ const swapQuote = (p: Member) => { if (!original.delete(p.lang)) original.add(p.
 
       <div class="tools">
         <CdxButton v-if="members.length > SHOWN" size="small" @click="all = !all">
-          <CdxIcon :icon="cdxIconListBullet" size="small" /> {{ all ? "Show fewer" : `Show all ${members.length} editions` }}
+          <CdxIcon :icon="cdxIconListBullet" size="small" />
+          {{ all ? "Show fewer" : `Show all ${members.length} editions` }}
           <CdxIcon :icon="all ? cdxIconCollapse : cdxIconExpand" size="small" />
         </CdxButton>
         <CdxButton v-if="paragraphs" size="small" @click="context = !context">

@@ -13,8 +13,15 @@ export default defineConfig(({ mode }) => {
     plugins: [vue()],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
-      outDir: at("../extension/dist"), emptyOutDir: entry === "content", copyPublicDir: false,
-      lib: { entry: at(`./extension/${entry}.ts`), formats: ["iife"], name: `WikiCross_${entry}`, fileName: () => `${entry}.js` },
+      outDir: at("../extension/dist"),
+      emptyOutDir: entry === "content",
+      copyPublicDir: false,
+      lib: {
+        entry: at(`./extension/${entry}.ts`),
+        formats: ["iife"],
+        name: `WikiCross_${entry}`,
+        fileName: () => `${entry}.js`,
+      },
     },
   };
 });
