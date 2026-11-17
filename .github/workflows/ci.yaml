@@ -21,7 +21,7 @@ jobs:
           node-version: 22 # as the Dockerfile
           cache: npm
       - run: npm ci
-      - uses: j178/prek-action@v3
+      - uses: j178/prek-action@v3.1.1 # no v3 major tag
 
   test:
     uses: ardubev16/common/.github/workflows/python-test.yaml@main
