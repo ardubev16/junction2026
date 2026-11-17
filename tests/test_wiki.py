@@ -1,3 +1,4 @@
+import pymysql.cursors
 import pytest
 
 from wikicross import wiki
@@ -29,15 +30,15 @@ def test_trailing_appendix_drops_only_the_closing_run_of_appendix_sections():
     assert trailing_appendix(extract, classified) == {"Notes", "Bibliography", "Articles", "Links"}
 
 
-class FakeCursor:
+class FakeCursor(pymysql.cursors.Cursor):
     """Just enough of a pymysql cursor for ensure_editions: no topic marked yet, no edition stored."""
 
     def __init__(self):
         self.sql = []
         self.connection = self
 
-    def execute(self, sql, args=None):
-        self.sql.append((sql, args))
+    def execute(self, query, args=None):
+        self.sql.append((query, args))
 
     def fetchone(self):
         return None
@@ -54,22 +55,32 @@ class FakeCursor:
 
 def page_of(fail_lang):
     """wiki.page for a topic Q1 in en, fi and sv, where fetching `fail_lang` fails."""
+
     def page(host, title, text):
         lang = host.split(".")[0]
         if text and lang == fail_lang:
             raise WikiError(f"{host}: HTTP 429")
-        links = [("fi", "https://fi.wikipedia.org/wiki/Talvisota", "Talvisota"),
-                 ("sv", "https://sv.wikipedia.org/wiki/Vinterkriget", "Vinterkriget")]
-        return {"page_id": len(lang), "title": title, "url": f"https://{host}/wiki/{title}", "wikidata_id": "Q1",
-                "langlinks": links, "extract": "Text of the article."}
+        links = [
+            ("fi", "https://fi.wikipedia.org/wiki/Talvisota", "Talvisota"),
+            ("sv", "https://sv.wikipedia.org/wiki/Vinterkriget", "Vinterkriget"),
+        ]
+        return {
+            "page_id": len(lang),
+            "title": title,
+            "url": f"https://{host}/wiki/{title}",
+            "wikidata_id": "Q1",
+            "langlinks": links,
+            "extract": "Text of the article.",
+        }
+
     return page
 
 
-@pytest.mark.parametrize("fail_lang, marked", [("sv", False), (None, True)])
+@pytest.mark.parametrize(("fail_lang", "marked"), [("sv", False), (None, True)])
 def test_a_topic_is_marked_fetched_only_when_no_edition_failed(monkeypatch, fail_lang, marked):
     # A topic marked fetched is never fetched again: one throttled edition must leave it unmarked.
     monkeypatch.setattr(wiki, "page", page_of(fail_lang))
-    monkeypatch.setattr(wiki, "appendix_headings", lambda texts: set())
+    monkeypatch.setattr(wiki, "appendix_headings", lambda *_: set())
     cur = FakeCursor()
     ensure_editions(cur, "Q1", "en.wikipedia.org", "Winter War", "en")
     stored = {args[0] for sql, args in cur.sql if sql.startswith("INSERT IGNORE INTO article ")}

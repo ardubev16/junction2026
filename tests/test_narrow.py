@@ -10,16 +10,24 @@ def deviations(z):
 def finding(z):
     d = deviations(z)
     lang = max(d, key=lambda k: abs(d[k]))
-    return {"lang": lang, "deviation": d[lang], "deviations": {k: round(v, 2) for k, v in d.items()},
-            "outlier": len(z) >= 3, "members": [{"lang": k} for k in z], "axis": "certainty"}
+    return {
+        "lang": lang,
+        "deviation": d[lang],
+        "deviations": {k: round(v, 2) for k, v in d.items()},
+        "outlier": len(z) >= 3,
+        "members": [{"lang": k} for k in z],
+        "axis": "certainty",
+    }
 
 
 def test_narrow_matches_a_recompute_on_the_kept_editions():
     z = {"fi": 2.5, "sv": 0.3, "de": -0.4, "ru": -1.9}  # positions on the axis, in σ
     [f] = narrow([finding(z)], {"fi", "sv", "ru"})
     expected = deviations({k: z[k] for k in ("fi", "sv", "ru")})
-    assert f["lang"] == "fi" and abs(f["deviation"] - expected["fi"]) < 0.02
-    assert f["deviations"].keys() == expected.keys() and f["outlier"] is True
+    assert f["lang"] == "fi"
+    assert abs(f["deviation"] - expected["fi"]) < 0.02
+    assert f["deviations"].keys() == expected.keys()
+    assert f["outlier"] is True
     assert [m["lang"] for m in f["members"]] == ["fi", "sv", "ru"]
 
 

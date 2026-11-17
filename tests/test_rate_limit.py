@@ -17,7 +17,8 @@ def test_outside_clients_are_limited_allowed_ones_are_not(monkeypatch):
     codes = [outside.post("/api/explain", json={}).status_code for _ in range(31)]
     assert codes == [422] * 30 + [429]
     r = outside.post("/api/translate", json={})  # same zone as explain
-    assert r.status_code == 429 and 1 <= int(r.headers["retry-after"]) <= 61
+    assert r.status_code == 429
+    assert 1 <= int(r.headers["retry-after"]) <= 61
     assert outside.get("/api/progress?title=x").status_code == 200  # polled each second: never limited
     assert all(inside.post("/api/explain", json={}).status_code == 422 for _ in range(40))
 

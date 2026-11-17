@@ -1,6 +1,8 @@
 import os
 
 import pymysql
+import pymysql.connections
+import pymysql.cursors
 
 LANGS = ("fi", "sv", "en")
 
@@ -69,7 +71,7 @@ SCHEMA = [
 ]
 
 
-def widen_lang(cur) -> None:
+def widen_lang(cur: pymysql.cursors.Cursor) -> None:
     """Make lang columns created as CHAR(2) wide enough for any Wikipedia code (be-tarask). Idempotent."""
     cur.execute(
         "SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'lang' "
@@ -79,7 +81,7 @@ def widen_lang(cur) -> None:
         cur.execute(f"ALTER TABLE {table} MODIFY lang VARCHAR(12) NOT NULL")
 
 
-def connect():
+def connect() -> pymysql.connections.Connection:
     return pymysql.connect(
         host=os.environ.get("DB_HOST", "127.0.0.1"),
         port=int(os.environ.get("DB_PORT", "3308")),

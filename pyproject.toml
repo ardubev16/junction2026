@@ -29,6 +29,8 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "ruff>=0.17.5",
+    "ty>=0.0.105",
     "viztracer>=1.1.1",
 ]
 otel = [
@@ -37,4 +39,43 @@ otel = [
     "opentelemetry-instrumentation-fastapi>=0.66b2",
     "opentelemetry-instrumentation-httpx>=0.66b2",
     "opentelemetry-instrumentation-pymysql>=0.66b2",
+]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+# Off: rules whose fixes would not make this code better for the effort.
+ignore = [
+    "COM812",  # trailing commas: the formatter decides
+    "CPY001",  # copyright notice in each file: LICENSE covers the project
+    "D1",      # a docstring on everything: comments say why, names say what
+    "D203",    # blank line before a class docstring: incompatible with D211, kept
+    "D205",    # one-line summaries: docstrings here are short paragraphs
+    "D213",    # summary on the second line: incompatible with D212, kept
+    "D401",    # imperative mood: docstrings here describe what a function gives
+    "EM",      # exception messages in a variable first: no gain
+    "TRY003",  # long messages in exceptions: the same
+    "PLR0913", # many parameters: an endpoint's are its query parameters; bundling them into objects adds nothing
+    "RUF001",  # σ, ×, – and … in strings are intended
+    "RUF002",  # … in docstrings
+    "RUF003",  # … in comments
+    "S608",    # SQL in f-strings: only placeholders and constant names go in; values are parameters
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "ANN",     # test functions return nothing and take fixtures
+    "INP001",  # tests are not a package
+    "PLR2004", # literal values are what tests compare against
+    "S101",    # pytest asserts
+]
+"scripts/**" = [
+    "INP001",  # scripts are not a package
+    "T201",    # a command-line tool prints
+]
+"src/wikicross/wiki.py" = [
+    "T201",    # its print()s are the server's log lines (uvicorn configures no app logger)
 ]

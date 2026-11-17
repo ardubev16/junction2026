@@ -20,11 +20,13 @@ See docs/how-it-works.md.
 """
 
 import threading
+from collections.abc import Callable
 from functools import lru_cache
 from statistics import fmean
 
 import numpy as np
 import pymysql
+import pymysql.cursors
 
 from .db import LANGS
 from .embeddings import embed_cached
@@ -35,41 +37,67 @@ PASSAGE_MAX = 0.40  # cosine distance for two parts to be about the same subject
 FRAMING_MAX = 0.35  # sentence pairs compared for framing: stricter, tone is compared on one statement
 FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit on an axis
 MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
+MIN_EDITIONS = 2  # a comparison needs two editions
+MIN_OUTLIER = 3  # with this many editions or more, the furthest is the outlier
 
 # axis -> (anchors for the positive end, anchors for the negative end, how each end reads)
 AXES = {
     "evaluation": (
-        ["It was a great success and widely praised.", "Det var en stor framgång och fick mycket beröm.",
-         "Se oli suuri menestys, ja sitä kehuttiin laajasti.", "A heroic and admirable achievement.",
-         "En heroisk och beundransvärd bedrift.", "Sankarillinen ja ihailtava saavutus."],
-        ["It was a disastrous failure and widely condemned.", "Det var ett katastrofalt misslyckande och fördömdes brett.",
-         "Se oli tuhoisa epäonnistuminen, ja se tuomittiin laajasti.", "A brutal and shameful crime.",
-         "Ett brutalt och skamligt brott.", "Julma ja häpeällinen rikos."],
+        [
+            "It was a great success and widely praised.",
+            "Det var en stor framgång och fick mycket beröm.",
+            "Se oli suuri menestys, ja sitä kehuttiin laajasti.",
+            "A heroic and admirable achievement.",
+            "En heroisk och beundransvärd bedrift.",
+            "Sankarillinen ja ihailtava saavutus.",
+        ],
+        [
+            "It was a disastrous failure and widely condemned.",
+            "Det var ett katastrofalt misslyckande och fördömdes brett.",
+            "Se oli tuhoisa epäonnistuminen, ja se tuomittiin laajasti.",
+            "A brutal and shameful crime.",
+            "Ett brutalt och skamligt brott.",
+            "Julma ja häpeällinen rikos.",
+        ],
         ("is more positive", "is more critical"),
     ),
     "certainty": (
-        ["It is a well-documented fact.", "Det är ett väldokumenterat faktum.", "Se on hyvin dokumentoitu tosiasia.",
-         "This is certain and confirmed by the records.", "Detta är säkert och bekräftat av arkiven.",
-         "Tämä on varmaa ja asiakirjojen vahvistamaa."],
-        ["This is only an unconfirmed claim and it is disputed.", "Detta är bara ett obekräftat påstående och det är omstritt.",
-         "Tämä on vain vahvistamaton väite, ja se on kiistanalainen.", "According to some sources this allegedly happened.",
-         "Enligt vissa källor ska detta ha hänt.", "Joidenkin lähteiden mukaan näin olisi tapahtunut."],
+        [
+            "It is a well-documented fact.",
+            "Det är ett väldokumenterat faktum.",
+            "Se on hyvin dokumentoitu tosiasia.",
+            "This is certain and confirmed by the records.",
+            "Detta är säkert och bekräftat av arkiven.",
+            "Tämä on varmaa ja asiakirjojen vahvistamaa.",
+        ],
+        [
+            "This is only an unconfirmed claim and it is disputed.",
+            "Detta är bara ett obekräftat påstående och det är omstritt.",
+            "Tämä on vain vahvistamaton väite, ja se on kiistanalainen.",
+            "According to some sources this allegedly happened.",
+            "Enligt vissa källor ska detta ha hänt.",
+            "Joidenkin lähteiden mukaan näin olisi tapahtunut.",
+        ],
         ("states it more firmly as fact", "presents it as more uncertain or disputed"),
     ),
     # How something is described, whichever side: loaded, emotive wording vs neutral, matter-of-fact.
     "wording": (
-        ["The ruthless aggressor savagely crushed the heroic defenders in a horrific bloodbath.",
-         "Den hänsynslösa angriparen krossade brutalt de heroiska försvararna i ett fruktansvärt blodbad.",
-         "Häikäilemätön hyökkääjä murskasi raa'asti sankarilliset puolustajat kauhistuttavassa verilöylyssä.",
-         "This shameful betrayal was an outrageous and disgraceful act.",
-         "Detta skamliga svek var en upprörande och vanhedrande handling.",
-         "Tämä häpeällinen petos oli törkeä ja halveksittava teko."],
-        ["The army attacked the defensive positions and both sides suffered casualties.",
-         "Armén anföll försvarsställningarna och båda sidor led förluster.",
-         "Armeija hyökkäsi puolustusasemiin, ja molemmat osapuolet kärsivät tappioita.",
-         "The agreement was signed in 1940 and changed the border.",
-         "Avtalet undertecknades 1940 och ändrade gränsen.",
-         "Sopimus allekirjoitettiin vuonna 1940, ja se muutti rajaa."],
+        [
+            "The ruthless aggressor savagely crushed the heroic defenders in a horrific bloodbath.",
+            "Den hänsynslösa angriparen krossade brutalt de heroiska försvararna i ett fruktansvärt blodbad.",
+            "Häikäilemätön hyökkääjä murskasi raa'asti sankarilliset puolustajat kauhistuttavassa verilöylyssä.",
+            "This shameful betrayal was an outrageous and disgraceful act.",
+            "Detta skamliga svek var en upprörande och vanhedrande handling.",
+            "Tämä häpeällinen petos oli törkeä ja halveksittava teko.",
+        ],
+        [
+            "The army attacked the defensive positions and both sides suffered casualties.",
+            "Armén anföll försvarsställningarna och båda sidor led förluster.",
+            "Armeija hyökkäsi puolustusasemiin, ja molemmat osapuolet kärsivät tappioita.",
+            "The agreement was signed in 1940 and changed the border.",
+            "Avtalet undertecknades 1940 och ändrade gränsen.",
+            "Sopimus allekirjoitettiin vuonna 1940, ja se muutti rajaa.",
+        ],
         ("uses more loaded, emotive wording", "uses more neutral, matter-of-fact wording"),
     ),
 }
@@ -105,10 +133,11 @@ _seen: set[str] = set()  # languages present when _stats was computed
 _stats_lock = threading.Lock()
 
 
-def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]]:
+def axis_stats(cur: pymysql.cursors.Cursor, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]]:
     """Per axis and language: mean and standard deviation of sentence positions. Languages sit at
     slightly different places on every axis; comparing against their own mean removes that. A
-    language with too few sentences for its own statistics gets all languages' pooled ones."""
+    language with too few sentences for its own statistics gets all languages' pooled ones.
+    """
     axes = axis_vectors()
     with _stats_lock:
         if not langs <= _seen:  # small languages never get their own entry: remember they were counted
@@ -125,24 +154,28 @@ def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]
                 _pooled[name] = cur.fetchone()
             _seen.update(langs)  # a language with no sentences yet must not trigger this on every request
     return {
-        name: {lang: _stats[name][lang] if lang in _stats[name] else _pooled[name] for lang in langs}
-        for name in axes
+        name: {lang: _stats[name][lang] if lang in _stats[name] else _pooled[name] for lang in langs} for name in axes
     }
 
 
 HNSW_TIMEOUT = 2  # seconds; a lookup normally takes milliseconds
 
 
-def nearest_part(cur, lang: str, embedding: bytes):
+def nearest_part(cur: pymysql.cursors.Cursor, lang: str, embedding: bytes) -> tuple | None:
     """(page_id, seq, distance) of the closest part in `lang`, anywhere in the corpus: HNSW.
 
     MariaDB 12.3 can loop on a filtered HNSW search with LIMIT 1, growing memory until the server is
     killed (seen for one en passage of Urho Kekkonen searched in fi; LIMIT 10 and the exact search
-    answer at once). So the index lookup is time-limited and falls back to the exact search."""
-    query = ("SELECT page_id, seq, VEC_DISTANCE_COSINE(embedding, %s) FROM chunk {} WHERE lang = %s "
-             "ORDER BY VEC_DISTANCE_COSINE(embedding, %s) LIMIT 1")
+    answer at once). So the index lookup is time-limited and falls back to the exact search.
+    """
+    query = (
+        "SELECT page_id, seq, VEC_DISTANCE_COSINE(embedding, %s) FROM chunk {} WHERE lang = %s "
+        "ORDER BY VEC_DISTANCE_COSINE(embedding, %s) LIMIT 1"
+    )
     try:
-        cur.execute(f"SET STATEMENT max_statement_time={HNSW_TIMEOUT} FOR " + query.format(""), (embedding, lang, embedding))
+        cur.execute(
+            f"SET STATEMENT max_statement_time={HNSW_TIMEOUT} FOR " + query.format(""), (embedding, lang, embedding)
+        )
     except pymysql.err.OperationalError as e:
         if e.args[0] != ER_STATEMENT_TIMEOUT:
             raise
@@ -151,7 +184,7 @@ def nearest_part(cur, lang: str, embedding: bytes):
     return cur.fetchone()
 
 
-def passage_pairs(cur, wikidata_id: str) -> list[tuple]:
+def passage_pairs(cur: pymysql.cursors.Cursor, wikidata_id: str) -> list[tuple]:
     """Mutual nearest parts in two languages, closer than PASSAGE_MAX: ((lang, page_id, seq) × 2, distance)."""
     cur.execute(
         "SELECT c.lang, c.page_id, c.seq, c.embedding FROM chunk c JOIN article a USING (lang, page_id) "
@@ -161,10 +194,9 @@ def passage_pairs(cur, wikidata_id: str) -> list[tuple]:
     own = {(lang, page_id, seq): emb for lang, page_id, seq, emb in cur.fetchall()}
     nearest: dict[tuple, tuple] = {}  # (part, other lang) -> (counterpart, distance)
 
-    def lookup(part, lang, emb):
-        if (part, lang) not in nearest:
-            if hit := nearest_part(cur, lang, emb):
-                nearest[part, lang] = ((lang, hit[0], hit[1]), hit[2])
+    def lookup(part: tuple, lang: str, emb: bytes) -> tuple | None:
+        if (part, lang) not in nearest and (hit := nearest_part(cur, lang, emb)):
+            nearest[part, lang] = ((lang, hit[0], hit[1]), hit[2])
         return nearest.get((part, lang))
 
     pairs = set()
@@ -201,7 +233,7 @@ def passage_pairs(cur, wikidata_id: str) -> list[tuple]:
     return sorted(pairs)
 
 
-def sentence_pairs(cur, pairs: list[tuple]) -> list[tuple]:
+def sentence_pairs(cur: pymysql.cursors.Cursor, pairs: list[tuple]) -> list[tuple]:
     """Mutual nearest sentences inside each passage pair, with their positions on every axis."""
     cur.execute(
         "CREATE TEMPORARY TABLE IF NOT EXISTS pair (a VARCHAR(12), apage INT UNSIGNED, aseq SMALLINT UNSIGNED, "
@@ -242,11 +274,12 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     closest first, and only when the two groups have no language in common, so a chain that would
     reach a second sentence of one language stops there instead of breaking the group up. A pair
     left between two groups is kept as a group of its own, after the groups: its two sentences
-    still match."""
+    still match.
+    """
     parent: dict = {}
     langs: dict = {}  # group root -> its languages
 
-    def find(x):
+    def find(x: tuple) -> tuple:
         root = x
         while parent.setdefault(root, root) != root:
             root = parent[root]
@@ -268,10 +301,17 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
             inside[root] = (members | {a, b}, max(dist, d))
         else:
             between.append((sorted([a, b], key=lambda item: lang_order(item[0])), d))
-    return [(sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()] + between
+    return [
+        (sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()
+    ] + between
 
 
-def differences(cur, wikidata_id: str, ensure_sentences, langs: set[str]) -> list[dict]:
+def differences(
+    cur: pymysql.cursors.Cursor,
+    wikidata_id: str,
+    ensure_sentences: Callable[[pymysql.cursors.Cursor, list[tuple[str, int]]], None],
+    langs: set[str],
+) -> list[dict]:
     """What the editions of a topic (those in `langs`) state differently, best first ({"kind": "framing"},
     by deviation): the axis and its `ends`, the edition `lang` furthest from the others' average by
     `deviation` σ, every edition's `deviations` on that axis, `outlier` (three or more editions) and
@@ -286,13 +326,22 @@ def differences(cur, wikidata_id: str, ensure_sentences, langs: set[str]) -> lis
     if pairs:
         keys = {part for a, b, _ in pairs for part in (a, b)}
         cur.execute(
-            "SELECT c.lang, c.page_id, c.seq, a.title, c.heading, c.text FROM chunk c JOIN article a USING (lang, page_id) "
+            "SELECT c.lang, c.page_id, c.seq, a.title, c.heading, c.text "
+            "FROM chunk c JOIN article a USING (lang, page_id) "
             f"WHERE (c.lang, c.page_id, c.seq) IN ({', '.join(['(%s, %s, %s)'] * len(keys))})",
             [v for key in keys for v in key],
         )
-        passages = {(lang, page_id, seq): {"lang": lang, "title": title, "heading": heading, "text": text,
-                                           "page_id": page_id, "seq": seq}
-                    for lang, page_id, seq, title, heading, text in cur.fetchall()}
+        passages = {
+            (lang, page_id, seq): {
+                "lang": lang,
+                "title": title,
+                "heading": heading,
+                "text": text,
+                "page_id": page_id,
+                "seq": seq,
+            }
+            for lang, page_id, seq, title, heading, text in cur.fetchall()
+        }
 
     sentence: dict[tuple, tuple[str, list[float]]] = {}  # (lang, page_id, seq, n) -> (text, axis positions)
     edges = []
@@ -301,22 +350,34 @@ def differences(cur, wikidata_id: str, ensure_sentences, langs: set[str]) -> lis
         sentence[sa], sentence[sb] = (atext, pos[0::2]), (btext, pos[1::2])
         edges.append((sa, sb, dist))
 
-    def member(i):  # a sentence (lang, page_id, seq, n)
+    def member(i: tuple) -> dict:  # a sentence (lang, page_id, seq, n)
         return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]}
 
-    framing = []
+    framing: list[dict] = []
     for ids, dist in groups(edges, FRAMING_MAX):
-        best = None
+        best: dict | None = None
         for k, (name, (_, _, ends)) in enumerate(AXES.items()):
             z = {i[0]: (sentence[i][1][k] - stats[name][i[0]][0]) / stats[name][i[0]][1] for i in ids}
             # how far each edition sits from the others' average: with two, just their difference
             deviations = {lang: zl - fmean(v for other, v in z.items() if other != lang) for lang, zl in z.items()}
             for lang, deviation in deviations.items():
                 if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
-                    best = {"axis": name, "ends": ends, "lang": lang, "deviation": deviation,
-                            "deviations": {other: round(d, 2) for other, d in deviations.items()}}
+                    best = {
+                        "axis": name,
+                        "ends": ends,
+                        "lang": lang,
+                        "deviation": deviation,
+                        "deviations": {other: round(d, 2) for other, d in deviations.items()},
+                    }
         if best:
-            framing.append({"kind": "framing", "distance": dist, **best, "outlier": len(ids) >= 3,
-                            "members": [member(i) for i in ids]})
+            framing.append(
+                {
+                    "kind": "framing",
+                    "distance": dist,
+                    **best,
+                    "outlier": len(ids) >= MIN_OUTLIER,
+                    "members": [member(i) for i in ids],
+                }
+            )
     framing.sort(key=lambda f: -abs(f["deviation"]))
     return framing

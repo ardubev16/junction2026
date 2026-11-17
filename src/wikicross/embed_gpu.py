@@ -20,9 +20,10 @@ image = (
 @app.cls(gpu="H100", image=image, volumes={"/cache": weights}, scaledown_window=300, max_containers=1)
 class Embedder:
     @modal.enter()
-    def load(self):
-        import torch
-        from sentence_transformers import SentenceTransformer
+    def load(self) -> None:
+        # Only in the Modal image, not installed locally: imported here, in the container.
+        import torch  # noqa: PLC0415  # ty: ignore[import-not-found]
+        from sentence_transformers import SentenceTransformer  # noqa: PLC0415  # ty: ignore[import-not-found]
 
         self.model = SentenceTransformer(MODEL, device="cuda", model_kwargs={"torch_dtype": torch.float16})
         self.model.max_seq_length = 8192  # bge-m3's limit; longer texts are truncated, as Ollama did

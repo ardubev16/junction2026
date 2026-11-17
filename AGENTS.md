@@ -19,3 +19,5 @@
   (original quotes, no title).
 - Never read `.env` values; refer to key names only.
 - Use uv (`uv run pytest`); MariaDB runs from `docker-compose.yml`.
+- **`make check` must pass** (ruff lint and format, ty, vue-tsc, tests). Fix the code rather than
+  silencing a rule; a new ignore in `pyproject.toml` or a `noqa` needs its reason beside it.

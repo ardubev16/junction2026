@@ -11,6 +11,7 @@ import json
 import os
 import re
 import time
+from http import HTTPStatus
 
 import httpx
 from fastapi import HTTPException
@@ -18,7 +19,7 @@ from fastapi import HTTPException
 from .db import connect
 from .telemetry import CACHE_LOOKUPS
 
-PRESETS = {
+PRESETS: dict[str, dict] = {
     "gemini": {
         "api": "gemini",
         "key": "GEMINI_API_KEY",
@@ -49,12 +50,12 @@ PRESETS = {
         "extra": {},
     },
 }
-LLM = PRESETS[os.environ.get("LLM_PRESET", "verda")] | {
+LLM: dict = PRESETS[os.environ.get("LLM_PRESET", "verda")] | {
     field: value for field in ("api", "url", "model") if (value := os.environ.get(f"LLM_{field.upper()}"))
 }
 
 
-def gemini_request(system: str, user: str, schema: dict, key: str):
+def gemini_request(system: str, user: str, schema: dict, key: str) -> tuple[str, dict[str, str], dict]:
     return (
         f"{LLM['url']}/models/{LLM['model']}:generateContent",
         {"x-goog-api-key": key},
@@ -74,7 +75,7 @@ def gemini_text(response: dict) -> str:
     return "".join(p.get("text", "") for p in response["candidates"][0]["content"]["parts"] if not p.get("thought"))
 
 
-def openai_request(system: str, user: str, schema: dict, key: str):
+def openai_request(system: str, user: str, schema: dict, key: str) -> tuple[str, dict[str, str], dict]:
     return (
         f"{LLM['url']}/chat/completions",
         {"Authorization": f"Bearer {key}"},
@@ -84,7 +85,10 @@ def openai_request(system: str, user: str, schema: dict, key: str):
             "temperature": 0,
             "messages": [
                 # Not every OpenAI-compatible server enforces a schema: put it in the prompt.
-                {"role": "system", "content": f"{system}\nReply with JSON only, matching this JSON schema: {json.dumps(schema)}"},
+                {
+                    "role": "system",
+                    "content": f"{system}\nReply with JSON only, matching this JSON schema: {json.dumps(schema)}",
+                },
                 {"role": "user", "content": user},
             ],
             **LLM["extra"],
@@ -106,6 +110,11 @@ def retry_delay(error: str) -> float | None:
     return float(m.group(1) or m.group(2)) if m else None
 
 
+# scripts/profile.py --fresh turns this off, so a profiled topic's LLM calls are made, not read back.
+READ_CACHE: bool = True
+MAX_RETRY_WAIT = 60  # seconds: a longer asked-for wait is a daily quota, not worth waiting out
+
+
 def chat(system: str, user: str, schema: dict) -> dict:
     """One LLM call answering JSON in `schema`, cached in MariaDB."""
     # Which variable holds the key does not change the answer: keep it out of the cache key.
@@ -114,13 +123,15 @@ def chat(system: str, user: str, schema: dict) -> dict:
     ).digest()
     with connect() as conn, conn.cursor() as cur:
         cur.execute("SELECT response FROM llm_cache WHERE k = %s", (cache_key,))
-        if row := cur.fetchone():
+        if (row := cur.fetchone()) and READ_CACHE:
             CACHE_LOOKUPS.add(1, {"cache": "llm", "result": "hit"})
             return json.loads(row[0])
         CACHE_LOOKUPS.add(1, {"cache": "llm", "result": "miss"})
         api_key = os.environ.get(LLM["key"]) or os.environ.get("AI_API_KEY")
         if not api_key:
-            raise HTTPException(503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env wikicross")
+            raise HTTPException(
+                503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env wikicross"
+            )
         request, text = APIS[LLM["api"]]
         url, headers, body = request(system, user, schema, api_key)
         for attempt in range(4):
@@ -128,9 +139,13 @@ def chat(system: str, user: str, schema: dict) -> dict:
                 r = httpx.post(url, headers=headers, json=body, timeout=600)
             except httpx.HTTPError as e:
                 raise HTTPException(502, f"LLM request failed: {e}") from e
-            if r.status_code == 503:  # Gemini's "high demand": frequent and short
+            if r.status_code == HTTPStatus.SERVICE_UNAVAILABLE:  # Gemini's "high demand": frequent and short
                 time.sleep(2 * (attempt + 1))
-            elif r.status_code == 429 and (wait := retry_delay(r.text)) is not None and wait <= 60:
+            elif (
+                r.status_code == HTTPStatus.TOO_MANY_REQUESTS
+                and (wait := retry_delay(r.text)) is not None
+                and wait <= MAX_RETRY_WAIT
+            ):
                 time.sleep(wait)  # per-minute quota (Gemini free tier: 5/min); a daily quota fails at once
             else:
                 break

@@ -1,4 +1,5 @@
-def main() -> None:
-    import uvicorn
+import uvicorn
 
+
+def main() -> None:
     uvicorn.run("wikicross.app:app", host="127.0.0.1", port=8000)

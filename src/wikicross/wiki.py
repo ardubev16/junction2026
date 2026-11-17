@@ -11,11 +11,16 @@ import re
 import time
 import unicodedata
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from functools import lru_cache
+from functools import lru_cache, partial
+from http import HTTPStatus
+from itertools import pairwise
+from typing import Protocol, cast
 from urllib.parse import urlparse
 
 import httpx
 import numpy as np
+import pymysql.connections
+import pymysql.cursors
 
 from .embeddings import embed, embed_cached
 
@@ -32,18 +37,76 @@ PROSE = 400
 # Section names that are lists of sources and links, not content (app.SKIP's words, plus generic ones
 # small editions use); any language's heading is classified by its nearest anchor among these and CONTENT.
 APPENDIX = [
-    "lähteet", "viitteet", "kirjallisuutta", "aiheesta muualla", "katso myös", "huomautukset",
-    "källor", "fotnoter", "noter", "referenser", "litteratur", "externa länkar", "se även", "vidare läsning",
-    "references", "notes", "sources", "bibliography", "citations", "further reading", "external links", "see also",
-    "links", "literature", "footnotes", "other projects", "related articles",
-    "примечания", "литература", "ссылки", "см. также", "источники", "примітки", "джерела", "посилання",
-    "бележки", "извори", "литература и извори",
+    "lähteet",
+    "viitteet",
+    "kirjallisuutta",
+    "aiheesta muualla",
+    "katso myös",
+    "huomautukset",
+    "källor",
+    "fotnoter",
+    "noter",
+    "referenser",
+    "litteratur",
+    "externa länkar",
+    "se även",
+    "vidare läsning",
+    "references",
+    "notes",
+    "sources",
+    "bibliography",
+    "citations",
+    "further reading",
+    "external links",
+    "see also",
+    "links",
+    "literature",
+    "footnotes",
+    "other projects",
+    "related articles",
+    "примечания",
+    "литература",
+    "ссылки",
+    "см. также",
+    "источники",
+    "примітки",
+    "джерела",
+    "посилання",
+    "бележки",
+    "извори",
+    "литература и извори",
 ]
 CONTENT = [
-    "Early life", "Biography", "Career", "Political activity", "Death", "Legacy", "History", "Background",
-    "Assessment", "Commemoration", "Varhaiset vuodet", "Elämäkerta", "Ura", "Kuolema", "Perintö", "Historia",
-    "Tausta", "Tidiga år", "Biografi", "Karriär", "Död", "Eftermäle", "Historia", "Bakgrund",
-    "Биография", "Ранние годы", "Смерть", "История", "Біографія", "Життєпис",
+    "Early life",
+    "Biography",
+    "Career",
+    "Political activity",
+    "Death",
+    "Legacy",
+    "History",
+    "Background",
+    "Assessment",
+    "Commemoration",
+    "Varhaiset vuodet",
+    "Elämäkerta",
+    "Ura",
+    "Kuolema",
+    "Perintö",
+    "Historia",
+    "Tausta",
+    "Tidiga år",
+    "Biografi",
+    "Karriär",
+    "Död",
+    "Eftermäle",
+    "Historia",
+    "Bakgrund",
+    "Биография",
+    "Ранние годы",
+    "Смерть",
+    "История",
+    "Біографія",
+    "Життєпис",
 ]
 HEADING = re.compile(r"^(=+)\s*(.+?)\s*\1$")
 
@@ -54,24 +117,38 @@ class WikiError(Exception):
 
 def in_scripts(text: str) -> bool:
     """At least SCRIPT_SHARE of the text's letters (and at least one) are in SCRIPTS: a Cyrillic article
-    may quote Latin names, but Greek, Arabic or CJK editions are left out."""
+    may quote Latin names, but Greek, Arabic or CJK editions are left out.
+    """
     letters = [c for c in text if c.isalpha()]
     known = sum(unicodedata.name(c, "").startswith(SCRIPTS) for c in letters)
     return bool(letters) and known >= SCRIPT_SHARE * len(letters)
 
 
-def api(host: str, **params) -> dict:
+class Progress(Protocol):
+    """Told what a request is doing: progress(step) or progress(step, detail)."""
+
+    def __call__(self, step: str, detail: str = "", /) -> None: ...
+
+
+def api(host: str, **params: str | int) -> dict:
     """One MediaWiki API call; waits out 429 and 5xx answers (Retry-After) up to RETRIES times."""
     params |= {"format": "json", "formatversion": 2}
     for attempt in range(RETRIES + 1):
         try:
-            r = httpx.get(f"https://{host}/w/api.php", params=params, headers={"User-Agent": UA},
-                          timeout=30, follow_redirects=True)
+            r = httpx.get(
+                f"https://{host}/w/api.php",
+                params=params,
+                headers={"User-Agent": UA},
+                timeout=30,
+                follow_redirects=True,
+            )
         except httpx.HTTPError as e:
             raise WikiError(f"{host}: {e!r}") from e
-        if r.status_code == 200:
+        if r.status_code == HTTPStatus.OK:
             return r.json()
-        if (r.status_code == 429 or r.status_code >= 500) and attempt < RETRIES:
+        if (
+            r.status_code == HTTPStatus.TOO_MANY_REQUESTS or r.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
+        ) and attempt < RETRIES:
             retry_after = r.headers.get("retry-after", "")
             time.sleep(min(int(retry_after) if retry_after.isdigit() else 5, 30))
             continue
@@ -79,12 +156,20 @@ def api(host: str, **params) -> dict:
     raise AssertionError("unreachable")
 
 
-def page(host: str, title: str, text: bool) -> dict | None:
+def page(host: str, title: str, *, text: bool) -> dict | None:
     """A page with its Wikidata id and language links (and plain text if asked), or None if missing."""
     data = api(
-        host, action="query", titles=title, redirects=1,
+        host,
+        action="query",
+        titles=title,
+        redirects=1,
         prop="pageprops|info|langlinks" + ("|extracts" if text else ""),
-        ppprop="wikibase_item", inprop="url", lllimit="max", llprop="url", explaintext=1, exsectionformat="wiki",
+        ppprop="wikibase_item",
+        inprop="url",
+        lllimit="max",
+        llprop="url",
+        explaintext=1,
+        exsectionformat="wiki",
     )
     pages = data.get("query", {}).get("pages", [])
     if not pages or pages[0].get("missing") or pages[0].get("invalid"):
@@ -108,8 +193,8 @@ def headings(extract: str) -> list[tuple[int, str]]:
 def markdown(title: str, extract: str, appendix: set[str]) -> str:
     """The extract as Markdown (`#` headings), without the sections whose heading is in `appendix`."""
     out, skip_level = [f"# {title}"], 0
-    for line in extract.splitlines():
-        line = line.strip()
+    for raw in extract.splitlines():
+        line = raw.strip()
         if m := HEADING.match(line):
             level, heading = len(m.group(1)), m.group(2)
             if skip_level and level <= skip_level:
@@ -140,14 +225,15 @@ def appendix_headings(texts: list[str]) -> set[str]:
         return set()
     anchors, n = _anchors()
     nearest = (_unit(embed(texts)) @ anchors.T).argmax(1)
-    return {t for t, i in zip(texts, nearest) if i < n}
+    return {t for t, i in zip(texts, nearest, strict=True) if i < n}
 
 
 def trailing_appendix(extract: str, appendix: set[str]) -> set[str]:
     """Headings of the article's closing appendix: walking back from the end, the top-level sections
     classified as appendix and without prose (empty sections pass), with everything under and after
     them. Wikipedia keeps references and links last; the classifier alone mistakes some content
-    headings ("Views", "Peringatan", "Eftirmæli") for appendix names."""
+    headings ("Views", "Peringatan", "Eftirmæli") for appendix names.
+    """
     lines = [line.strip() for line in extract.splitlines()]
     heads = [(i, len(m.group(1)), m.group(2)) for i, line in enumerate(lines) if (m := HEADING.match(line))]
     if not heads:
@@ -155,7 +241,7 @@ def trailing_appendix(extract: str, appendix: set[str]) -> set[str]:
     top = min(level for _, level, _ in heads)
     sections = [(i, h) for i, level, h in heads if level == top] + [(len(lines), "")]
     cut = None
-    for (start, heading), (end, _) in reversed(list(zip(sections, sections[1:]))):
+    for (start, heading), (end, _) in reversed(list(pairwise(sections))):
         text = [line for line in lines[start + 1 : end] if line and not HEADING.match(line)]
         if heading in appendix and max(map(len, text), default=0) < PROSE:
             cut = start
@@ -170,40 +256,63 @@ def resolve(lang: str, title: str) -> dict | None:
     return p if p and p["wikidata_id"] else None
 
 
-def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed_lang: str,
-                    progress=lambda step, detail="": None) -> None:
+def _quiet(*_: str) -> None:
+    pass
+
+
+def ensure_editions(
+    cur: pymysql.cursors.Cursor,
+    wikidata_id: str,
+    seed_host: str,
+    seed_title: str,
+    seed_lang: str,
+    *,
+    progress: Progress = _quiet,
+) -> None:
     """Fetch and store every edition of the topic in SCRIPTS not in the DB yet, once per topic
     and set of scripts (a topic fetched before Cyrillic was added fetches its Cyrillic editions once).
-    `progress(step, detail)` is told what is happening, for the page's loading view (app.STEPS)."""
-    cur.execute("SELECT 1 FROM topic_editions WHERE wikidata_id = %s AND scripts = %s", (wikidata_id, ",".join(SCRIPTS)))
+    `progress(step, detail)` is told what is happening, for the page's loading view (app.STEPS).
+    """
+    cur.execute(
+        "SELECT 1 FROM topic_editions WHERE wikidata_id = %s AND scripts = %s", (wikidata_id, ",".join(SCRIPTS))
+    )
     if cur.fetchone():
         return
     progress("editions", "finding the other language editions")
     try:
         seed = page(seed_host, seed_title, text=False)
-        reason = "seed page missing" if not seed else (
-            f"seed is {seed['wikidata_id']}" if seed["wikidata_id"] != wikidata_id else None)
     except WikiError as e:
-        reason = str(e)
-    if reason:
+        seed, reason = None, str(e)
+    else:
+        reason = (
+            "seed page missing"
+            if not seed
+            else (f"seed is {seed['wikidata_id']}" if seed["wikidata_id"] != wikidata_id else None)
+        )
+    if reason or not seed:  # no seed always comes with a reason
         print(f"editions of {wikidata_id}: {reason}", flush=True)
         return
 
     cur.execute("SELECT lang FROM article WHERE wikidata_id = %s", (wikidata_id,))
     have = {lang for (lang,) in cur.fetchall()}
-    candidates = [(lang, url, title) for lang, url, title in seed["langlinks"] + [(seed_lang, seed["url"], seed["title"])]
-                  if lang not in have]
+    candidates = [
+        (lang, url, title)
+        for lang, url, title in seed["langlinks"] + [(seed_lang, seed["url"], seed["title"])]
+        if lang not in have
+    ]
     skipped = sum(not in_scripts(title) for _, _, title in candidates)
     wanted = [c for c in candidates if in_scripts(c[2])]
     fetched, failed = [], False
     with ThreadPoolExecutor(FETCHERS) as pool:
         # Each fetch in a copy of this context: its HTTP spans nest under the request's trace.
-        jobs = {pool.submit(contextvars.copy_context().run, page, urlparse(url).netloc, title, True): lang
-                for lang, url, title in wanted}
+        jobs = {
+            pool.submit(contextvars.copy_context().run, partial(page, text=True), urlparse(url).netloc, title): lang
+            for lang, url, title in wanted
+        }
         for done, job in enumerate(as_completed(jobs), 1):
             progress("editions", f"fetched {done} of {len(wanted)}")
             try:
-                p = job.result()
+                p = cast("dict | None", job.result())  # ty does not solve Context.run's ParamSpec
             except WikiError as e:
                 print(f"editions of {wikidata_id}: {e}", flush=True)
                 failed = True
@@ -217,15 +326,23 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
     progress("editions", f"storing {len(fetched)} new editions")
     classified = appendix_headings(sorted({h for e in fetched for _, h in headings(e["extract"])}))
     dropped = [trailing_appendix(e["extract"], classified) for e in fetched]
-    cur.connection.begin()
-    for e, drop in zip(fetched, dropped):
-        cur.execute("INSERT IGNORE INTO article VALUES (%s, %s, %s, %s, %s, %s)",
-                    (e["lang"], e["page_id"], wikidata_id, e["title"], e["url"], markdown(e["title"], e["extract"], drop)))
+    conn = cast("pymysql.connections.Connection", cur.connection)  # None only once the cursor is closed
+    conn.begin()
+    for e, drop in zip(fetched, dropped, strict=True):
+        cur.execute(
+            "INSERT IGNORE INTO article VALUES (%s, %s, %s, %s, %s, %s)",
+            (e["lang"], e["page_id"], wikidata_id, e["title"], e["url"], markdown(e["title"], e["extract"], drop)),
+        )
     if not failed:
-        cur.execute("INSERT INTO topic_editions (wikidata_id, scripts) VALUES (%s, %s) "
-                    "ON DUPLICATE KEY UPDATE scripts = VALUES(scripts), fetched_at = CURRENT_TIMESTAMP",
-                    (wikidata_id, ",".join(SCRIPTS)))
-    cur.connection.commit()
-    print(f"editions of {wikidata_id}: {len(fetched)} fetched, {skipped} skipped, "
-          f"{'some failed' if failed else 'complete'}", flush=True)
+        cur.execute(
+            "INSERT INTO topic_editions (wikidata_id, scripts) VALUES (%s, %s) "
+            "ON DUPLICATE KEY UPDATE scripts = VALUES(scripts), fetched_at = CURRENT_TIMESTAMP",
+            (wikidata_id, ",".join(SCRIPTS)),
+        )
+    conn.commit()
+    print(
+        f"editions of {wikidata_id}: {len(fetched)} fetched, {skipped} skipped, "
+        f"{'some failed' if failed else 'complete'}",
+        flush=True,
+    )
     print(f"appendix headings: {sorted(set().union(*dropped))}", flush=True)
