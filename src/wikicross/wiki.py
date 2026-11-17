@@ -1,8 +1,8 @@
 """Live Wikipedia: every Latin- and Cyrillic-script edition of a topic, the first time it is asked for.
 
 Fetched once per topic through the MediaWiki API (plain-text extracts), converted to Markdown with
-appendix sections (bibliography, links) removed, embedded and stored in `article` and
-`article_vector`. Editions are fetched FETCHERS at a time; Wikimedia answers bursts with HTTP 429 and
+appendix sections (bibliography, links) removed and stored in `article`. Editions are fetched FETCHERS
+at a time; Wikimedia answers bursts with HTTP 429 and
 Retry-After, which api() waits out.
 """
 
@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 import httpx
 import numpy as np
 
-from .embeddings import embed, embed_cached, token_counts
+from .embeddings import embed, embed_cached
 
 UA = "WikiCross/0.1 (Junction 2026 hackathon; 43483037+ardubev16@users.noreply.github.com)"
 SCRIPTS = ("LATIN", "CYRILLIC")  # Unicode script names of the editions compared
@@ -24,7 +24,6 @@ SCRIPT_SHARE = 0.9  # letters that must be in SCRIPTS for an edition to be compa
 RETRIES = 3
 # Editions fetched at once: each is on its own host (fi.wikipedia.org, …), and api() waits out 429s.
 FETCHERS = 8
-MAX_TOKENS = 8192  # bge-m3's limit: longer articles are embedded truncated
 # An appendix line (a citation, a link) is shorter than this; a section with a longer line holds prose.
 # Measured on Stepan Bandera's 47 editions: appendix lines at most 306 chars, closing content 450+.
 PROSE = 400
@@ -172,7 +171,7 @@ def resolve(lang: str, title: str) -> dict | None:
 
 def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed_lang: str,
                     progress=lambda message: None) -> None:
-    """Fetch, embed and store every edition of the topic in SCRIPTS not in the DB yet, once per topic
+    """Fetch and store every edition of the topic in SCRIPTS not in the DB yet, once per topic
     and set of scripts (a topic fetched before Cyrillic was added fetches its Cyrillic editions once).
     `progress(message)` is told what is happening, for the page's loading view."""
     cur.execute("SELECT 1 FROM topic_editions WHERE wikidata_id = %s AND scripts = %s", (wikidata_id, ",".join(SCRIPTS)))
@@ -212,17 +211,13 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
             fetched.append({**p, "lang": jobs[job]})
     fetched.sort(key=lambda e: e["lang"])  # completion order varies; keep runs comparable
 
-    progress(f"Embedding {len(fetched)} new editions on the GPU")
+    progress(f"Storing {len(fetched)} new editions")
     classified = appendix_headings(sorted({h for e in fetched for _, h in headings(e["extract"])}))
     dropped = [trailing_appendix(e["extract"], classified) for e in fetched]
-    texts = [markdown(e["title"], e["extract"], drop) for e, drop in zip(fetched, dropped)]
-    vectors, tokens = embed(texts), token_counts(texts)
     cur.connection.begin()
-    for e, md, v, n in zip(fetched, texts, vectors, tokens):
+    for e, drop in zip(fetched, dropped):
         cur.execute("INSERT IGNORE INTO article VALUES (%s, %s, %s, %s, %s, %s)",
-                    (e["lang"], e["page_id"], wikidata_id, e["title"], e["url"], md))
-        cur.execute("INSERT IGNORE INTO article_vector VALUES (%s, %s, %s, %s)",
-                    (e["lang"], e["page_id"], n > MAX_TOKENS, v))
+                    (e["lang"], e["page_id"], wikidata_id, e["title"], e["url"], markdown(e["title"], e["extract"], drop)))
     if not failed:
         cur.execute("INSERT INTO topic_editions (wikidata_id, scripts) VALUES (%s, %s) "
                     "ON DUPLICATE KEY UPDATE scripts = VALUES(scripts), fetched_at = CURRENT_TIMESTAMP",

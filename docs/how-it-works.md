@@ -10,15 +10,16 @@ Any pair involving another language is matched only inside the topic, by an exac
 to a language with a few articles would scan almost the whole index. Framing statistics fall back to
 all languages pooled for a language with fewer than 200 sentences.
 
-Everything below was measured on dataset S of mariadb-wikipedia-datasets (history of Finland: 29,460
-articles in fi, sv, en), which WikiCross was first built on, on one laptop CPU, unless marked otherwise.
+Every edition now comes from live Wikipedia. The measurements below date from when WikiCross was built
+on dataset S of mariadb-wikipedia-datasets (history of Finland: 29,460 articles in fi, sv, en), embedded
+with Ollama on one laptop CPU, unless marked otherwise; that loader has since been removed.
 
 ## The pipeline at a glance
 
 ```mermaid
 flowchart TD
-  Q[GET /api/diff?title=…] --> W[wiki.py: fetch the topic's editions not in the DB yet, embed each]
-  W --> A[article + article_vector]
+  Q[GET /api/diff?title=…] --> W[wiki.py: fetch the topic's editions not in the DB yet]
+  W --> A[article]
   A --> T[Topic: editions sharing a wikidata_id]
   T --> E1[Split articles into passages, embed with bge-m3 on demand]
   E1 --> P[Passage matching: mutual nearest across languages, HNSW]
@@ -44,7 +45,6 @@ disagreement, not omission.
 
 ```mermaid
 erDiagram
-  article ||--|| article_vector : "1 vector per article (bge-m3, at fetch time)"
   article ||--o{ chunk : "split into passages"
   chunk ||--o{ sentence : "split into sentences"
   article {
@@ -53,9 +53,6 @@ erDiagram
     varchar wikidata_id "same topic across languages"
     varchar title
     mediumtext text
-  }
-  article_vector {
-    vector embedding "VECTOR(1024), HNSW index"
   }
   chunk {
     smallint seq PK
@@ -299,7 +296,7 @@ Articles are edited all the time; the stored vectors describe the text they were
 **Today nothing detects a change.** `ensure_chunks()` and `ensure_sentences()` only check whether an
 article has rows at all, and `wiki.py` fetches a topic's editions once (`topic_editions`) and keeps no
 revision: findings may quote text that has changed since. To refresh a topic until the steps below
-exist: delete its `topic_editions` row, its `article` / `article_vector` rows and their `chunk` /
+exist: delete its `topic_editions` row, its `article` rows and their `chunk` /
 `sentence` rows; the next request fetches it again.
 
 **What goes stale when one edition of a topic changes:**
@@ -309,7 +306,6 @@ exist: delete its `topic_editions` row, its `article` / `article_vector` rows an
 | That article's `chunk` and `sentence` rows | the edited passages | their text changed |
 | Findings of its topic | yes | they quote and compare the old text |
 | Findings of *other* topics | sometimes | a passage of this article may have been the cross-article counterpart of a passage elsewhere (HNSW search over the whole corpus) |
-| `article_vector` | yes, if used | one vector of the whole old text |
 | Framing statistics | negligibly | per-language means over millions of sentences barely move |
 | `llm_cache` | no action | keyed by the text: new text simply misses the cache |
 

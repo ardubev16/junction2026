@@ -16,15 +16,6 @@ SCHEMA = [
       KEY (wikidata_id),
       KEY (title)
     ) CHARACTER SET utf8mb4""",
-    # The downloaded bge-m3 vectors: one per article, all three languages.
-    """CREATE TABLE IF NOT EXISTS article_vector (
-      lang      VARCHAR(12)  NOT NULL,
-      page_id   INT UNSIGNED NOT NULL,
-      truncated BOOL         NOT NULL,
-      embedding VECTOR(1024) NOT NULL,
-      PRIMARY KEY (lang, page_id),
-      VECTOR INDEX (embedding) M=16 DISTANCE=cosine
-    )""",
     # Parts of articles, embedded on demand with the same model; HNSW finds a part's counterpart
     # in another language anywhere in the corpus.
     """CREATE TABLE IF NOT EXISTS chunk (
@@ -82,7 +73,7 @@ def widen_lang(cur) -> None:
     """Make lang columns created as CHAR(2) wide enough for any Wikipedia code (be-tarask). Idempotent."""
     cur.execute(
         "SELECT TABLE_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'lang' "
-        "AND CHARACTER_MAXIMUM_LENGTH = 2 AND TABLE_NAME IN ('article','article_vector','chunk','sentence')"
+        "AND CHARACTER_MAXIMUM_LENGTH = 2 AND TABLE_NAME IN ('article','chunk','sentence')"
     )
     for (table,) in cur.fetchall():
         cur.execute(f"ALTER TABLE {table} MODIFY lang VARCHAR(12) NOT NULL")

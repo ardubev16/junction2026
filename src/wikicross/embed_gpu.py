@@ -5,7 +5,7 @@ Runs in Modal's cloud, not in the web app: `embeddings.embed()` looks the deploy
 
 import modal
 
-MODEL = "BAAI/bge-m3"  # the model the dataset's vectors were made with
+MODEL = "BAAI/bge-m3"  # multilingual, one vector space for every edition
 APP = "wikicross-embed"
 
 app = modal.App(APP)
@@ -36,8 +36,3 @@ class Embedder:
         """Normalised dense vectors (CLS pooling) as MariaDB VECTOR values (little-endian float32)."""
         vectors = self.model.encode(texts, batch_size=64, normalize_embeddings=True, convert_to_numpy=True)
         return [v.astype("<f4").tobytes() for v in vectors]
-
-    @modal.method()
-    def token_counts(self, texts: list[str]) -> list[int]:
-        """Tokens per text as bge-m3 reads it, special tokens included: more than 8192 means truncated."""
-        return [len(ids) for ids in self.model.tokenizer(texts, add_special_tokens=True)["input_ids"]]

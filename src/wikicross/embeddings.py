@@ -37,10 +37,3 @@ def embed_cached(texts: list[str]) -> list[bytes]:
             have |= dict(zip(missing, embed(list(missing.values()))))
             cur.executemany("INSERT IGNORE INTO embedding_cache VALUES (%s, %s)", [(k, have[k]) for k in missing])
     return [have[k] for k in keys]
-
-
-def token_counts(texts: list[str]) -> list[int]:
-    """bge-m3 tokens per text, special tokens included: more than 8192 means the model truncates it."""
-    if not texts:
-        return []
-    return [n for batch in _embedder().token_counts.map(_batches(texts)) for n in batch]
