@@ -7,7 +7,7 @@
   all findings and has "Show paragraphs" with expanding context; the extension (`ui/extension/`) lists
   this edition's findings first (up to 30), asks the AI as cards scroll into view, and has "Show on
   page" / "Find in source" (the page is its context) and a link to the topic in the web app.
-- **Codex for the UI** (see README, "Front end"): Codex Vue components, design tokens
+- **Codex for the UI** (<https://doc.wikimedia.org/codex/>): Codex Vue components, design tokens
   (`var(--color-…)`, never hex colours) and icons (`@wikimedia/codex-icons`). Do not hand-roll a control
   Codex has.
 - **TypeScript for the front end** (`strict`, `tsconfig.json`): `.ts` files and `<script setup lang="ts">`;
