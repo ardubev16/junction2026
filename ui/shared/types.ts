@@ -26,7 +26,7 @@ export interface Finding {
   outlier: boolean;
   distance: number;
   members: Member[];  // in the order a card shows them
-  ai: Explanation | { error: string };  // app.explain_page(): of the first SHOWN members, or why not
+  ai?: Explanation | { error: string };  // app.explain_page() (ai=true): of the first SHOWN members, or why not
 }
 
 export interface Article { lang: string; title: string; url: string }

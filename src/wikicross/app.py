@@ -81,7 +81,7 @@ def zone(path: str) -> str | None:
     title suggestions come with every few keystrokes, both cheap, so neither is counted. /api/diff's AI
     calls are bounded by its page (`limit`) and cached.
     """
-    if path == "/api/translate":
+    if path in ("/api/explain", "/api/translate"):
         return "llm"
     return "api" if path.startswith("/api/") and path not in ("/api/progress", "/api/titles") else None
 
@@ -388,15 +388,16 @@ def diff(
     focus: str | None = None,
     dialects: bool = True,
     langs: str | None = None,
+    ai: bool = True,
 ) -> dict:
     """What a topic's editions state differently, best first, `limit` of them from `offset` (`total`
     counts all); `lang` is the edition the title is from (any if not given: then looked up on English
     Wikipedia if the database does not have it), `focus` an edition whose findings go first.
     `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect();
     `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not;
-    each finding's members come in the order cards show them, and its `ai` explains the first SHOWN
-    (explain_page()); `progress` the steps this request took, each with its start second, and its
-    `seconds` in all.
+    each finding's members come in the order cards show them, and with `ai` its explanation of the first
+    SHOWN (explain_page(); without, cards ask /api/explain as they are scrolled to); `progress` the steps
+    this request took, each with its start second, and its `seconds` in all.
     """
     mine: dict = {"visited": [], "detail": "", "start": time.monotonic()}
     owner = PROGRESS.setdefault(title, mine) is mine  # only the first request for a title is polled
@@ -430,7 +431,8 @@ def diff(
         page = data["differences"] = data["differences"][offset : offset + limit]
         for f in page:  # the focus edition's quote first, then the outlier's, then the rest in order
             f["members"].sort(key=lambda m, f=f: (m["lang"] != focus, not (f["outlier"] and m["lang"] == f["lang"])))
-        explain_page(page, progress)
+        if ai:
+            explain_page(page, progress)
         data["progress"] = report(mine)
         return data
     finally:
@@ -744,6 +746,37 @@ class Quote(BaseModel):
     n: int
 
 
+def passages_of(quotes: list[Quote]) -> list[dict]:
+    """The quotes as finding members (lang, heading, passage `text`, quote `sentence`), read from the
+    database in the order given; unknown ones are left out.
+    """
+    keys = [(q.lang, q.page_id, q.seq, q.n) for q in quotes]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.lang, s.page_id, s.seq, s.n, c.heading, c.text, s.text "
+            "FROM sentence s JOIN chunk c USING (lang, page_id, seq) "
+            f"WHERE (s.lang, s.page_id, s.seq, s.n) IN ({_in(keys)})",
+            [v for k in keys for v in k],
+        )
+        found = {tuple(r[:4]): {"lang": r[0], "heading": r[4], "text": r[5], "sentence": r[6]} for r in cur.fetchall()}
+    return [found[k] for k in keys if k in found]
+
+
+class ExplainRequest(BaseModel):
+    quotes: list[Quote] = Field(min_length=MIN_EDITIONS, max_length=SHOWN)  # a card's first SHOWN, in its order
+
+
+@app.post("/api/explain")
+def explain_quotes(req: ExplainRequest) -> dict:
+    """explain() of a finding's first SHOWN quotes, by place: for a card /api/diff did not explain (ai=false),
+    once it is scrolled to.
+    """
+    passages = passages_of(req.quotes)
+    if len(passages) < MIN_EDITIONS:
+        raise HTTPException(HTTPStatus.NOT_FOUND, "these quotes are not in the database")
+    return explain(passages)
+
+
 class TranslateRequest(BaseModel):
     quotes: list[Quote] = Field(min_length=1, max_length=200)  # one finding's, one per edition
     paragraphs: bool = False  # their passages with the quote marked, instead of the quotes and headings
@@ -754,22 +787,14 @@ def translate_quotes(req: TranslateRequest) -> dict[str, str]:
     """Quotes in English, by language ("<lang>", "<lang>-heading"), or with `paragraphs` their passages,
     the quote marked: what a card shows beyond the AI's explanation. Unknown quotes are left out.
     """
-    keys = [(q.lang, q.page_id, q.seq, q.n) for q in req.quotes]
-    with connect() as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT s.lang, s.text, c.heading, c.text FROM sentence s JOIN chunk c USING (lang, page_id, seq) "
-            f"WHERE (s.lang, s.page_id, s.seq, s.n) IN ({_in(keys)})",
-            [v for k in keys for v in k],
-        )
-        rows = cur.fetchall()
     texts = {}
-    for lang, sentence, heading, passage in rows:
+    for p in passages_of(req.quotes):
         if req.paragraphs:
-            texts[lang] = passage.replace(sentence, f"<mark>{sentence}</mark>")
+            texts[p["lang"]] = p["text"].replace(p["sentence"], f"<mark>{p['sentence']}</mark>")
         else:
-            texts[lang] = sentence
-            if heading:
-                texts[f"{lang}-heading"] = heading
+            texts[p["lang"]] = p["sentence"]
+            if p["heading"]:
+                texts[f"{p['lang']}-heading"] = p["heading"]
     return translate(texts) if texts else {}
 
 

@@ -6,7 +6,7 @@ import type { Message, Reply } from "./messages";
 
 const BACKEND = "http://127.0.0.1:8000";
 const GETS = ["/api/diff", "/api/progress"];
-const POSTS = ["/api/translate"];
+const POSTS = ["/api/explain", "/api/translate"];
 
 // A request that got no answer at all (the connection dropped) is sent again, twice, after 1 s and 2 s:
 // AI answers are cached on the server, so asking again costs nothing once one is made. As the web app.

@@ -124,11 +124,11 @@ copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross
 
 **Rate limit** (`app.py`, `LIMITS`; off unless `RATE_LIMIT=1`; when on, stated on the home page through
 `GET /api/limits`): anyone can use it, but a client outside
-`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/translate` (the LLM),
+`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/explain` + `/api/translate` (the LLM),
 then 429 with `Retry-After`; `/api/progress`, polled each second, and `/api/titles` are not counted.
 The LLM never sees text from a client: `/api/diff` explains its own findings (at most 30 a request,
-`limit`), and `/api/translate` takes quotes by their place (at most 200), reading their text from the
-database. The client is the
+`limit`), and `/api/explain` and `/api/translate` take quotes by their place (at most 3 and 200),
+reading their text from the database. The client is the
 address Caddy sets in `X-Forwarded-For` (a forged one is overwritten). `ALLOWED_IPS` unset: only
 localhost is exempt, so `uv run wikicross` locally is never limited. Use public IPv4 addresses: a
 client reaching the VM over IPv6 shows up as Docker's private gateway address, hence the A record
@@ -258,8 +258,10 @@ for a factual disagreement or a clear difference in tone or framing; findings it
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
-**AI** (on by default, in the web app and the extension; detection never uses it): `/api/diff` asks the
-LLM about each finding it returns, all at once (`explain_page()`, the loading view's last step), for
+**AI** (on by default, in the web app and the extension; detection never uses it): the web app's first
+page comes explained, `/api/diff` asking the LLM about each finding it returns, all at once
+(`explain_page()`, the loading view's last step); on later pages and in the extension (`ai=false`) each
+card asks `/api/explain` once it is half a screen from view, so they fill in one by one. Each gets
 its kind, shown as a badge on the card's first row (**factual disagreement**:
 facts that cannot all be true; **bias**: more favourable or critical, loaded words; **framing**: the
 same facts presented differently), its title (who says what, naming the editions), a description
@@ -280,8 +282,8 @@ language starts with q, then English Wikipedia's suggestions; each in English, e
 edition, with Wikipedia's short description and thumbnail, as the search box's suggestions show them),
 `GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them (`limit`
 30 at most), their `total`, and the `progress` it took, as `/api/progress`; each finding has its
-members in the order cards show them, its `ai` (`discrepancy`, `kind`, `title`, `description` and
-`quotes` per language: `english`, `heading`, `phrases`; or `error`), every edition's `deviations`
+members in the order cards show them, with `ai=true` (default) its `ai` (`discrepancy`, `kind`, `title`,
+`description` and `quotes` per language: `english`, `heading`, `phrases`; or `error`), every edition's `deviations`
 on its axis, shown under the "i" next
 to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` keeps
 only those editions; `&dialects=false` leaves
@@ -290,6 +292,8 @@ Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian
 `be-tarask`; `languages` lists every edition of the topic, filtered or not),
 `GET /api/progress?title=Talvisota` (`steps`, the `visited` ones of a running diff, `detail`, `seconds`),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
+`POST /api/explain {"quotes": [{"lang", "page_id", "seq", "n"}, …]}` (2 or 3: a card's, explained as
+in `ai`),
 `POST /api/translate {"quotes": [{"lang", "page_id", "seq", "n"}, …], "paragraphs": false}` (those
 quotes in English, `{"fi": …, "fi-heading": …}`, or with `paragraphs` their passages, the quote marked).
 

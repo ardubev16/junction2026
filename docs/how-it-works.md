@@ -96,10 +96,13 @@ sequenceDiagram
   end
   API->>DB: one query: sentence pairs + axis positions (window functions)
   API->>API: group, flag values and framing
-  par each finding on the page
+  par each finding on the page (web app, first page)
     API->>API: explain: title, description, quotes in English (LLM, cached in llm_cache)
   end
-  API-->>B: differences, explained
+  API-->>B: differences (explained, or not: ai=false)
+  opt later pages, extension: each card as it nears the view
+    B->>API: POST /api/explain (its quotes by place)
+  end
   opt "Show paragraphs", then "Expand up / down" (web page only)
     B->>API: GET /api/context (neighbouring sentences, from the sentence table)
   end

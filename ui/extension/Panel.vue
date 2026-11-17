@@ -1,6 +1,6 @@
 <!-- The extension's button and panel on a Wikipedia article: what this edition states differently from
-     the others (up to 30 findings, this edition's first, explained by the AI), then the rest in an
-     accordion. "Show on page" / "Find in source" shows the evidence (the page is the
+     the others (up to 30 findings, this edition's first), then the rest in an accordion. Cards ask the AI
+     as they near the panel's view, and "Show on page" / "Find in source" shows the evidence (the page is the
      context: no "Show paragraphs"). The logo opens the topic in the web app. Filters are kept for this
      page view only. -->
 <script setup lang="ts">
@@ -21,7 +21,7 @@ const props = defineProps<{
 }>();
 const api = inject(API)!;
 
-const open = ref(false), irrelevant = ref<HTMLElement | null>(null);
+const open = ref(false), panel = ref<HTMLElement | null>(null), irrelevant = ref<HTMLElement | null>(null);
 type View = { state: "idle" } | { state: "loading"; id: number } | { state: "error"; message: string; status: number }
   | { state: "done"; data: Diff; id: number };
 const view = ref<View>({ state: "idle" });
@@ -34,7 +34,8 @@ function load(next: Filters = query) {
   const mine = ++loads;
   view.value = { state: "loading", id: mine };
   const filtered = { ...(query.langs && { langs: query.langs.join(",") }), ...(!query.dialects && { dialects: false }) };
-  api.get<Diff>("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ...filtered })
+  // Unexplained: each card asks the AI as it nears the panel's view, so nothing is asked until the panel opens.
+  api.get<Diff>("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ai: false, ...filtered })
     .then((data) => {
       if (mine !== loads) return;
       dismissed.value = 0;
@@ -65,7 +66,7 @@ const label = computed(() => {
   if (view.value.state === "error") return view.value.status ? "WikiCross · –" : "WikiCross · ?";
   return "WikiCross";
 });
-const card = (f: Finding) => ({ finding: f, focusLang: props.lang, locate: props.locate,
+const card = (f: Finding) => ({ finding: f, focusLang: props.lang, observeRoot: panel.value, locate: props.locate,
                                 locateLabel: props.locateLabel(), irrelevantTarget: irrelevant.value, onDismiss: () => dismissed.value++ });
 </script>
 
@@ -76,7 +77,7 @@ const card = (f: Finding) => ({ finding: f, focusLang: props.lang, locate: props
     <CdxIcon v-else-if="view.state === 'done' && mine.length" :icon="cdxIconAlert" size="small" />
     {{ label }}
   </CdxButton>
-  <section v-show="open" class="panel">
+  <section v-show="open" ref="panel" class="panel">
     <header>
       <h2><button class="home" type="button" title="Open this topic in the WikiCross web app" @click="openHome"><Logo />WikiCross</button></h2>
       <CdxButton weight="quiet" aria-label="Close" title="Close" @click="open = false"><CdxIcon :icon="cdxIconClose" /></CdxButton>

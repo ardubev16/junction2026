@@ -48,7 +48,7 @@ def test_a_failed_llm_call_leaves_the_finding_usable(monkeypatch):
     assert steps[-1] == ("ai", "1 of 1, 1 failed")
 
 
-def test_translate_takes_only_quotes_by_place(monkeypatch):
+def test_ai_endpoints_take_only_quotes_by_place(monkeypatch):
     def fail(*_):
         raise AssertionError("LLM called")
 
@@ -57,3 +57,5 @@ def test_translate_takes_only_quotes_by_place(monkeypatch):
     quote = {"lang": "fi", "page_id": 1, "seq": 0, "n": 0}
     assert client.post("/api/translate", json={"quotes": [quote] * 201}).status_code == 422
     assert client.post("/api/translate", json={"quotes": [{"lang": "fi", "text": "x"}]}).status_code == 422
+    assert client.post("/api/explain", json={"quotes": [quote] * 4}).status_code == 422  # a card explains 3
+    assert client.post("/api/explain", json={"quotes": [quote]}).status_code == 422

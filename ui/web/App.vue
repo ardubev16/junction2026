@@ -91,7 +91,8 @@ async function search(q: Query, push: boolean) {
   const mine = ++current;  // a slower, older search must not overwrite a newer one
   view.value = { state: "loading", title: q.title, id: mine };
   try {
-    const data = await api.get<Diff>("/api/diff", { title: q.title, limit: PER_PAGE, offset: (q.page - 1) * PER_PAGE, ...params(q) });
+    // The first page comes explained, as one wait; later ones show at once, each card asking the AI as it nears the view.
+    const data = await api.get<Diff>("/api/diff", { title: q.title, limit: PER_PAGE, offset: (q.page - 1) * PER_PAGE, ...params(q), ...(q.page > 1 && { ai: false }) });
     if (mine !== current) return;
     resetDismissed();
     view.value = { state: "done", data, query: q, title: q.title, id: mine };
