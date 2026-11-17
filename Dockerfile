@@ -1,10 +1,11 @@
 # From example at: https://github.com/astral-sh/uv-docker-example/blob/main/multistage.Dockerfile
 
-# Build the web app (ui/, Vue + Codex) into src/wikicross/web
+# Build the web app (ui/, Vue + Codex, TypeScript: type-checked first) into src/wikicross/web
 FROM node:22-slim AS web
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
+COPY tsconfig.json ./
 COPY ui ui
 RUN npm run build:web
 

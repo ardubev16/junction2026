@@ -1,18 +1,16 @@
 <!-- Which editions are compared: a language picker (a Codex popover of checkboxes; Apply asks the server
      again, comparing only those) and a quick "Hide dialects" (editions without a two-letter code). -->
-<script setup>
-import { computed, ref, watch } from "vue";
+<script setup lang="ts">
+import { computed, ref, watch, type ComponentPublicInstance } from "vue";
 import { CdxButton, CdxCheckbox, CdxIcon, CdxPopover } from "@wikimedia/codex";
 import { cdxIconExpand } from "@wikimedia/codex-icons";
-import { langName } from "./util.js";
+import type { Filters } from "./types";
+import { langName } from "./util";
 
-const props = defineProps({
-  languages: { type: Array, required: true },
-  langs: { type: Array, default: null },  // null: all
-  dialects: { type: Boolean, default: true },
-});
-const emit = defineEmits(["change"]);
-const open = ref(false), anchor = ref(null), chosen = ref([]);
+const props = withDefaults(defineProps<{ languages: string[]; langs?: string[] | null; dialects?: boolean }>(),
+  { langs: null, dialects: true });  // langs null: all
+const emit = defineEmits<{ change: [Filters] }>();
+const open = ref(false), anchor = ref<ComponentPublicInstance | null>(null), chosen = ref<string[]>([]);
 const sorted = computed(() => [...props.languages].sort((a, b) => langName(a).localeCompare(langName(b))));
 watch(open, (o) => { if (o) chosen.value = [...(props.langs || props.languages)]; });
 const label = computed(() => (props.langs ? `Languages: ${props.langs.length} of ${props.languages.length}` : `Languages: all ${props.languages.length}`));

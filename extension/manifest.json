@@ -4,7 +4,7 @@
   "version": "0.5.0",
   "description": "On any Wikipedia article and its edit views, shows where the other language editions frame things differently, explained and translated by AI.",
   "host_permissions": ["http://127.0.0.1:8000/*"],
-  "background": { "service_worker": "background.js" },
+  "background": { "service_worker": "dist/background.js" },
   "content_scripts": [
     {
       "matches": ["https://*.wikipedia.org/*"],

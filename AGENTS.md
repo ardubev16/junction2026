@@ -10,6 +10,9 @@
 - **Codex for the UI** (see README, "Front end"): Codex Vue components, design tokens
   (`var(--color-…)`, never hex colours) and icons (`@wikimedia/codex-icons`). Do not hand-roll a control
   Codex has.
+- **TypeScript for the front end** (`strict`, `tsconfig.json`): `.ts` files and `<script setup lang="ts">`;
+  the backend's answers are typed in `ui/shared/types.ts`, so change them there with `app.py`. Builds
+  type-check first; `npm run typecheck` alone.
 - **Builds are not committed**: `src/wikicross/web/` and `extension/dist/` come from `make web` /
   `make extension` (and the Dockerfile); never edit or commit them.
 - No LLM in detection. The AI is on by default; a failed LLM call must leave the findings usable

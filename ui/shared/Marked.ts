@@ -1,12 +1,12 @@
 // Text with <mark>s (see markParts), as text nodes and <mark> elements, never as HTML. A mark linked to
 // a quote (linkMarks) takes the quote's colour, names it on hover and reports the hover.
-import { h } from "vue";
-import { langName, markParts } from "./util.js";
+import { defineComponent, h, type PropType } from "vue";
+import { langName, markParts, type Part } from "./util";
 
-export default {
+export default defineComponent({
   name: "Marked",
-  props: { text: { type: String, default: "" }, parts: { type: Array, default: null } },
-  emits: ["hover"],
+  props: { text: { type: String, default: "" }, parts: { type: Array as PropType<Part[] | null>, default: null } },
+  emits: { hover: (_lang: string | null) => true },
   setup(props, { emit }) {
     return () => (props.parts || markParts(props.text)).map((p) => (!p.mark ? p.text : h("mark", {
       class: p.quote != null ? `c${p.quote % 4}` : null,
@@ -15,4 +15,4 @@ export default {
       onMouseleave: () => p.lang && emit("hover", null),
     }, p.text)));
   },
-};
+});

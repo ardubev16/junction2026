@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import vue from "@vitejs/plugin-vue";
 import { defineConfig } from "vite";
 
-const at = (path) => fileURLToPath(new URL(path, import.meta.url));
+const at = (path: string) => fileURLToPath(new URL(path, import.meta.url));
 export default defineConfig({
   root: at("./web"),
   plugins: [vue()],

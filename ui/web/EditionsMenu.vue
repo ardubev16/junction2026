@@ -1,13 +1,14 @@
 <!-- Every edition, in a Codex popover: a topic can have dozens. Each link opens that edition. -->
-<script setup>
-import { ref } from "vue";
+<script setup lang="ts">
+import { ref, type ComponentPublicInstance } from "vue";
 import { CdxButton, CdxIcon, CdxPopover } from "@wikimedia/codex";
 import { cdxIconExpand } from "@wikimedia/codex-icons";
-import { langName } from "../shared/util.js";
+import type { Article } from "../shared/types";
+import { langName } from "../shared/util";
 
-defineProps({ articles: { type: Array, required: true } });
-const open = ref(false), anchor = ref(null);
-const safe = (url) => (/^https?:\/\//.test(url) ? url : "#");
+defineProps<{ articles: Article[] }>();
+const open = ref(false), anchor = ref<ComponentPublicInstance | null>(null);
+const safe = (url: string) => (/^https?:\/\//.test(url) ? url : "#");
 </script>
 
 <template>

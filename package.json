@@ -4,17 +4,22 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "build:web": "vite build -c ui/vite.web.config.js",
-    "build:extension": "vite build -c ui/vite.extension.config.js",
+    "typecheck": "vue-tsc",
+    "build:web": "vue-tsc && vite build -c ui/vite.web.config.ts",
+    "build:extension": "vue-tsc && vite build -c ui/vite.extension.config.ts && vite build -c ui/vite.extension.config.ts --mode background",
     "build": "npm run build:web && npm run build:extension",
-    "dev": "vite -c ui/vite.web.config.js"
+    "dev": "vite -c ui/vite.web.config.ts"
   },
   "devDependencies": {
+    "@types/chrome": "^0.3.7",
+    "@types/node": "^26.6.6",
     "@vitejs/plugin-vue": "^6.0.11",
     "@wikimedia/codex": "2.8.0",
     "@wikimedia/codex-design-tokens": "2.8.0",
     "@wikimedia/codex-icons": "2.8.0",
+    "typescript": "^6.0.3",
     "vite": "^7.3.8",
-    "vue": "3.5.45"
+    "vue": "3.5.45",
+    "vue-tsc": "^3.3.14"
   }
 }

@@ -3,7 +3,7 @@
      as they scroll into view, and "Show on page" / "Find in source" shows the evidence (the page is the
      context: no "Show paragraphs"). The logo opens the topic in the web app. Filters are kept for this
      page view only. -->
-<script setup>
+<script setup lang="ts">
 import { computed, inject, ref } from "vue";
 import { CdxAccordion, CdxButton, CdxIcon, CdxMessage, CdxProgressIndicator } from "@wikimedia/codex";
 import { cdxIconAlert, cdxIconClose, cdxIconEye, cdxIconEyeClosed } from "@wikimedia/codex-icons";
@@ -11,26 +11,30 @@ import FindingCard from "../shared/FindingCard.vue";
 import LanguageFilter from "../shared/LanguageFilter.vue";
 import LoadingSteps from "../shared/LoadingSteps.vue";
 import Logo from "../shared/Logo.vue";
-import { langName } from "../shared/util.js";
+import { API, errorText, statusOf, type Diff, type Filters, type Finding, type Member, type Times } from "../shared/types";
+import { langName } from "../shared/util";
 
-const props = defineProps({
-  title: String, lang: String, editing: Boolean,
-  locate: Function, locateLabel: Function, openHome: Function, remove: Function,
-});
-const api = inject("api");
+const props = defineProps<{
+  title: string; lang: string; editing: boolean;
+  locate: (m: Member) => boolean; locateLabel: () => { text: string; title: string };
+  openHome: () => void; remove: () => void;
+}>();
+const api = inject(API)!;
 
-const open = ref(false), panel = ref(null), irrelevant = ref(null);
-const view = ref({ state: "idle" });  // idle | loading | error | done
-let query = { langs: null, dialects: true }, requested = false, loads = 0;
+const open = ref(false), panel = ref<HTMLElement | null>(null), irrelevant = ref<HTMLElement | null>(null);
+type View = { state: "idle" } | { state: "loading"; id: number; times: Times } | { state: "error"; message: string; status: number }
+  | { state: "done"; data: Diff; id: number };
+const view = ref<View>({ state: "idle" });
+let query: Filters = { langs: null, dialects: true }, requested = false, loads = 0;
 const dismissed = ref(0), showIrrelevant = ref(false);
 
-function load(next = query) {
+function load(next: Filters = query) {
   requested = true;
   query = next;
   const mine = ++loads;
   view.value = { state: "loading", id: mine, times: { start: performance.now(), result: null, aiDone: null } };
   const filtered = { ...(query.langs && { langs: query.langs.join(",") }), ...(!query.dialects && { dialects: false }) };
-  api.get("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ...filtered })
+  api.get<Diff>("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ...filtered })
     .then((data) => {
       if (mine !== loads) return;
       dismissed.value = 0;
@@ -40,8 +44,8 @@ function load(next = query) {
     .catch((err) => {
       if (mine !== loads) return;
       // No other edition: stay out of the way (but a filter leaving too few is the reader's to undo).
-      if (!props.editing && err.status === 404 && !Object.keys(filtered).length) return props.remove();
-      view.value = { state: "error", message: err.message, status: err.status };
+      if (!props.editing && statusOf(err) === 404 && !Object.keys(filtered).length) return props.remove();
+      view.value = { state: "error", message: errorText(err), status: statusOf(err) };
     });
 }
 const toggle = () => {
@@ -52,17 +56,17 @@ const toggle = () => {
 // embed every article visited.
 if (props.editing) load();
 
-const data = computed(() => view.value.data);
-const mine = computed(() => data.value.differences.filter((f) => f.members.some((m) => m.lang === props.lang)));
-const elsewhere = computed(() => data.value.differences.filter((f) => !mine.value.includes(f)));
+const data = computed(() => (view.value.state === "done" ? view.value.data : null));
+const mine = computed(() => data.value?.differences.filter((f) => f.members.some((m) => m.lang === props.lang)) ?? []);
+const elsewhere = computed(() => data.value?.differences.filter((f) => !mine.value.includes(f)) ?? []);
 const filtered = computed(() => !!query.langs || !query.dialects);
 const label = computed(() => {
   if (view.value.state === "done") return `WikiCross · ${mine.value.length}`;
   if (view.value.state === "error") return view.value.status ? "WikiCross · –" : "WikiCross · ?";
   return "WikiCross";
 });
-const card = (f) => ({ finding: f, focusLang: props.lang, lazy: true, observeRoot: panel.value, locate: props.locate,
-                       locateLabel: props.locateLabel(), irrelevantTarget: irrelevant.value, onDismiss: () => dismissed.value++ });
+const card = (f: Finding) => ({ finding: f, focusLang: props.lang, lazy: true, observeRoot: panel.value, locate: props.locate,
+                                locateLabel: props.locateLabel(), irrelevantTarget: irrelevant.value, onDismiss: () => dismissed.value++ });
 </script>
 
 <template>
@@ -84,11 +88,11 @@ const card = (f) => ({ finding: f, focusLang: props.lang, lazy: true, observeRoo
         <CdxButton v-if="filtered" size="small" @click="load({ langs: null, dialects: true })">Compare all editions</CdxButton>
       </template>
       <template v-else-if="view.state === 'done'" :key="view.id">
-        <LanguageFilter :languages="data.languages" :langs="query.langs" :dialects="query.dialects" @change="load" />
-        <CdxMessage v-if="!data.languages.includes(lang)" inline>
+        <LanguageFilter :languages="view.data.languages" :langs="query.langs" :dialects="query.dialects" @change="load" />
+        <CdxMessage v-if="!view.data.languages.includes(lang)" inline>
           This version ({{ langName(lang) }}) is not compared: its script is not supported yet. Below, what the others state differently.
         </CdxMessage>
-        <CdxMessage v-else-if="!data.articles.some((a) => a.lang === lang)" inline>
+        <CdxMessage v-else-if="!view.data.articles.some((a) => a.lang === lang)" inline>
           This version ({{ langName(lang) }}) is left out by the filters. Below, what the others state differently.
         </CdxMessage>
         <CdxMessage v-else-if="!mine.length" inline>Nothing in this edition is framed differently from the other editions.</CdxMessage>

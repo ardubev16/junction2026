@@ -1,14 +1,15 @@
 <!-- The numbers behind a finding: an "i" button opening a Codex popover. -->
-<script setup>
-import { computed, ref } from "vue";
+<script setup lang="ts">
+import { computed, ref, type ComponentPublicInstance } from "vue";
 import { CdxButton, CdxIcon, CdxPopover } from "@wikimedia/codex";
 import { cdxIconInfo } from "@wikimedia/codex-icons";
-import { langName, sigma } from "./util.js";
+import type { Finding } from "./types";
+import { langName, sigma } from "./util";
 
-const props = defineProps({ finding: { type: Object, required: true } });
-const open = ref(false), anchor = ref(null);
-const rows = computed(() => Object.entries(props.finding.deviations || {}).sort((a, b) => b[1] - a[1]));
-const own = computed(() => props.finding.deviations?.[props.finding.lang] ?? props.finding.deviation);
+const props = defineProps<{ finding: Finding }>();
+const open = ref(false), anchor = ref<ComponentPublicInstance | null>(null);
+const rows = computed(() => Object.entries(props.finding.deviations).sort((a, b) => b[1] - a[1]));
+const own = computed(() => props.finding.deviations[props.finding.lang] ?? props.finding.deviation);
 </script>
 
 <template>
