@@ -23,3 +23,6 @@
   TypeScript/Vue, Markdown, TOML, the Dockerfile, …) and the tests. Fix the code rather than silencing a
   rule; a new ignore (`pyproject.toml`, `eslint.config.js`, `.markdownlint-cli2.yaml`) or a `noqa` needs its
   reason beside it.
+- **Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)** (`feat:`,
+  `fix:`, `docs:`, `refactor:`, `build:`, …; `!` for breaking changes): release-please derives versions
+  and the changelog from them.

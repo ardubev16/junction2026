@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # Every pre-commit hook on every file. The local hooks run the project's tools: uv for ruff, ty and
+  # uv-lock, node_modules for prettier, eslint and vue-tsc; hadolint and caddy fmt run in Docker.
+  prek:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22 # as the Dockerfile
+          cache: npm
+      - run: npm ci
+      - uses: j178/prek-action@v3
+
+  test:
+    uses: ardubev16/common/.github/workflows/python-test.yaml@main
+
+  # The app's image: built on pull requests, pushed to GHCR as wikicross:main from main (releases:
+  # release-please.yaml).
+  image:
+    uses: ardubev16/common/.github/workflows/docker-build.yaml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-name: wikicross
+      push: ${{ github.event_name == 'push' }}

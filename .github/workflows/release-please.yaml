@@ -1,0 +1,39 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # Keeps a release PR open from the conventional commits on main (version in pyproject.toml and uv.lock,
+  # CHANGELOG.md); merging it tags vX.Y.Z and publishes the GitHub release.
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  # The release's image. Built here, not on the tag: a tag pushed with GITHUB_TOKEN starts no workflow.
+  image:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    uses: ardubev16/common/.github/workflows/docker-build.yaml@main
+    permissions:
+      contents: read
+      packages: write
+    with:
+      image-name: wikicross
+      tags: |
+        type=semver,pattern={{version}},value=v${{ needs.release-please.outputs.version }}
+        type=semver,pattern={{major}}.{{minor}},value=v${{ needs.release-please.outputs.version }}
+        type=raw,value=latest

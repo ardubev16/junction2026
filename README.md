@@ -67,6 +67,15 @@ The front end (`ui/`) is Vue 3, TypeScript and [Codex](https://doc.wikimedia.org
 the web app (`ui/web/`) and the extension (`ui/extension/`); see [AGENTS.md](AGENTS.md). Builds are
 not committed. `--fresh` profiles a loaded topic as new, LLM calls included.
 
+### CI and releases
+
+GitHub Actions (`.github/workflows/`): `ci.yaml` runs the prek hooks, the tests and the image build on
+every pull request and push to `main`, pushing `ghcr.io/ardubev16/wikicross:main` from `main`.
+[release-please](https://github.com/googleapis/release-please) keeps a release PR open from the
+[Conventional Commits](https://www.conventionalcommits.org/) on `main` (version in `pyproject.toml` and
+`uv.lock`, `CHANGELOG.md`); merging it tags `vX.Y.Z`, publishes the GitHub release and pushes the image
+as `X.Y.Z`, `X.Y` and `latest`.
+
 ## Chrome extension
 
 Shows the findings on any Wikipedia article, this edition's first; "Show on page" highlights the
