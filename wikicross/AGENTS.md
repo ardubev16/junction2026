@@ -10,8 +10,8 @@
 - **Codex for the UI** (see README, "Front end"): Codex Vue components, design tokens
   (`var(--color-…)`, never hex colours) and icons (`@wikimedia/codex-icons`). Do not hand-roll a control
   Codex has.
-- **Rebuild after changing `ui/`**: `npm run build`, and commit `src/wikicross/web/` and
-  `extension/dist/` with the change; never edit them by hand.
+- **Builds are not committed**: `src/wikicross/web/` and `extension/dist/` come from `make web` /
+  `make extension` (and the Dockerfile); never edit or commit them.
 - No LLM in detection. The AI is on by default; a failed LLM call must leave the findings usable
   (original quotes, no title).
 - Never read `.env` values; refer to key names only.

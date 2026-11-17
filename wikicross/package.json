@@ -1,9 +1,11 @@
 {
   "private": true,
-  "description": "The web app's and the extension's UI: Vue with Codex, the Wikimedia design system. Built by `npm run build` into src/wikicross/web and extension/dist (both committed).",
+  "description": "The web app's and the extension's UI: Vue with Codex, the Wikimedia design system. Built into src/wikicross/web and extension/dist (not committed): see the Makefile.",
   "type": "module",
   "scripts": {
-    "build": "vite build -c ui/vite.web.config.js && vite build -c ui/vite.extension.config.js",
+    "build:web": "vite build -c ui/vite.web.config.js",
+    "build:extension": "vite build -c ui/vite.extension.config.js",
+    "build": "npm run build:web && npm run build:extension",
     "dev": "vite -c ui/vite.web.config.js"
   },
   "devDependencies": {

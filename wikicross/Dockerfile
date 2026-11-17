@@ -1,5 +1,13 @@
 # From example at: https://github.com/astral-sh/uv-docker-example/blob/main/multistage.Dockerfile
 
+# Build the web app (ui/, Vue + Codex) into src/wikicross/web
+FROM node:22-slim AS web
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+COPY ui ui
+RUN npm run build:web
+
 # Build app dependencies
 FROM python:3.13-slim-bookworm AS builder
 WORKDIR /app
@@ -15,6 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Build app
 COPY . .
+COPY --from=web /app/src/wikicross/web src/wikicross/web
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable
 

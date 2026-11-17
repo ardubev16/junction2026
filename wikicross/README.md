@@ -6,7 +6,7 @@ Vector.
 
 ## Run
 
-Needs Docker, uv and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
+Needs Docker, uv, Node 20+ (to build the web app) and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
 sentences are embedded with bge-m3 on a Modal H100 (`src/wikicross/embed_gpu.py`).
 The embedder is looked up by name in the active Modal profile's workspace; to use one already
 deployed elsewhere (the team's is in `fabio-missagia`), add a token for that workspace instead of
@@ -16,6 +16,7 @@ becomes the active profile), or set `MODAL_PROFILE=fabio-missagia` when starting
 ```bash
 docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the wikicross-data volume
 uv run modal deploy src/wikicross/embed_gpu.py   # bge-m3 on an H100, scales to zero after 5 idle minutes
+make web                          # the web app (needs Node; see Front end)
 uv run --env-file .env wikicross   # http://127.0.0.1:8000; .env holds AI_API_KEY
 ```
 
@@ -68,12 +69,15 @@ messages, popovers, an accordion), design tokens and icons.
 - `ui/extension/`: the extension's panel (`Panel.vue`) and content script (finding the evidence on the
   page), built into `extension/dist/content.js`, its CSS inside the panel's shadow root.
 
-The builds are committed, so running WikiCross needs no Node. After changing `ui/`:
+The builds are not committed. The Dockerfile builds the web app itself (a Node stage); outside Docker,
+the Makefile in `wikicross/` builds them (it runs `npm ci` first when needed):
 
 ```bash
-npm install        # once
-npm run build      # rebuilds src/wikicross/web and extension/dist; commit them with the change
-npm run dev        # the web app with hot reload on http://localhost:5173, /api passed to 127.0.0.1:8000
+make web            # src/wikicross/web, served by `uv run wikicross` (without it, / answers 503)
+make extension      # extension/dist/content.js, for "Load unpacked"
+make extension-zip  # extension.zip, packed for the Chrome Web Store
+make dev            # the web app with hot reload on http://localhost:5173, /api passed to 127.0.0.1:8000
+make clean
 ```
 
 ### Public deployment (HTTPS)
@@ -124,8 +128,9 @@ evidence on the page**: in the article view and VisualEditor just that sentence 
 scrolled to; in the source editor it is selected in the wikitext, link markup and `<ref>`s included.
 
 1. Start the backend (above) on `http://127.0.0.1:8000`.
-2. `chrome://extensions` → Developer mode → **Load unpacked** → select `wikicross/extension`.
-3. Open an article, e.g. `https://fi.wikipedia.org/wiki/Talvisota`, and click the button; or its
+2. Build it: `make extension` (again after changing `ui/`).
+3. `chrome://extensions` → Developer mode → **Load unpacked** → select `wikicross/extension`.
+4. Open an article, e.g. `https://fi.wikipedia.org/wiki/Talvisota`, and click the button; or its
    edit view, where it loads at once.
 
 In the article view the extension asks the backend only when the button is clicked, so reading

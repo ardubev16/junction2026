@@ -2,3 +2,7 @@
 __pycache__/
 .env
 node_modules/
+# Front-end builds (`make`), not committed
+src/wikicross/web/
+extension/dist/
+extension.zip

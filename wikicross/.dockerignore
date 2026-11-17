@@ -6,4 +6,4 @@ docs
 extension
 tests
 node_modules
-ui
+src/wikicross/web

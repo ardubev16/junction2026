@@ -550,14 +550,16 @@ def translate(req: TranslateRequest):
     return {lang: str(answer.get(lang, t)) if lang in todo else t for lang, t in req.texts.items()}
 
 
-WEB = Path(__file__).with_name("web")  # the web app, built from ui/ by `npm run build`
+WEB = Path(__file__).with_name("web")  # the web app, built from ui/ by `make web` (or the Dockerfile)
 
 
 @app.get("/")
 def index():
+    if not (WEB / "index.html").exists():
+        return JSONResponse({"detail": "The web app is not built: run `make web` in wikicross/."}, status_code=503)
     # Revalidate on every load (a 304 when unchanged): browsers otherwise reuse an old page after updates.
     return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 # Its scripts and styles: file names carry a hash of their content, so a new build gets new URLs.
-app.mount("/assets", StaticFiles(directory=WEB / "assets"), name="assets")
+app.mount("/assets", StaticFiles(directory=WEB / "assets", check_dir=False), name="assets")
