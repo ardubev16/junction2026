@@ -57,8 +57,8 @@ seconds, and the total: done ones checked, the current one spinning, the ones th
 need (a topic fetched before, differences cached) marked "not needed". In the web app a last step
 waits for the AI to explain and translate the page's findings ("7 of 10, 1 failed"); the results show
 once it is done, with the steps under "Loaded in N s". A request that gets no answer at all (a dropped
-connection, "Failed to fetch") is sent again twice, after 1 s and 2 s (`ui/web/main.js`,
-`extension/background.js`): AI answers are cached, so a retry costs nothing once one is made.
+connection, "Failed to fetch") is sent again twice, after 1 s and 2 s (`ui/web/main.ts`,
+`ui/extension/background.ts`): AI answers are cached, so a retry costs nothing once one is made.
 
 **Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
 work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article`
@@ -70,25 +70,28 @@ reload, 0.13 s after a restart; Urho Kekkonen 13.7 s, then 0.13 s. A topic loade
 passage match of a cached topic (passages are matched over the whole corpus): delete its `diff_cache`
 row to recompute.
 
-### Front end: Vue and Codex
+### Front end: Vue, Codex and TypeScript
 
-The web app and the extension are one Vue 3 code base in `ui/`, built with Vite, using
-[Codex](https://doc.wikimedia.org/codex/), the Wikimedia design system, so they look like Wikipedia:
-its components (`TypeaheadSearch`, Wikipedia's own search box, buttons, checkboxes, info chips,
-messages, popovers, an accordion), design tokens and icons.
+The web app and the extension are one Vue 3 code base in `ui/`, in TypeScript (`strict`), built with
+Vite, using [Codex](https://doc.wikimedia.org/codex/), the Wikimedia design system, so they look like
+Wikipedia: its components (`TypeaheadSearch`, Wikipedia's own search box, buttons, checkboxes, info
+chips, messages, popovers, an accordion), design tokens and icons.
 
 - `ui/shared/`: what both show: the finding card (`FindingCard.vue`), the language filter, the numbers
-  popover, the expanding context, and their CSS (`style.css`).
+  popover, the loading steps, the expanding context, their CSS (`style.css`), and the backend's
+  answers as types (`types.ts`).
 - `ui/web/`: the web app (`App.vue`), built into `src/wikicross/web/` and served by `app.py`.
-- `ui/extension/`: the extension's panel (`Panel.vue`) and content script (finding the evidence on the
-  page), built into `extension/dist/content.js`, its CSS inside the panel's shadow root.
+- `ui/extension/`: the extension's panel (`Panel.vue`), content script (finding the evidence on the
+  page) and service worker (`background.ts`, calling the backend), built into `extension/dist/`; the
+  panel's CSS sits inside its shadow root.
 
-The builds are not committed. The Dockerfile builds the web app itself (a Node stage); outside Docker,
-the Makefile builds them (it runs `npm ci` first when needed):
+The builds are not committed. Every build type-checks first (`vue-tsc`, as `npm run typecheck`) and
+stops on a type error. The Dockerfile builds the web app itself (a Node stage); outside Docker, the
+Makefile builds them (it runs `npm ci` first when needed):
 
 ```bash
 make web            # src/wikicross/web, served by `uv run wikicross` (without it, / answers 503)
-make extension      # extension/dist/content.js, for "Load unpacked"
+make extension      # extension/dist/content.js and background.js, for "Load unpacked"
 make extension-zip  # extension.zip, packed for the Chrome Web Store
 make dev            # the web app with hot reload on http://localhost:5173, /api passed to 127.0.0.1:8000
 make clean
@@ -131,7 +134,8 @@ client reaching the VM over IPv6 shows up as Docker's private gateway address, h
 only. The counters live in the server process and reset when it restarts.
 
 The extension still points at `http://127.0.0.1:8000`: for the deployment, change `BACKEND` in
-`extension/background.js` and `host_permissions` in `extension/manifest.json` to `https://DOMAIN`.
+`ui/extension/background.ts` and `host_permissions` in `extension/manifest.json` to `https://DOMAIN`,
+then `make extension`.
 
 ### Telemetry (OpenTelemetry)
 
@@ -168,8 +172,9 @@ uv run --group otel --env-file .env opentelemetry-instrument uvicorn wikicross.a
 comparing), then the first page's ten AI calls at once, as the web app makes them:
 
 ```bash
-uv run --env-file .env scripts/profile.py Joensuu --lang fi   # a topic never loaded; --fresh forgets one first
-uv run vizviewer profile.json                                  # the timeline, in the browser
+make profile TITLE=Joensuu EDITION=fi                          # a topic never loaded, into profile.json
+make profile TITLE=Talvisota EDITION=fi PROFILE_ARGS="--fresh --no-ai"
+make profile-view                                              # the timeline, in the browser (vizviewer)
 ```
 
 `--fresh` deletes the topic's editions, passages, sentences and cached differences first (LLM answers
@@ -199,11 +204,11 @@ Wikipedia does not fetch and embed every topic visited; a page whose topic has n
 its button. Findings cover all Wikipedia versions of the article, those involving the page's own
 edition first (`/api/diff?focus=fi`); a card shows three editions, the rest on "Show all".
 It calls the backend from its service worker (host permission, no CORS change needed); for another
-backend address, change `BACKEND` in `extension/background.js` and `host_permissions` in
+backend address, change `BACKEND` in `ui/extension/background.ts` and `host_permissions` in
 `extension/manifest.json`. Findings come from when the editions were fetched, not the live page: a
 paragraph edited since may still be found (by its words), or not. A topic not embedded yet takes minutes
 the first time; past about five minutes Chrome may stop the service worker, and asking again shows
-the result once the backend has finished. After changing `background.js`, reload the extension in
+the result once the backend has finished. After changing `background.ts` and `make extension`, reload the extension in
 `chrome://extensions`: Chrome keeps running the old worker otherwise.
 
 The web app and the extension share their components: see [AGENTS.md](AGENTS.md).
