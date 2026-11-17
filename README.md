@@ -133,6 +133,49 @@ only. The counters live in the server process and reset when it restarts.
 The extension still points at `http://127.0.0.1:8000`: for the deployment, change `BACKEND` in
 `extension/background.js` and `host_permissions` in `extension/manifest.json` to `https://DOMAIN`.
 
+### Telemetry (OpenTelemetry)
+
+The image runs the server under `opentelemetry-instrument` (`otel` dependency group), which traces
+every request, HTTP call (Wikipedia, the LLM) and SQL statement, and records HTTP server and client
+metrics. `src/wikicross/telemetry.py` adds a span per `/api/diff` step (`step lookup`, `step
+editions`, …: the loading view's steps; that step's HTTP calls and SQL nest in it, the editions'
+fetches included) and two metrics: `wikicross.diff.step.duration` (seconds per step, by `step`) and
+`wikicross.cache.lookups` (by `cache`: diff, llm; `result`: hit, miss). It is off unless
+`OTEL_SDK_DISABLED=false`; then it exports over OTLP (HTTP) to `OTEL_EXPORTER_OTLP_ENDPOINT`.
+
+To keep it on the VM, add the `otel` profile: Grafana's `otel-lgtm` image (an OpenTelemetry
+collector, Tempo for traces, Prometheus for metrics, Grafana), data in the `otel-data` volume:
+
+```bash
+cat >> .env <<'EOF'
+COMPOSE_PROFILES=deploy,otel
+OTEL_SDK_DISABLED=false
+EOF
+docker compose up -d
+ssh -L 3000:127.0.0.1:3000 vm   # then http://localhost:3000: Explore → Tempo / Prometheus
+```
+
+Its Grafana lets anyone in as admin, so it listens on the VM's localhost only. Another backend
+(Grafana Cloud, Honeycomb, …): leave out the profile and set `OTEL_EXPORTER_OTLP_ENDPOINT` and
+`OTEL_EXPORTER_OTLP_HEADERS` in `.env`. Locally: `docker compose --profile otel up -d otel`, then
+`OTEL_SDK_DISABLED=false OTEL_SERVICE_NAME=wikicross OTEL_EXPORTER_OTLP_ENDPOINT=http://127.0.0.1:4318
+uv run --group otel --env-file .env opentelemetry-instrument uvicorn wikicross.app:app`.
+
+### Profiling (VizTracer)
+
+`scripts/profile.py` runs the whole pipeline of a new article in one process under VizTracer: what
+`/api/diff` does (fetching the editions, embedding passages, matching, embedding sentences,
+comparing), then the first page's ten AI calls at once, as the web app makes them:
+
+```bash
+uv run --env-file .env scripts/profile.py Joensuu --lang fi   # a topic never loaded; --fresh forgets one first
+uv run vizviewer profile.json                                  # the timeline, in the browser
+```
+
+`--fresh` deletes the topic's editions, passages, sentences and cached differences first (LLM answers
+stay cached); `--no-ai` stops after the comparison; calls under 20 µs are left out (`--min-duration`)
+to keep the file loadable. Every thread is traced: the edition fetchers, Modal's client, the AI calls.
+
 ### Chrome extension
 
 `extension/` shows the same findings, with the same card as the web app (`ui/shared/`), on every Wikipedia
