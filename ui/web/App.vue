@@ -4,10 +4,11 @@
      suggestion or the extension's link. -->
 <script setup>
 import { computed, inject, nextTick, ref } from "vue";
-import { CdxButton, CdxIcon, CdxMessage, CdxProgressIndicator, CdxTypeaheadSearch } from "@wikimedia/codex";
+import { CdxButton, CdxIcon, CdxMessage, CdxTypeaheadSearch } from "@wikimedia/codex";
 import { cdxIconEye, cdxIconEyeClosed, cdxIconNext, cdxIconPrevious } from "@wikimedia/codex-icons";
 import FindingCard from "../shared/FindingCard.vue";
 import LanguageFilter from "../shared/LanguageFilter.vue";
+import LoadingSteps from "../shared/LoadingSteps.vue";
 import Logo from "../shared/Logo.vue";
 import { langName } from "../shared/util.js";
 import EditionsMenu from "./EditionsMenu.vue";
@@ -70,32 +71,18 @@ async function onSearchSubmit(e) {
 const irrelevant = ref(null), dismissed = ref(0), showIrrelevant = ref(false);
 const resetDismissed = () => { dismissed.value = 0; showIrrelevant.value = false; };
 const view = ref({ state: "idle" });  // idle | loading | error | done
-const stage = ref("Looking the topic up…"), seconds = ref("");
 let current = 0;
 async function search(q, push) {
   if (push) history.pushState(null, "", `?${queryString(q)}`);
   setSearchValue(q.title);
   document.title = `${q.title} — WikiCross`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
-  view.value = { state: "loading" };
-  stage.value = "Looking the topic up…";
-  seconds.value = "";
-  // The server's current stage (fetching editions, embedding, comparing), polled each second.
-  const poll = setInterval(async () => {
-    try {
-      const p = await api.get("/api/progress", { title: q.title });
-      if (mine !== current || !p.stage) return;
-      stage.value = `${p.stage}…`;
-      seconds.value = `${p.seconds} s`;
-    } catch { /* the result itself reports errors */ }
-  }, 1000);
+  view.value = { state: "loading", title: q.title, id: mine };
   try {
     const data = await api.get("/api/diff", { title: q.title, limit: PER_PAGE, offset: (q.page - 1) * PER_PAGE, ...params(q) });
     if (mine === current) { resetDismissed(); view.value = { state: "done", data, query: q, id: mine }; }
   } catch (err) {
     if (mine === current) view.value = { state: "error", message: err.status ? err.message : `WikiCross server not reachable: ${err.message}` };
-  } finally {
-    clearInterval(poll);
   }
 }
 window.addEventListener("popstate", () => { const q = urlQuery(); if (q.title) search(q, false); });
@@ -133,13 +120,7 @@ const refilter = ({ langs, dialects }) => search({ ...query.value, langs, dialec
       </CdxMessage>
     </template>
 
-    <div v-else-if="view.state === 'loading'" class="loading">
-      <CdxProgressIndicator>Comparing the editions</CdxProgressIndicator>
-      <div>
-        <div class="stage" role="status">{{ stage }} <span class="muted" aria-hidden="true">{{ seconds }}</span></div>
-        <div class="muted">The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this may take a few minutes.</div>
-      </div>
-    </div>
+    <LoadingSteps v-else-if="view.state === 'loading'" :key="view.id" :title="view.title" />
 
     <CdxMessage v-else-if="view.state === 'error'" type="error">{{ view.message }}</CdxMessage>
 

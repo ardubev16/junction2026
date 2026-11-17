@@ -275,10 +275,21 @@ def titles(q: str):
     return out
 
 
-# What each running /api/diff is doing, for the page's loading view: title asked for -> (stage, start).
-# shortcut: in this process only, and two requests for one title share an entry; with several server
-# processes, keep it in a table.
-PROGRESS: dict[str, tuple[str, float]] = {}
+# The steps of a /api/diff, in order, as the loading view lists them; progress(key, detail) moves to one.
+# Steps a request does not need (a topic fetched before skips "editions"; cached differences skip the
+# last three) are passed over.
+STEPS = {
+    "lookup": "Looking the topic up",
+    "editions": "Fetching its editions from Wikipedia",
+    "passages": "Splitting the editions into passages and embedding them",
+    "match": "Matching passages across languages",
+    "sentences": "Embedding the sentences of matched passages",
+    "compare": "Comparing the sentences",
+}
+# What each running /api/diff is doing: title asked for -> {"visited": step keys so far, "detail", "start"}.
+# Two requests for one title share the first one's entry (the second finds its work done, or waits for it).
+# shortcut: in this process only; with several server processes, keep it in a table.
+PROGRESS: dict[str, dict] = {}
 
 
 @app.get("/api/diff")
@@ -289,12 +300,16 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
     Wikipedia if the database does not have it), `focus` an edition whose findings go first.
     `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect();
     `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not."""
-    start = time.monotonic()
+    mine = {"visited": [], "detail": "", "start": time.monotonic()}
+    owner = PROGRESS.setdefault(title, mine) is mine
 
-    def progress(stage: str) -> None:
-        PROGRESS[title] = (stage, start)
+    def progress(step: str, detail: str = "") -> None:
+        if owner:
+            if mine["visited"][-1:] != [step]:
+                mine["visited"].append(step)
+            mine["detail"] = detail
 
-    progress("Looking the topic up")
+    progress("lookup")
     try:
         data = compare_editions(title, lang, progress, dialects, set(langs.split(",")) if langs else None)
         # findings involving the focus edition first, each group in its own order, then the page
@@ -303,7 +318,8 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
         data["differences"] = data["differences"][offset : offset + limit]
         return data
     finally:
-        PROGRESS.pop(title, None)
+        if owner:
+            PROGRESS.pop(title, None)
 
 
 def is_dialect(lang: str) -> bool:
@@ -314,11 +330,14 @@ def is_dialect(lang: str) -> bool:
 
 @app.get("/api/progress")
 def progress_of(title: str):
-    """The stage of a running /api/diff for this title and its seconds so far; stage null if none runs."""
+    """The steps of a /api/diff (`steps`: key and label, in order), those a running one for this title has
+    reached (`visited`, the last is the current one; empty if none runs), the current step's `detail`
+    and the seconds so far."""
+    steps = [{"key": k, "label": v} for k, v in STEPS.items()]
     if (entry := PROGRESS.get(title)) is None:
-        return {"stage": None, "seconds": 0}
-    stage, start = entry
-    return {"stage": stage, "seconds": round(time.monotonic() - start)}
+        return {"steps": steps, "visited": [], "detail": "", "seconds": 0}
+    return {"steps": steps, "visited": entry["visited"], "detail": entry["detail"],
+            "seconds": round(time.monotonic() - entry["start"])}
 
 
 def narrow(found: list[dict], kept: set[str]) -> list[dict]:
@@ -377,7 +396,7 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         # included; after an hour of waiting the request goes ahead anyway.
         cur.execute("SELECT GET_LOCK(%s, 0)", (f"wikicross:{wikidata_id}",))
         if not cur.fetchone()[0]:
-            progress("This topic is being loaded: waiting for it to finish")
+            progress("lookup", "waiting for another request that is loading this topic")
             cur.execute("SELECT GET_LOCK(%s, 3600)", (f"wikicross:{wikidata_id}",))
         wiki.ensure_editions(cur, wikidata_id, seed_host, seed_title, seed_lang, progress)
         cur.execute(
@@ -391,7 +410,7 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
             raise HTTPException(404, "fewer than two languages left: pick more" if len(every) >= 2
                                 else f"{title!r} exists in one language only")
         # Always compared over every edition (computed once, then cached); filters only trim the result.
-        progress(f"Splitting {len(every)} editions into passages and embedding the new ones")
+        progress("passages", f"{len(every)} editions; only new ones are embedded")
         ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in every])
 
         kept = {a[0] for a in articles}
@@ -406,11 +425,11 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
             found = json.loads(row[0])
         else:
             def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
-                progress(f"Embedding the sentences of {len(pages)} matched articles")
+                progress("sentences", f"{len(pages)} articles")
                 ensure_sentences(cur, pages)
-                progress("Comparing sentences: framing")
+                progress("compare")
 
-            progress("Matching passages across languages")
+            progress("match")
             found = differences(cur, wikidata_id, sentences_then_compare, {a[0] for a in every})
             cur.execute("REPLACE INTO diff_cache VALUES (%s, %s, %s)", (wikidata_id, state, json.dumps(found)))
         if len(kept) < len(every):

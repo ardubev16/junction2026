@@ -19,6 +19,5 @@ h1 { font-size: var(--font-size-xxx-large); margin: 0; }
 .editions a { display: block; break-inside: avoid; padding: .1rem 0; }
 .editions b { color: var(--color-base); font-weight: normal; }
 a { color: var(--color-link); text-decoration: none; } a:hover { text-decoration: underline; }
-.loading { display: flex; gap: 1rem; align-items: center; margin: 2rem 0; }
-.loading .stage { font-size: var(--font-size-large); }
+.loading { margin: 2rem 0; font-size: var(--font-size-large); }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.5rem 0; }

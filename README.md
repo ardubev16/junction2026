@@ -48,10 +48,12 @@ Urho Kekkonen gained 8 editions (be, be-tarask, mn, os, ru, sr, uk, …) and Tal
 Titles are looked up in any language in the database, else on English Wikipedia; `/api/diff?lang=de`
 looks them up in that edition only (in the database, else on de.wikipedia.org), as the extension does.
 
-**Loading feedback**: while `/api/diff` works, `/api/progress?title=` gives its current stage
-("Fetching edition 12 of 63 from Wikipedia (ru.wikipedia.org)", embedding, matching, comparing) and
-the seconds so far; the web app and the extension poll it each second under a spinner. AI checks and
-translations show the same spinner.
+**Loading feedback**: while `/api/diff` works, `/api/progress?title=` gives its steps in order
+(`app.STEPS`: looking the topic up, fetching the editions, embedding passages, matching them, embedding
+their sentences, comparing), the ones it has reached, a detail ("fetched 12 of 63") and the seconds so
+far. The web app and the extension (`ui/shared/LoadingSteps.vue`) poll it each second and list the
+steps: done ones checked, the current one spinning, the ones this request did not need (a topic fetched
+before, differences cached) marked "not needed". AI checks and translations show a spinner.
 
 **Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
 work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article`
@@ -217,7 +219,7 @@ only those editions; `&dialects=false` leaves
 out editions without a two-letter ISO 639-1 code, i.e. regional languages and varieties such as
 Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian Taraškievica
 `be-tarask`; `languages` lists every edition of the topic, filtered or not),
-`GET /api/progress?title=Talvisota` (stage of a running diff),
+`GET /api/progress?title=Talvisota` (`steps`, the `visited` ones of a running diff, `detail`, `seconds`),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
 `POST /api/explain {"passages": [{"lang", "heading", "text", "sentence"}, …]}` (one finding:
 `discrepancy`, `title`, `description` and `quotes` per language: `english`, `heading`, `phrases`),

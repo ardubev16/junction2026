@@ -170,14 +170,14 @@ def resolve(lang: str, title: str) -> dict | None:
 
 
 def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed_lang: str,
-                    progress=lambda message: None) -> None:
+                    progress=lambda step, detail="": None) -> None:
     """Fetch and store every edition of the topic in SCRIPTS not in the DB yet, once per topic
     and set of scripts (a topic fetched before Cyrillic was added fetches its Cyrillic editions once).
-    `progress(message)` is told what is happening, for the page's loading view."""
+    `progress(step, detail)` is told what is happening, for the page's loading view (app.STEPS)."""
     cur.execute("SELECT 1 FROM topic_editions WHERE wikidata_id = %s AND scripts = %s", (wikidata_id, ",".join(SCRIPTS)))
     if cur.fetchone():
         return
-    progress("Looking up the other language editions on Wikipedia")
+    progress("editions", "finding the other language editions")
     try:
         seed = page(seed_host, seed_title, text=False)
         reason = "seed page missing" if not seed else (
@@ -198,7 +198,7 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
     with ThreadPoolExecutor(FETCHERS) as pool:
         jobs = {pool.submit(page, urlparse(url).netloc, title, True): lang for lang, url, title in wanted}
         for done, job in enumerate(as_completed(jobs), 1):
-            progress(f"Fetched {done} of {len(wanted)} editions from Wikipedia")
+            progress("editions", f"fetched {done} of {len(wanted)}")
             try:
                 p = job.result()
             except WikiError as e:
@@ -211,7 +211,7 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
             fetched.append({**p, "lang": jobs[job]})
     fetched.sort(key=lambda e: e["lang"])  # completion order varies; keep runs comparable
 
-    progress(f"Storing {len(fetched)} new editions")
+    progress("editions", f"storing {len(fetched)} new editions")
     classified = appendix_headings(sorted({h for e in fetched for _, h in headings(e["extract"])}))
     dropped = [trailing_appendix(e["extract"], classified) for e in fetched]
     cur.connection.begin()

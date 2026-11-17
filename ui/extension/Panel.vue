@@ -9,6 +9,7 @@ import { CdxAccordion, CdxButton, CdxIcon, CdxMessage, CdxProgressIndicator } fr
 import { cdxIconAlert, cdxIconClose, cdxIconEye, cdxIconEyeClosed } from "@wikimedia/codex-icons";
 import FindingCard from "../shared/FindingCard.vue";
 import LanguageFilter from "../shared/LanguageFilter.vue";
+import LoadingSteps from "../shared/LoadingSteps.vue";
 import Logo from "../shared/Logo.vue";
 import { langName } from "../shared/util.js";
 
@@ -20,7 +21,6 @@ const api = inject("api");
 
 const open = ref(false), panel = ref(null), irrelevant = ref(null);
 const view = ref({ state: "idle" });  // idle | loading | error | done
-const stage = ref(""), seconds = ref("");
 let query = { langs: null, dialects: true }, requested = false, loads = 0;
 const dismissed = ref(0), showIrrelevant = ref(false);
 
@@ -28,15 +28,7 @@ function load(next = query) {
   requested = true;
   query = next;
   const mine = ++loads;
-  view.value = { state: "loading" };
-  stage.value = "Looking the topic up…";
-  seconds.value = "";
-  // The server's current stage, polled each second while it works.
-  const poll = setInterval(() => api.get("/api/progress", { title: props.title }).then((p) => {
-    if (!p.stage || mine !== loads) return;
-    stage.value = `${p.stage}…`;
-    seconds.value = `${p.seconds} s`;
-  }).catch(() => {}), 1000);
+  view.value = { state: "loading", id: mine };
   const filtered = { ...(query.langs && { langs: query.langs.join(",") }), ...(!query.dialects && { dialects: false }) };
   api.get("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ...filtered })
     .then((data) => {
@@ -50,8 +42,7 @@ function load(next = query) {
       // No other edition: stay out of the way (but a filter leaving too few is the reader's to undo).
       if (!props.editing && err.status === 404 && !Object.keys(filtered).length) return props.remove();
       view.value = { state: "error", message: err.message, status: err.status };
-    })
-    .finally(() => clearInterval(poll));
+    });
 }
 const toggle = () => {
   open.value = !open.value;
@@ -87,13 +78,7 @@ const card = (f) => ({ finding: f, focusLang: props.lang, lazy: true, observeRoo
       <CdxButton weight="quiet" aria-label="Close" title="Close" @click="open = false"><CdxIcon :icon="cdxIconClose" /></CdxButton>
     </header>
     <div class="body">
-      <div v-if="view.state === 'loading'" class="loading">
-        <CdxProgressIndicator>Comparing the editions</CdxProgressIndicator>
-        <div>
-          <div role="status">{{ stage }} <span class="muted" aria-hidden="true">{{ seconds }}</span></div>
-          <p class="muted">The first time an article is asked for, all its Wikipedia versions are fetched and embedded: this can take a few minutes.</p>
-        </div>
-      </div>
+      <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="title" />
       <template v-else-if="view.state === 'error'">
         <CdxMessage type="error">{{ view.message }}</CdxMessage>
         <CdxButton v-if="filtered" size="small" @click="load({ langs: null, dialects: true })">Compare all editions</CdxButton>
