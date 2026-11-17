@@ -30,6 +30,14 @@ services:
       DB_PORT: "3306"
       # Exempt from the rate limit. Not private ranges: over IPv6, Docker's proxy hands Caddy a private address.
       ALLOWED_IPS: ${ALLOWED_IPS:-127.0.0.1 ::1}
+      # OpenTelemetry: off unless OTEL_SDK_DISABLED=false in .env. Then traces and metrics go over OTLP to
+      # OTEL_EXPORTER_OTLP_ENDPOINT: by default the otel service below; another backend needs its URL
+      # and, usually, OTEL_EXPORTER_OTLP_HEADERS (e.g. an API key) in .env.
+      OTEL_SDK_DISABLED: ${OTEL_SDK_DISABLED:-true}
+      OTEL_SERVICE_NAME: wikicross
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel:4318}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_LOGS_EXPORTER: none
     depends_on:
       mariadb:
         condition: service_healthy
@@ -52,7 +60,22 @@ services:
       - app
     restart: unless-stopped
 
+  # Telemetry store and viewer: Grafana with Tempo (traces), Prometheus (metrics) and Loki behind an
+  # OpenTelemetry collector, in one image. `COMPOSE_PROFILES=deploy,otel` and OTEL_SDK_DISABLED=false.
+  # Its Grafana lets anyone in as admin: reachable on the VM only, `ssh -L 3000:127.0.0.1:3000 vm`, then
+  # http://localhost:3000. OTLP on 127.0.0.1:4318 too, for a server run outside Docker (see README).
+  otel:
+    image: grafana/otel-lgtm:0.41.0
+    profiles: [otel]
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4318:4318"
+    volumes:
+      - otel-data:/data
+    restart: unless-stopped
+
 volumes:
   wikicross-data:
   caddy-data:
   caddy-config:
+  otel-data:

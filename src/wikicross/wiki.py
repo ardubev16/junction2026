@@ -6,6 +6,7 @@ at a time; Wikimedia answers bursts with HTTP 429 and
 Retry-After, which api() waits out.
 """
 
+import contextvars
 import re
 import time
 import unicodedata
@@ -196,7 +197,9 @@ def ensure_editions(cur, wikidata_id: str, seed_host: str, seed_title: str, seed
     wanted = [c for c in candidates if in_scripts(c[2])]
     fetched, failed = [], False
     with ThreadPoolExecutor(FETCHERS) as pool:
-        jobs = {pool.submit(page, urlparse(url).netloc, title, True): lang for lang, url, title in wanted}
+        # Each fetch in a copy of this context: its HTTP spans nest under the request's trace.
+        jobs = {pool.submit(contextvars.copy_context().run, page, urlparse(url).netloc, title, True): lang
+                for lang, url, title in wanted}
         for done, job in enumerate(as_completed(jobs), 1):
             progress("editions", f"fetched {done} of {len(wanted)}")
             try:

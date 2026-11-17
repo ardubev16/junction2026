@@ -19,13 +19,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
     --mount=type=bind,source=.python-version,target=.python-version \
-    uv sync --locked --no-dev --no-install-project --no-editable
+    uv sync --locked --no-dev --group otel --no-install-project --no-editable
 
 # Build app
 COPY . .
 COPY --from=web /app/src/wikicross/web src/wikicross/web
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --group otel --no-editable
 
 
 # Copy app to runtime stage
@@ -45,4 +45,5 @@ ENV PATH="/app/.venv/bin:$PATH"
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 # Not the `wikicross` script: that binds 127.0.0.1, and Caddy reaches the app from another container.
 # Only Caddy can reach the app (no published port), so its X-Forwarded-For is trusted as the client IP.
-CMD ["uvicorn", "wikicross.app:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "*"]
+# Under opentelemetry-instrument: traces and metrics as the OTEL_* variables say (docker-compose.yml).
+CMD ["opentelemetry-instrument", "uvicorn", "wikicross.app:app", "--host", "0.0.0.0", "--port", "8000", "--forwarded-allow-ips", "*"]

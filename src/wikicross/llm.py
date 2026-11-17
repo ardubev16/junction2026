@@ -16,6 +16,7 @@ import httpx
 from fastapi import HTTPException
 
 from .db import connect
+from .telemetry import CACHE_LOOKUPS
 
 PRESETS = {
     "gemini": {
@@ -114,7 +115,9 @@ def chat(system: str, user: str, schema: dict) -> dict:
     with connect() as conn, conn.cursor() as cur:
         cur.execute("SELECT response FROM llm_cache WHERE k = %s", (cache_key,))
         if row := cur.fetchone():
+            CACHE_LOOKUPS.add(1, {"cache": "llm", "result": "hit"})
             return json.loads(row[0])
+        CACHE_LOOKUPS.add(1, {"cache": "llm", "result": "miss"})
         api_key = os.environ.get(LLM["key"]) or os.environ.get("AI_API_KEY")
         if not api_key:
             raise HTTPException(503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env wikicross")

@@ -17,6 +17,7 @@ import anyio.to_thread
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from opentelemetry import context as otel_context, trace
 from pydantic import BaseModel, Field
 
 from . import compare, embed_gpu, wiki
@@ -24,6 +25,7 @@ from .compare import differences
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
 from .llm import chat
+from .telemetry import CACHE_LOOKUPS, STEP_SECONDS, tracer
 
 MIN_CHARS = 300  # merge paragraphs until a part is at least this long: tiny parts embed noisily
 TARGETS = {"en": "English"}  # languages the UI can translate into
@@ -314,10 +316,23 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
     `progress` the steps this request took, each with its start second, and its `seconds` in all."""
     mine = {"visited": [], "detail": "", "start": time.monotonic()}
     owner = PROGRESS.setdefault(title, mine) is mine  # only the first request for a title is polled
+    # The current step as a trace span, made current so the step's HTTP calls and SQL nest under it.
+    step = {"span": None, "token": None}
 
-    def progress(step: str, detail: str = "") -> None:
-        if not mine["visited"] or mine["visited"][-1][0] != step:
-            mine["visited"].append([step, round(time.monotonic() - mine["start"], 1)])
+    def end_step() -> None:
+        if step["span"]:
+            key, began = mine["visited"][-1]
+            STEP_SECONDS.record(time.monotonic() - mine["start"] - began, {"step": key})
+            otel_context.detach(step["token"])
+            step["span"].end()
+            step["span"] = None
+
+    def progress(key: str, detail: str = "") -> None:
+        if not mine["visited"] or mine["visited"][-1][0] != key:
+            end_step()
+            mine["visited"].append([key, round(time.monotonic() - mine["start"], 1)])
+            step["span"] = tracer.start_span(f"step {key}", attributes={"wikicross.title": title})
+            step["token"] = otel_context.attach(trace.set_span_in_context(step["span"]))
         mine["detail"] = detail
 
     progress("lookup")
@@ -330,6 +345,7 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
         data["progress"] = report(mine)
         return data
     finally:
+        end_step()
         if owner:
             PROGRESS.pop(title, None)
 
@@ -428,8 +444,10 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         state = hashlib.sha256(json.dumps([CODE, sorted((lang, page_id) for lang, page_id, *_ in every)]).encode()).digest()
         cur.execute("SELECT response FROM diff_cache WHERE wikidata_id = %s AND state = %s", (wikidata_id, state))
         if row := cur.fetchone():
+            CACHE_LOOKUPS.add(1, {"cache": "diff", "result": "hit"})
             found = json.loads(row[0])
         else:
+            CACHE_LOOKUPS.add(1, {"cache": "diff", "result": "miss"})
             def sentences_then_compare(cur, pages):  # differences() embeds sentences, then compares them
                 progress("sentences", f"{len(pages)} articles")
                 ensure_sentences(cur, pages)
