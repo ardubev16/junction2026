@@ -10,7 +10,7 @@ import FindingCard from "../shared/FindingCard.vue";
 import LanguageFilter from "../shared/LanguageFilter.vue";
 import LoadingSteps from "../shared/LoadingSteps.vue";
 import Logo from "../shared/Logo.vue";
-import { API, errorText, statusOf, type AiStep, type Diff, type Filters, type Limits, type Params, type Times, type TitleSuggestion } from "../shared/types";
+import { API, errorText, statusOf, type Diff, type Filters, type Limits, type Params, type TitleSuggestion } from "../shared/types";
 import { langName } from "../shared/util";
 import EditionsMenu from "./EditionsMenu.vue";
 
@@ -78,9 +78,8 @@ async function onSearchSubmit(e: Event) {
 // Findings the AI check does not confirm leave the list for a hidden one under it, behind a button.
 const irrelevant = ref<HTMLElement | null>(null), dismissed = ref(0), showIrrelevant = ref(false);
 const resetDismissed = () => { dismissed.value = 0; showIrrelevant.value = false; };
-// A search's timings and its AI step (cards answered of the page's): the loading view lists them until
-// the AI is done, then the results show.
-interface Run { title: string; id: number; times: Times; ai: AiStep }
+// The loading view lists a search's steps, the AI's included, until /api/diff answers; then the results show.
+interface Run { title: string; id: number }
 type View = { state: "idle" } | { state: "error"; message: string } | ({ state: "loading" } & Run)
   | ({ state: "done"; data: Diff; query: Query } & Run);
 const view = ref<View>({ state: "idle" });
@@ -90,31 +89,17 @@ async function search(q: Query, push: boolean) {
   setSearchValue(q.title);
   document.title = `${q.title} — WikiCross`;
   const mine = ++current;  // a slower, older search must not overwrite a newer one
-  const times: Times = { start: performance.now(), result: null, aiDone: null }, ai: AiStep = { total: 0, settled: 0, failed: 0 };
-  view.value = { state: "loading", title: q.title, id: mine, times, ai };
+  view.value = { state: "loading", title: q.title, id: mine };
   try {
     const data = await api.get<Diff>("/api/diff", { title: q.title, limit: PER_PAGE, offset: (q.page - 1) * PER_PAGE, ...params(q) });
     if (mine !== current) return;
     resetDismissed();
-    times.result = performance.now();
-    ai.total = data.differences.length;
-    if (!ai.total) times.aiDone = times.result;
-    view.value = { state: "done", data, query: q, title: q.title, id: mine, times, ai };
+    view.value = { state: "done", data, query: q, title: q.title, id: mine };
   } catch (err) {
     if (mine === current) view.value = { state: "error", message: statusOf(err) ? errorText(err) : `WikiCross server not reachable: ${errorText(err)}` };
   }
 }
-const run = computed(() => (view.value.state === "loading" || view.value.state === "done" ? view.value : null));
 const done = computed(() => (view.value.state === "done" ? view.value : null));
-const cardReady = ({ failed }: { failed: boolean }) => {
-  if (!done.value) return;
-  const { ai, times } = done.value;
-  ai.settled++;
-  if (failed) ai.failed++;
-  if (ai.settled === ai.total) times.aiDone = performance.now();
-};
-const loaded = computed(() => done.value?.times.aiDone != null);
-const loadedIn = computed(() => (done.value ? Math.round((done.value.times.aiDone! - done.value.times.start) / 1000) : 0));
 window.addEventListener("popstate", () => { const q = urlQuery(); if (q.title) search(q, false); });
 if (urlQuery().title) search(urlQuery(), false);
 // The rate limits, if on (RATE_LIMIT in app.py): stated on the home page.
@@ -149,25 +134,23 @@ const refilter = ({ langs, dialects }: Filters) => { if (done.value) search({ ..
 
     <CdxMessage v-else-if="view.state === 'error'" type="error">{{ view.message }}</CdxMessage>
 
-    <LoadingSteps v-if="run && !loaded" :key="run.id" :title="run.title"
-                  :result="done?.data.progress ?? null" :ai="run.ai" :times="run.times" />
+    <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="view.title" />
 
-    <!-- Rendered while the AI works, so the cards ask it; shown once it is done. -->
-    <div v-if="done" v-show="loaded" :key="done.id">
+    <div v-if="done" :key="done.id">
       <div class="pagehead">
         <h1>{{ head?.title }}</h1>
         <EditionsMenu :articles="done.data.articles" />
       </div>
       <LanguageFilter :languages="done.data.languages" :langs="done.query.langs" :dialects="done.query.dialects" @change="refilter" />
-      <CdxAccordion v-if="loaded" class="timing">
-        <template #title>Loaded in {{ loadedIn }} s</template>
-        <LoadingSteps :title="done.title" :result="done.data.progress" :ai="done.ai" :times="done.times" />
+      <CdxAccordion class="timing">
+        <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
+        <LoadingSteps :title="done.title" :result="done.data.progress" />
       </CdxAccordion>
       <template v-if="done.data.total">
         <h2>{{ done.data.total }} differences</h2>
         <p class="muted">Strongest first. Showing {{ from + 1 }}–{{ from + done.data.differences.length }}.</p>
         <FindingCard v-for="(f, i) in done.data.differences" :key="`${done.id}-${i}`" :finding="f" paragraphs
-                     :irrelevant-target="irrelevant" @dismiss="dismissed++" @ready="cardReady" />
+                     :irrelevant-target="irrelevant" @dismiss="dismissed++" />
         <CdxButton v-if="dismissed" size="small" :aria-expanded="String(showIrrelevant)" @click="showIrrelevant = !showIrrelevant">
           <CdxIcon :icon="showIrrelevant ? cdxIconEyeClosed : cdxIconEye" size="small" />
           {{ showIrrelevant ? "Hide" : "Show" }} {{ dismissed }} finding{{ dismissed === 1 ? "" : "s" }} the AI marked as irrelevant

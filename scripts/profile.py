@@ -1,6 +1,6 @@
 """Profile the pipeline of a new article with VizTracer: all that /api/diff does for a topic not in the
-database (fetching its editions, embedding passages, matching them, embedding sentences, comparing),
-then the AI explaining the first page's findings, ten calls at once as the web app makes them.
+database (fetching its editions, embedding passages, matching them, embedding sentences, comparing, then
+the AI explaining the first page's ten findings at once).
 
     uv run --env-file .env scripts/profile.py Kuopio --lang fi --fresh   # into profiles/Kuopio.json
     uv run vizviewer profiles/Kuopio.json
@@ -12,10 +12,8 @@ sentences and cached differences, and makes the LLM calls instead of reading the
 
 import argparse
 import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import HTTPException
 from viztracer import VizTracer
 
 from wikicross import app, llm, wiki
@@ -37,30 +35,12 @@ def forget(title: str, lang: str) -> None:
     print(f"forgot {p['wikidata_id']}", flush=True)
 
 
-def explain(finding: dict) -> bool:
-    """The web app's AI call for one card: its first three quotes, the outlier's first."""
-    members = sorted(finding["members"], key=lambda m: not (finding["outlier"] and m["lang"] == finding["lang"]))[:3]
-    try:
-        app.explain(
-            app.ExplainRequest(
-                passages=[
-                    app.Passage(lang=m["lang"], heading=m["heading"] or "", text=m["text"], sentence=m["sentence"])
-                    for m in members
-                ]
-            )
-        )
-    except HTTPException as e:
-        print(f"AI failed: {e.detail}", flush=True)
-        return False
-    return True
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("title")
     parser.add_argument("--lang", default="en", help="the edition the title is from (default: en)")
     parser.add_argument("--fresh", action="store_true", help="profile it as new: forget its data and LLM answers")
-    parser.add_argument("--no-ai", action="store_true", help="stop after /api/diff")
+    parser.add_argument("--no-ai", action="store_true", help="stop before the AI step (an empty first page)")
     parser.add_argument("-o", "--output", type=Path, help="the trace file (default: profiles/TITLE.json)")
     parser.add_argument(
         "--entries",
@@ -85,15 +65,17 @@ def main() -> None:
         output_file=str(output), tracer_entries=args.entries, min_duration=args.min_duration, ignore_frozen=True
     ):
         start = time.monotonic()
-        data = app.diff(args.title, lang=args.lang)
+        data = app.diff(args.title, lang=args.lang, limit=0 if args.no_ai else 10)
         for key, began in data["progress"]["visited"]:
             print(f"  {began:7.1f} s  {app.STEPS[key]}")
-        print(f"diff: {data['total']} differences in {time.monotonic() - start:.1f} s", flush=True)
-        if not args.no_ai and data["differences"]:
-            ai_start = time.monotonic()
-            with ThreadPoolExecutor(len(data["differences"])) as pool:
-                ok = sum(pool.map(explain, data["differences"]))
-            print(f"AI: {ok} of {len(data['differences'])} in {time.monotonic() - ai_start:.1f} s", flush=True)
+        failed = [f["ai"]["error"] for f in data["differences"] if "error" in f["ai"]]
+        for error in failed:
+            print(f"AI failed: {error}")
+        print(
+            f"diff: {data['total']} differences, AI {len(data['differences']) - len(failed)} of "
+            f"{len(data['differences'])}, in {time.monotonic() - start:.1f} s",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

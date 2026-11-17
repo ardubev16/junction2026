@@ -25,7 +25,8 @@ export interface Finding {
   deviations: Record<string, number>;
   outlier: boolean;
   distance: number;
-  members: Member[];
+  members: Member[];  // in the order a card shows them
+  ai: Explanation | { error: string };  // app.explain_page(): of the first SHOWN members, or why not
 }
 
 export interface Article { lang: string; title: string; url: string }
@@ -55,6 +56,7 @@ export interface TitleSuggestion {
   thumbnail: string | null;
 }
 
+/** app.explain(): the AI's reading of a finding's first SHOWN quotes. */
 export interface Explanation {
   discrepancy: boolean;
   kind: Kind | null;
@@ -70,12 +72,8 @@ export interface Limits { api: number; llm: number }
 /** Quotes in English, by language: the AI's or the translator's. */
 export type English = Record<string, { quote: string; heading: string }>;
 
-/** A load's timings (performance.now()) and its AI step, for LoadingSteps. */
-export interface Times { start: number; result: number | null; aiDone: number | null }
 /** Which editions are compared (LanguageFilter): langs null is all. */
 export interface Filters { langs: string[] | null; dialects: boolean }
-
-export interface AiStep { total: number; settled: number; failed: number }
 
 export type Params = Record<string, string | number | boolean>;
 /** A failed request: the backend's message, and its HTTP status (0: no answer at all). */

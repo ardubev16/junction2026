@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from wikicross import app as m
@@ -22,36 +23,37 @@ def test_explain_keeps_only_phrases_in_the_quote_and_skips_missing_translations(
     passages = [
         {"lang": "fi", "heading": "Historia", "text": "Se oli sota. Muuta.", "sentence": "Se oli sota."},
         {"lang": "ru", "heading": "История", "text": "Это был конфликт.", "sentence": "Это был конфликт."},
-        {
-            "lang": "sv",
-            "heading": "",
-            "text": "Det var ett krig.",
-            "sentence": "Det var ett krig.",
-        },  # left out by the LLM
+        {"lang": "sv", "heading": "", "text": "Det var ett krig.", "sentence": "Det var ett krig."},  # left out
     ]
-    r = TestClient(m.app, client=("127.0.0.1", 1)).post("/api/explain", json={"passages": passages})
-    assert r.status_code == 200
-    x = r.json()
+    x = m.explain(passages)
     assert x["title"] == answer["title"]
     assert x["description"] == answer["description"]
     assert x["discrepancy"] is True
     assert x["quotes"] == {"fi": {"english": "It was a <mark>war</mark>.", "heading": "History", "phrases": ["sota"]}}
     assert x["kind"] == "bias"
     answer["kind"] = "contradiction"  # not one of KINDS: no badge rather than an unknown one
-    assert (
-        TestClient(m.app, client=("127.0.0.1", 1)).post("/api/explain", json={"passages": passages}).json()["kind"]
-        is None
-    )
+    assert m.explain(passages)["kind"] is None
 
 
-def test_oversized_requests_never_reach_the_llm(monkeypatch):
+def test_a_failed_llm_call_leaves_the_finding_usable(monkeypatch):
+    def fail(*_):
+        raise HTTPException(502, "LLM error 503: overloaded")
+
+    monkeypatch.setattr(m, "chat", fail)
+    member = {"lang": "fi", "heading": "", "text": "Se oli sota.", "sentence": "Se oli sota."}
+    findings = [{"members": [member, {**member, "lang": "sv"}]}]
+    steps = []
+    m.explain_page(findings, lambda key, detail="": steps.append((key, detail)))
+    assert findings[0]["ai"] == {"error": "LLM error 503: overloaded"}
+    assert steps[-1] == ("ai", "1 of 1, 1 failed")
+
+
+def test_translate_takes_only_quotes_by_place(monkeypatch):
     def fail(*_):
         raise AssertionError("LLM called")
 
     monkeypatch.setattr(m, "chat", fail)
     client = TestClient(m.app, client=("127.0.0.1", 1))
-    big = {"lang": "fi", "heading": "", "text": "x" * 20_001, "sentence": "x"}
-    assert client.post("/api/explain", json={"passages": [big, big]}).status_code == 422
-    assert client.post("/api/translate", json={"texts": {"fi": "x" * 20_001}, "target": "en"}).status_code == 422
-    many = {f"l{i}": "x" for i in range(201)}
-    assert client.post("/api/translate", json={"texts": many, "target": "en"}).status_code == 422
+    quote = {"lang": "fi", "page_id": 1, "seq": 0, "n": 0}
+    assert client.post("/api/translate", json={"quotes": [quote] * 201}).status_code == 422
+    assert client.post("/api/translate", json={"quotes": [{"lang": "fi", "text": "x"}]}).status_code == 422

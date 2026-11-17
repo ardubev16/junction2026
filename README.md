@@ -50,15 +50,15 @@ looks them up in that edition only (in the database, else on de.wikipedia.org), 
 
 **Loading feedback**: while `/api/diff` works, `/api/progress?title=` gives its steps in order
 (`app.STEPS`: looking the topic up, fetching the editions, embedding passages, matching them, embedding
-their sentences, comparing), the ones it has reached with the second each began, a detail ("fetched 12
-of 63") and the seconds so far; the `/api/diff` answer's `progress` has all of them. The web app and
-the extension (`ui/shared/LoadingSteps.vue`) poll it each second and list the steps, each with its
-seconds, and the total: done ones checked, the current one spinning, the ones this request did not
-need (a topic fetched before, differences cached) marked "not needed". In the web app a last step
-waits for the AI to explain and translate the page's findings ("7 of 10, 1 failed"); the results show
-once it is done, with the steps under "Loaded in N s". A request that gets no answer at all (a dropped
-connection, "Failed to fetch") is sent again twice, after 1 s and 2 s (`ui/web/main.ts`,
-`ui/extension/background.ts`): AI answers are cached, so a retry costs nothing once one is made.
+their sentences, comparing, the AI explaining the page's findings), the ones it has reached with the
+second each began, a detail ("fetched 12 of 63", "7 of 10, 1 failed") and the seconds so far; the
+`/api/diff` answer's `progress` has all of them. The web app and the extension
+(`ui/shared/LoadingSteps.vue`) poll it each second and list the steps, each with its seconds, and the
+total, all as the server measured them: done ones checked, the current one spinning, the ones this
+request did not need (a topic fetched before, differences cached) marked "not needed". The web app
+keeps them under "Loaded in N s". A request that gets no answer at all (a dropped connection, "Failed
+to fetch") is sent again twice, after 1 s and 2 s (`ui/web/main.ts`, `ui/extension/background.ts`): AI
+answers are cached, so a retry costs nothing once one is made.
 
 **Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
 work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article`
@@ -124,10 +124,11 @@ copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross
 
 **Rate limit** (`app.py`, `LIMITS`; off unless `RATE_LIMIT=1`; when on, stated on the home page through
 `GET /api/limits`): anyone can use it, but a client outside
-`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/explain` + `/api/translate` (the LLM),
+`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/translate` (the LLM),
 then 429 with `Retry-After`; `/api/progress`, polled each second, and `/api/titles` are not counted.
-Whether on or off, `/api/explain` and `/api/translate` refuse oversized requests (422): at most 20,000
-characters a text, 10 passages, 200 texts. The client is the
+The LLM never sees text from a client: `/api/diff` explains its own findings (at most 30 a request,
+`limit`), and `/api/translate` takes quotes by their place (at most 200), reading their text from the
+database. The client is the
 address Caddy sets in `X-Forwarded-For` (a forged one is overwritten). `ALLOWED_IPS` unset: only
 localhost is exempt, so `uv run wikicross` locally is never limited. Use public IPv4 addresses: a
 client reaching the VM over IPv6 shows up as Docker's private gateway address, hence the A record
@@ -257,8 +258,9 @@ for a factual disagreement or a clear difference in tone or framing; findings it
 Full explanation with diagrams, measured costs, tradeoffs and notes on scaling to more languages and
 all of Wikipedia: [docs/how-it-works.md](docs/how-it-works.md).
 
-**AI** (on by default, in the web app and the extension; detection never uses it): one `/api/explain`
-call per finding gives its kind, shown as a badge on the card's first row (**factual disagreement**:
+**AI** (on by default, in the web app and the extension; detection never uses it): `/api/diff` asks the
+LLM about each finding it returns, all at once (`explain_page()`, the loading view's last step), for
+its kind, shown as a badge on the card's first row (**factual disagreement**:
 facts that cannot all be true; **bias**: more favourable or critical, loaded words; **framing**: the
 same facts presented differently), its title (who says what, naming the editions), a description
 of what each edition says, quoting the words that differ (never sentences that only name the kind),
@@ -267,7 +269,7 @@ words highlighted. Quotes show in English: each quote's translate button shows t
 (or keyboard focus) and swaps to it on click. Quotes past the first three ("Show all") and paragraphs
 are translated with `/api/translate` when shown. Findings the AI does not confirm move under a "Show N
 findings the AI marked as irrelevant" button, each saying why. If the LLM fails, a card has no title
-and shows the quotes in their original language. Cached in `llm_cache`. The web app shows the total
+and shows the quotes in their original language until translated. Cached in `llm_cache`. The web app shows the total
 number of differences, ten per page, and filters the compared editions: a language picker
 (`&langs=`) and "Hide dialects" (`&dialects=0`), both kept in the URL. Filtering does not recompute:
 a topic is compared once over every edition (cached), and a filter trims that result (`narrow()`:
@@ -276,8 +278,10 @@ each finding keeps the chosen editions' sentences, its deviations redone from th
 API: `GET /api/titles?q=Talvi` (up to 10 topics, one each: those compared before whose title in any
 language starts with q, then English Wikipedia's suggestions; each in English, else its longest
 edition, with Wikipedia's short description and thumbnail, as the search box's suggestions show them),
-`GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, their
-`total`, and the `progress` it took, as `/api/progress`; each finding has every edition's `deviations`
+`GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them (`limit`
+30 at most), their `total`, and the `progress` it took, as `/api/progress`; each finding has its
+members in the order cards show them, its `ai` (`discrepancy`, `kind`, `title`, `description` and
+`quotes` per language: `english`, `heading`, `phrases`; or `error`), every edition's `deviations`
 on its axis, shown under the "i" next
 to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` keeps
 only those editions; `&dialects=false` leaves
@@ -286,9 +290,8 @@ Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian
 `be-tarask`; `languages` lists every edition of the topic, filtered or not),
 `GET /api/progress?title=Talvisota` (`steps`, the `visited` ones of a running diff, `detail`, `seconds`),
 `GET /api/context?lang=fi&page_id=…&seq=…&n=…&direction=up&count=3` (sentences around a quote),
-`POST /api/explain {"passages": [{"lang", "heading", "text", "sentence"}, …]}` (one finding:
-`discrepancy`, `title`, `description` and `quotes` per language: `english`, `heading`, `phrases`),
-`POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
+`POST /api/translate {"quotes": [{"lang", "page_id", "seq", "n"}, …], "paragraphs": false}` (those
+quotes in English, `{"fi": …, "fi-heading": …}`, or with `paragraphs` their passages, the quote marked).
 
 ## License
 

@@ -1,68 +1,67 @@
-<!-- A finding, the same in the web app and the extension. The AI (one /api/explain call for the quotes on
-     show) gives its kind, title, a description quoting the framing words, and each quote in English with
-     those words marked; the original keeps the same words marked. Quotes show in English; each one's
-     translate button shows the original on hover and swaps to it on click. Quotes beyond the first
-     SHOWN, and paragraphs, are translated when shown. A finding the AI marks irrelevant moves to
+<!-- A finding, the same in the web app and the extension. Its AI explanation comes with it, made by
+     /api/diff for the first SHOWN quotes: its kind, title, a description quoting the framing words, and
+     each quote in English with those words marked; the original keeps the same words marked. Quotes show
+     in English; each one's translate button shows the original on hover and swaps to it on click. Quotes
+     beyond the first SHOWN (all of them if the AI failed), and paragraphs, are translated when shown, by
+     their place: the server reads their text. A finding the AI marks irrelevant moves to
      `irrelevantTarget` (a Teleport, so it keeps its state). -->
 <script setup lang="ts">
-import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
+import { computed, inject, onMounted, reactive, ref, watch } from "vue";
 import { CdxButton, CdxIcon, CdxInfoChip, CdxMessage, CdxProgressIndicator } from "@wikimedia/codex";
 import { cdxIconArticle, cdxIconCollapse, cdxIconExpand, cdxIconLanguage, cdxIconLinkExternal, cdxIconListBullet, cdxIconSearch } from "@wikimedia/codex-icons";
 import Marked from "./Marked";
 import Expandable, { contextOf } from "./Expandable";
 import NumbersButton from "./NumbersButton.vue";
-import { API, errorText, type English, type Explanation, type Finding, type Kind, type Member } from "./types";
+import { API, errorText, type English, type Finding, type Member } from "./types";
 import { KIND_NAMES, KIND_STATUS, SHOWN, langName, linkMarks, markParts, snippetUrl, withMarks } from "./util";
 
 const props = withDefaults(defineProps<{
   finding: Finding;
   focusLang?: string | null;                            // the extension's page edition: its quote first
   paragraphs?: boolean;                                 // the web app's "Show paragraphs", with expanding context
-  lazy?: boolean;                                       // ask the AI only once the card is in view…
-  observeRoot?: HTMLElement | null;                     // …of this scrolling element
   locate?: ((m: Member) => boolean) | null;             // extension: show the page edition's quote on the page
   locateLabel?: { text: string; title: string };
   irrelevantTarget?: HTMLElement | null;
 }>(), {
-  focusLang: null, paragraphs: false, lazy: false, observeRoot: null, locate: null,
+  focusLang: null, paragraphs: false, locate: null,
   locateLabel: () => ({ text: "Show on page", title: "Highlight this on the page" }), irrelevantTarget: null,
 });
-const emit = defineEmits<{ dismiss: []; ready: [{ failed: boolean }] }>();
+const emit = defineEmits<{ dismiss: [] }>();
 const api = inject(API)!;
 
 const f = props.finding;
 const outliers = f.outlier ? [f.lang] : [];
-// The page's edition first, then outliers, then the API's order; a card shows the first SHOWN unless expanded.
-const rank = (m: Member) => (m.lang === props.focusLang ? 0 : outliers.includes(m.lang) ? 1 : 2);
-const members = [...f.members].sort((a, b) => rank(a) - rank(b));
+// In the API's order (the page's edition first, then the outlier); a card shows the first SHOWN unless expanded.
+const members = f.members;
 const first = members.slice(0, SHOWN);
 const own = members.find((m) => m.lang === props.focusLang);
 
-const ai = reactive({ done: false, title: "", description: "", kind: null as Kind | null, discrepancy: true, error: "" });
-const english = reactive<English>({}), phrases = reactive<Record<string, string[]>>({}), original = reactive(new Set<string>());
-const all = ref(false), context = ref(false), dismissed = ref(false), hovered = ref<string | null>(null), notFound = ref(false);
+// The AI's explanation, or why there is none (then the quotes stay in their language until translated).
+const ai = "error" in f.ai ? null : f.ai;
+const aiError = "error" in f.ai ? `AI unavailable, quotes in their original language: ${f.ai.error}` : "";
+const quotes = Object.entries(ai?.quotes ?? {});
+const english = reactive<English>(Object.fromEntries(quotes.map(([lang, q]) => [lang, { quote: q.english, heading: q.heading }])));
+const phrases = Object.fromEntries(quotes.map(([lang, q]) => [lang, q.phrases])), original = reactive(new Set<string>());
+const all = ref(false), context = ref(false), dismissed = ref(ai?.discrepancy === false), hovered = ref<string | null>(null), notFound = ref(false);
+onMounted(() => { if (dismissed.value) emit("dismiss"); });
 const translating = ref(false), translateError = ref("");
 const passages = reactive<Record<string, string>>({}), passagesBusy = ref(false), passagesError = ref("");
 const ctx = reactive(Object.fromEntries(members.map((m) => [m.lang, contextOf(m)])));
 
 const pool = computed(() => (all.value ? members : first));
 const inEnglish = (p: Member) => !!english[p.lang] && !original.has(p.lang);
-const description = computed(() => linkMarks(markParts(ai.description), members, english, phrases));
+const description = computed(() => linkMarks(markParts(ai?.description), members, english, phrases));
+const place = ({ lang, page_id, seq, n }: Member) => ({ lang, page_id, seq, n });
 
-// Quotes the AI call does not cover (beyond the first SHOWN, or all if it failed), in one call.
+// Quotes the AI did not cover (beyond the first SHOWN, or all if it failed), in one call.
 async function translateQuotes() {
-  const todo = pool.value.filter((p) => !english[p.lang] && (ai.done || !first.includes(p)));
+  const todo = pool.value.filter((p) => !english[p.lang]);
   if (!todo.length || translating.value) return;
   translating.value = true;
-  const texts: Record<string, string> = {};
-  for (const p of todo) {
-    texts[p.lang] = p.sentence;
-    if (p.heading) texts[`${p.lang}-heading`] = p.heading;
-  }
   let ok = false;
   try {
-    const t = await api.post<Record<string, string>>("/api/translate", { texts, target: "en" });
-    for (const p of todo) english[p.lang] = { quote: t[p.lang], heading: t[`${p.lang}-heading`] ?? p.heading };
+    const t = await api.post<Record<string, string>>("/api/translate", { quotes: todo.map(place) });
+    for (const p of todo) english[p.lang] = { quote: t[p.lang] ?? p.sentence, heading: t[`${p.lang}-heading`] ?? p.heading };
     translateError.value = "";
     ok = true;
   } catch (err) { translateError.value = `Could not translate: ${errorText(err)}`; }
@@ -70,7 +69,7 @@ async function translateQuotes() {
   // Quotes shown meanwhile. Not after a failure: the same quotes would be sent again at once, forever.
   if (ok) translateQuotes();
 }
-watch([pool, () => ai.done], translateQuotes);
+watch(pool, translateQuotes, { immediate: true });
 
 // Paragraphs in English: the passages translated, the quote marked in them. A finding marked irrelevant
 // shows its paragraphs in the original: not worth a translation.
@@ -80,44 +79,13 @@ async function translatePassages() {
   if (!todo.length) return;
   passagesBusy.value = true;
   try {
-    const texts = Object.fromEntries(todo.map((p) => [p.lang, withMarks(p.text, [p.sentence])]));
-    Object.assign(passages, await api.post<Record<string, string>>("/api/translate", { texts, target: "en" }));
+    const t = await api.post<Record<string, string>>("/api/translate", { quotes: todo.map(place), paragraphs: true });
+    for (const p of todo) passages[p.lang] = t[p.lang] ?? withMarks(p.text, [p.sentence]);
     passagesError.value = "";
   } catch (err) { passagesError.value = `Could not translate the paragraphs: ${errorText(err)}`; }
   passagesBusy.value = false;
 }
 watch(() => [context.value, pool.value.filter(inEnglish).map((p) => p.lang).join()], translatePassages);
-
-function explain() {
-  api.post<Explanation>("/api/explain", { passages: first.map((p) => ({ lang: p.lang, heading: p.heading || "", text: p.text, sentence: p.sentence })) })
-    .then((x) => {
-      for (const [lang, q] of Object.entries(x.quotes)) {
-        english[lang] = { quote: q.english, heading: q.heading };
-        phrases[lang] = q.phrases;
-      }
-      Object.assign(ai, { title: x.title, description: x.description, kind: x.kind, discrepancy: x.discrepancy });
-      if (!x.discrepancy) { dismissed.value = true; emit("dismiss"); }
-    })
-    .catch((err) => { ai.error = `AI unavailable, quotes in their original language: ${errorText(err)}`; })
-    .finally(() => { ai.done = true; });
-}
-// Once the AI answered (or failed) and the quotes it did not cover are translated (or failed): for the
-// loading view's AI step. Registered after translateQuotes' watcher, so it sees that translation start.
-let readied = false;
-watch(() => ai.done && !translating.value, (ready) => {
-  if (ready && !readied) { readied = true; emit("ready", { failed: !!(ai.error || translateError.value) }); }
-});
-
-const card = ref<HTMLElement | null>(null);
-let observer: IntersectionObserver | undefined;
-onMounted(() => {
-  if (!props.lazy) return explain();
-  observer = new IntersectionObserver((entries) => {
-    if (entries.some((e) => e.isIntersecting)) { observer?.disconnect(); explain(); }
-  }, { root: props.observeRoot });
-  observer.observe(card.value!);
-});
-onBeforeUnmount(() => observer?.disconnect());
 
 const doLocate = () => { notFound.value = !(own && props.locate?.(own)); };
 // The whole card shows the page's quote too; its links, buttons, menus and highlights keep their own action.
@@ -129,25 +97,22 @@ const swapQuote = (p: Member) => { if (!original.delete(p.lang)) original.add(p.
 
 <template>
   <Teleport defer :to="irrelevantTarget" :disabled="!dismissed || !irrelevantTarget">
-    <article ref="card" class="card" :class="{ locatable: locate && own }" @click="onCardClick">
+    <article class="card" :class="{ locatable: locate && own }" @click="onCardClick">
       <div class="meta">
-        <CdxInfoChip v-if="ai.done && !ai.discrepancy" :status="KIND_STATUS.none">Irrelevant</CdxInfoChip>
-        <CdxInfoChip v-else-if="ai.done && ai.kind" :status="KIND_STATUS[ai.kind]">{{ KIND_NAMES[ai.kind] }}</CdxInfoChip>
+        <CdxInfoChip v-if="ai && !ai.discrepancy" :status="KIND_STATUS.none">Irrelevant</CdxInfoChip>
+        <CdxInfoChip v-else-if="ai?.kind" :status="KIND_STATUS[ai.kind]">{{ KIND_NAMES[ai.kind] }}</CdxInfoChip>
         <span class="score">
           <template v-if="f.outlier">Outlier: {{ langName(f.lang) }}</template>
           <NumbersButton :finding="f" />
         </span>
       </div>
-      <h3 v-if="!ai.done" class="pending">
-        <CdxProgressIndicator>Asking the AI</CdxProgressIndicator> Asking the AI how they differ…
-      </h3>
-      <h3 v-else-if="ai.title">{{ ai.title }}</h3>
-      <CdxMessage v-if="ai.error" type="warning" inline>{{ ai.error }}</CdxMessage>
-      <p v-if="ai.done && !ai.discrepancy" class="reason">
+      <h3 v-if="ai?.title">{{ ai.title }}</h3>
+      <CdxMessage v-if="aiError" type="warning" inline>{{ aiError }}</CdxMessage>
+      <p v-if="ai && !ai.discrepancy" class="reason">
         Marked irrelevant by the AI check: these passages neither disagree on facts nor differ clearly in tone or
         framing. Their distance on the axis comes from other differences, such as what they include, their length or detail.
       </p>
-      <p v-if="ai.description" class="summary"><Marked :parts="description" @hover="hovered = $event" /></p>
+      <p v-if="ai?.description" class="summary"><Marked :parts="description" @hover="hovered = $event" /></p>
 
       <div class="quotes">
         <div v-for="p in pool" :key="p.lang" class="quote"
@@ -185,7 +150,7 @@ const swapQuote = (p: Member) => { if (!original.delete(p.lang)) original.add(p.
                   <Marked :text="inEnglish(p) ? withMarks(p.sentence, phrases[p.lang]) : english[p.lang].quote" />
                 </div>
               </span>
-              <span v-else-if="!ai.done || translating" class="tr" title="Translating…"><CdxProgressIndicator>Translating</CdxProgressIndicator></span>
+              <span v-else-if="translating" class="tr" title="Translating…"><CdxProgressIndicator>Translating</CdxProgressIndicator></span>
             </template>
           </div>
         </div>

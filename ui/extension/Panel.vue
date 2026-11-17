@@ -1,6 +1,6 @@
 <!-- The extension's button and panel on a Wikipedia article: what this edition states differently from
-     the others (up to 30 findings, this edition's first), then the rest in an accordion. Cards ask the AI
-     as they scroll into view, and "Show on page" / "Find in source" shows the evidence (the page is the
+     the others (up to 30 findings, this edition's first, explained by the AI), then the rest in an
+     accordion. "Show on page" / "Find in source" shows the evidence (the page is the
      context: no "Show paragraphs"). The logo opens the topic in the web app. Filters are kept for this
      page view only. -->
 <script setup lang="ts">
@@ -11,7 +11,7 @@ import FindingCard from "../shared/FindingCard.vue";
 import LanguageFilter from "../shared/LanguageFilter.vue";
 import LoadingSteps from "../shared/LoadingSteps.vue";
 import Logo from "../shared/Logo.vue";
-import { API, errorText, statusOf, type Diff, type Filters, type Finding, type Member, type Times } from "../shared/types";
+import { API, errorText, statusOf, type Diff, type Filters, type Finding, type Member } from "../shared/types";
 import { langName } from "../shared/util";
 
 const props = defineProps<{
@@ -21,8 +21,8 @@ const props = defineProps<{
 }>();
 const api = inject(API)!;
 
-const open = ref(false), panel = ref<HTMLElement | null>(null), irrelevant = ref<HTMLElement | null>(null);
-type View = { state: "idle" } | { state: "loading"; id: number; times: Times } | { state: "error"; message: string; status: number }
+const open = ref(false), irrelevant = ref<HTMLElement | null>(null);
+type View = { state: "idle" } | { state: "loading"; id: number } | { state: "error"; message: string; status: number }
   | { state: "done"; data: Diff; id: number };
 const view = ref<View>({ state: "idle" });
 let query: Filters = { langs: null, dialects: true }, requested = false, loads = 0;
@@ -32,7 +32,7 @@ function load(next: Filters = query) {
   requested = true;
   query = next;
   const mine = ++loads;
-  view.value = { state: "loading", id: mine, times: { start: performance.now(), result: null, aiDone: null } };
+  view.value = { state: "loading", id: mine };
   const filtered = { ...(query.langs && { langs: query.langs.join(",") }), ...(!query.dialects && { dialects: false }) };
   api.get<Diff>("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ...filtered })
     .then((data) => {
@@ -65,7 +65,7 @@ const label = computed(() => {
   if (view.value.state === "error") return view.value.status ? "WikiCross · –" : "WikiCross · ?";
   return "WikiCross";
 });
-const card = (f: Finding) => ({ finding: f, focusLang: props.lang, lazy: true, observeRoot: panel.value, locate: props.locate,
+const card = (f: Finding) => ({ finding: f, focusLang: props.lang, locate: props.locate,
                                 locateLabel: props.locateLabel(), irrelevantTarget: irrelevant.value, onDismiss: () => dismissed.value++ });
 </script>
 
@@ -76,13 +76,13 @@ const card = (f: Finding) => ({ finding: f, focusLang: props.lang, lazy: true, o
     <CdxIcon v-else-if="view.state === 'done' && mine.length" :icon="cdxIconAlert" size="small" />
     {{ label }}
   </CdxButton>
-  <section v-show="open" ref="panel" class="panel">
+  <section v-show="open" class="panel">
     <header>
       <h2><button class="home" type="button" title="Open this topic in the WikiCross web app" @click="openHome"><Logo />WikiCross</button></h2>
       <CdxButton weight="quiet" aria-label="Close" title="Close" @click="open = false"><CdxIcon :icon="cdxIconClose" /></CdxButton>
     </header>
     <div class="body">
-      <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="title" :times="view.times" />
+      <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="title" />
       <template v-else-if="view.state === 'error'">
         <CdxMessage type="error">{{ view.message }}</CdxMessage>
         <CdxButton v-if="filtered" size="small" @click="load({ langs: null, dialects: true })">Compare all editions</CdxButton>

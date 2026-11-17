@@ -1,5 +1,6 @@
 """API: where all the Wikipedia versions of one article frame things differently."""
 
+import contextvars
 import hashlib
 import ipaddress
 import json
@@ -8,6 +9,7 @@ import re
 import time
 from collections import defaultdict, deque
 from collections.abc import AsyncGenerator, Awaitable, Callable, Collection
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from pathlib import Path
@@ -18,7 +20,7 @@ from urllib.parse import urlparse
 import anyio.to_thread
 import pymysql.connections
 import pymysql.cursors
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from opentelemetry import context as otel_context
@@ -34,7 +36,6 @@ from .telemetry import CACHE_LOOKUPS, STEP_SECONDS, tracer
 from .wiki import Progress
 
 MIN_CHARS = 300  # merge paragraphs until a part is at least this long: tiny parts embed noisily
-TARGETS = {"en": "English"}  # languages the UI can translate into
 # The comparison code and models: cached differences computed by others are not reused (diff_cache.state).
 CODE = hashlib.sha256(b"".join(Path(m.__file__).read_bytes() for m in (compare, embed_gpu))).hexdigest()
 # Sections that are lists of sources and links, not content; they always "differ". fi, sv, en.
@@ -77,9 +78,10 @@ _hits: dict[tuple[str, str], deque] = defaultdict(deque)
 
 def zone(path: str) -> str | None:
     """The rate-limit zone of a path: LLM calls cost per request; progress is polled each second and
-    title suggestions come with every few keystrokes, both cheap, so neither is counted.
+    title suggestions come with every few keystrokes, both cheap, so neither is counted. /api/diff's AI
+    calls are bounded by its page (`limit`) and cached.
     """
-    if path in ("/api/explain", "/api/translate"):
+    if path == "/api/translate":
         return "llm"
     return "api" if path.startswith("/api/") and path not in ("/api/progress", "/api/titles") else None
 
@@ -344,7 +346,7 @@ def titles(q: str) -> list[dict]:
 
 # The steps of a /api/diff, in order, as the loading view lists them; progress(key, detail) moves to one.
 # Steps a request does not need (a topic fetched before skips "editions"; cached differences skip the
-# last three) are passed over.
+# three after "passages"; an empty page skips "ai") are passed over.
 STEPS = {
     "lookup": "Looking the topic up",
     "editions": "Fetching its editions from Wikipedia",
@@ -352,6 +354,7 @@ STEPS = {
     "match": "Matching passages across languages",
     "sentences": "Embedding the sentences of matched passages",
     "compare": "Comparing the sentences",
+    "ai": "Explaining and translating the findings with AI",
 }
 # What each running /api/diff is doing: title asked for -> {"visited": [step key, seconds from the start
 # when it began] so far, "detail", "start"}. Two requests for one title share the first one's entry (the
@@ -379,7 +382,7 @@ def report(entry: dict | None) -> dict:
 def diff(
     title: str,
     *,
-    limit: int = 10,
+    limit: Annotated[int, Query(ge=0, le=30)] = 10,  # each finding returned costs an LLM call (cached)
     offset: int = 0,
     lang: str | None = None,
     focus: str | None = None,
@@ -391,7 +394,9 @@ def diff(
     Wikipedia if the database does not have it), `focus` an edition whose findings go first.
     `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect();
     `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not;
-    `progress` the steps this request took, each with its start second, and its `seconds` in all.
+    each finding's members come in the order cards show them, and its `ai` explains the first SHOWN
+    (explain_page()); `progress` the steps this request took, each with its start second, and its
+    `seconds` in all.
     """
     mine: dict = {"visited": [], "detail": "", "start": time.monotonic()}
     owner = PROGRESS.setdefault(title, mine) is mine  # only the first request for a title is polled
@@ -422,7 +427,10 @@ def diff(
         # findings involving the focus edition first, each group in its own order, then the page
         data["differences"].sort(key=lambda f: focus is not None and all(m["lang"] != focus for m in f["members"]))
         data["total"] = len(data["differences"])
-        data["differences"] = data["differences"][offset : offset + limit]
+        page = data["differences"] = data["differences"][offset : offset + limit]
+        for f in page:  # the focus edition's quote first, then the outlier's, then the rest in order
+            f["members"].sort(key=lambda m, f=f: (m["lang"] != focus, not (f["outlier"] and m["lang"] == f["lang"])))
+        explain_page(page, progress)
         data["progress"] = report(mine)
         return data
     finally:
@@ -601,33 +609,41 @@ def strings(keys: Collection[str]) -> dict:
     return {"type": "object", "properties": {k: {"type": "string"} for k in keys}, "required": list(keys)}
 
 
-# Sizes: a passage is at most ~6,200 characters (measured), a finding has one per edition (54 at most so
-# far). Larger requests are refused before they reach the paid LLM.
-Text = Annotated[str, Field(max_length=20_000)]
-
-
-class Passage(BaseModel):
-    lang: str = Field(max_length=20)
-    heading: Text
-    text: Text  # the whole passage, for context
-    sentence: Text  # the quote shown on the card, inside `text`
-
-
-class ExplainRequest(BaseModel):
-    passages: list[Passage] = Field(max_length=10)  # parts about the same subject, one per language (the UI sends 3)
-
-
 KINDS = ("factual", "bias", "framing")  # the kinds of difference the AI tells apart (`kind`)
+SHOWN = 3  # quotes a card shows, those the AI explains; the rest on "Show all" (ui/shared/util.ts)
 
 
-@app.post("/api/explain")
-def explain(req: ExplainRequest) -> dict:
-    """Whether the quotes (one per language, each with its passage) disagree on the facts or present
-    the same subject clearly differently, which `kind` (KINDS) of difference it is; a title and a
-    description of it, and each quote in English with the words that differ marked.
+def explain_page(findings: list[dict], progress: Progress) -> None:
+    """Set each finding's `ai`: explain() of its first SHOWN members, or {"error"} if the LLM failed (the
+    card then shows the quotes in their language). All at once, as the "ai" step.
     """
-    if len(req.passages) < MIN_EDITIONS:
-        raise HTTPException(400, "need at least two passages")
+    if not findings:
+        return
+    failed = 0
+    progress("ai", f"0 of {len(findings)}")
+
+    def one(f: dict) -> bool:
+        try:
+            f["ai"] = explain(f["members"][:SHOWN])
+        except HTTPException as e:
+            f["ai"] = {"error": str(e.detail)}
+            return False
+        return True
+
+    # A context per call: each carries the step's trace span, as wiki.ensure_editions' fetches.
+    with ThreadPoolExecutor(len(findings)) as pool:
+        jobs = [pool.submit(contextvars.copy_context().run, one, f) for f in findings]
+        for k, job in enumerate(as_completed(jobs), 1):
+            failed += not job.result()
+            progress("ai", f"{k} of {len(findings)}" + (f", {failed} failed" if failed else ""))
+
+
+def explain(passages: list[dict]) -> dict:
+    """Whether the quotes (finding members: lang, heading, its passage `text` and the quote `sentence`,
+    one per language) disagree on the facts or present the same subject clearly differently, which
+    `kind` (KINDS) of difference it is; a title and a description of it, and each quote in English with
+    the words that differ marked.
+    """
     answer = chat(
         "You compare quotes about the same subject from different language editions of Wikipedia, each "
         "given with the passage around it. kind: factual when they state different facts about the same "
@@ -648,8 +664,8 @@ def explain(req: ExplainRequest) -> dict:
         'contradiction", "they cannot all be true", "not merely a difference in tone or detail"), '
         "never restate the title. Do not suggest edits or actions.",
         "\n\n".join(
-            f"[{p.lang}] section: {p.heading or '(intro)'}\nquote: {p.sentence}\npassage: {p.text}"
-            for p in req.passages
+            f"[{p['lang']}] section: {p['heading'] or '(intro)'}\nquote: {p['sentence']}\npassage: {p['text']}"
+            for p in passages
         ),
         {
             "type": "object",
@@ -661,7 +677,7 @@ def explain(req: ExplainRequest) -> dict:
                 "quotes": {
                     "type": "object",
                     "properties": {
-                        p.lang: {
+                        p["lang"]: {
                             "type": "object",
                             "properties": {
                                 "english": {"type": "string"},
@@ -670,9 +686,9 @@ def explain(req: ExplainRequest) -> dict:
                             },
                             "required": ["english", "heading", "phrases"],
                         }
-                        for p in req.passages
+                        for p in passages
                     },
-                    "required": [p.lang for p in req.passages],
+                    "required": [p["lang"] for p in passages],
                 },
             },
             "required": ["discrepancy", "kind", "title", "description", "quotes"],
@@ -680,16 +696,16 @@ def explain(req: ExplainRequest) -> dict:
     )
     quotes = q if isinstance(q := answer.get("quotes"), dict) else {}
     out = {}
-    for p in req.passages:
-        q = quotes.get(p.lang)
+    for p in passages:
+        q = quotes.get(p["lang"])
         if not isinstance(q, dict) or not isinstance(q.get("english"), str) or not q["english"].strip():
             continue  # the UI keeps this quote in its original language
         phrases = q.get("phrases") if isinstance(q.get("phrases"), list) else []
-        out[p.lang] = {
+        out[p["lang"]] = {
             "english": q["english"],
-            "heading": str(q.get("heading") or p.heading),
+            "heading": str(q.get("heading") or p["heading"]),
             # Only phrases that really occur: the UI marks them in the original by exact match.
-            "phrases": [h for h in phrases if isinstance(h, str) and h and h in p.sentence],
+            "phrases": [h for h in phrases if isinstance(h, str) and h and h in p["sentence"]],
         }
     return {
         "discrepancy": answer.get("discrepancy") is True,
@@ -700,23 +716,15 @@ def explain(req: ExplainRequest) -> dict:
     }
 
 
-class TranslateRequest(BaseModel):
-    # language code -> text, may contain <mark>…</mark>: a quote and its heading per edition, or its paragraph
-    texts: dict[Annotated[str, Field(max_length=40)], Text] = Field(max_length=200)
-    target: str
-
-
-@app.post("/api/translate")
-def translate(req: TranslateRequest) -> dict[str, str]:
-    """Translate several passages in one LLM call, keeping <mark> highlights on the translated words."""
-    if req.target not in TARGETS:
-        raise HTTPException(400, f"target must be one of {sorted(TARGETS)}")
-    # Keys are "<lang>" or "<lang>-heading"; text already in the target language is passed through.
-    todo = {k: t for k, t in req.texts.items() if k.split("-")[0] != req.target and t.strip()}
+def translate(texts: dict[str, str]) -> dict[str, str]:
+    """Translate several texts to English in one LLM call, keeping <mark> highlights on the translated
+    words. Keys are "<lang>" or "<lang>-heading"; English text is passed through.
+    """
+    todo = {k: t for k, t in texts.items() if k.split("-")[0] != "en" and t.strip()}
     if not todo:
-        return req.texts
+        return texts
     answer = chat(
-        f"Translate each value of the user's JSON object to {TARGETS[req.target]}; each key starts with the "
+        "Translate each value of the user's JSON object to English; each key starts with the "
         "value's source language code. Keep line breaks and Markdown list markers. "
         "Text between <mark> and </mark> is highlighted: "
         "put <mark> and </mark> around the words of your translation that correspond. "
@@ -724,7 +732,45 @@ def translate(req: TranslateRequest) -> dict[str, str]:
         json.dumps(todo, ensure_ascii=False),
         strings(todo),
     )
-    return {lang: str(answer.get(lang, t)) if lang in todo else t for lang, t in req.texts.items()}
+    return {lang: str(answer.get(lang, t)) if lang in todo else t for lang, t in texts.items()}
+
+
+class Quote(BaseModel):
+    """A finding member's sentence, by its place: the text comes from the database, never the client."""
+
+    lang: str = Field(max_length=20)
+    page_id: int
+    seq: int
+    n: int
+
+
+class TranslateRequest(BaseModel):
+    quotes: list[Quote] = Field(min_length=1, max_length=200)  # one finding's, one per edition
+    paragraphs: bool = False  # their passages with the quote marked, instead of the quotes and headings
+
+
+@app.post("/api/translate")
+def translate_quotes(req: TranslateRequest) -> dict[str, str]:
+    """Quotes in English, by language ("<lang>", "<lang>-heading"), or with `paragraphs` their passages,
+    the quote marked: what a card shows beyond the AI's explanation. Unknown quotes are left out.
+    """
+    keys = [(q.lang, q.page_id, q.seq, q.n) for q in req.quotes]
+    with connect() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.lang, s.text, c.heading, c.text FROM sentence s JOIN chunk c USING (lang, page_id, seq) "
+            f"WHERE (s.lang, s.page_id, s.seq, s.n) IN ({_in(keys)})",
+            [v for k in keys for v in k],
+        )
+        rows = cur.fetchall()
+    texts = {}
+    for lang, sentence, heading, passage in rows:
+        if req.paragraphs:
+            texts[lang] = passage.replace(sentence, f"<mark>{sentence}</mark>")
+        else:
+            texts[lang] = sentence
+            if heading:
+                texts[f"{lang}-heading"] = heading
+    return translate(texts) if texts else {}
 
 
 WEB = Path(__file__).with_name("web")  # the web app, built from ui/ by `make web` (or the Dockerfile)
