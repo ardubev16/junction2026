@@ -19,6 +19,7 @@ one group per fact, however many editions state it. Within a group:
 See docs/how-it-works.md.
 """
 
+import threading
 from functools import lru_cache
 from statistics import fmean
 
@@ -79,7 +80,7 @@ def unit(v: np.ndarray) -> np.ndarray:
 
 
 def lang_order(lang: str) -> tuple[int, str]:
-    """fi, sv, en first (the dataset's languages), then the rest alphabetically."""
+    """fi, sv, en first (matched over the whole corpus, see passage_pairs), then the rest alphabetically."""
     return (LANGS.index(lang), "") if lang in LANGS else (len(LANGS), lang)
 
 
@@ -99,6 +100,9 @@ def axis_vectors() -> dict[str, bytes]:
 _stats: dict[str, dict[str, tuple[float, float]]] = {}
 _pooled: dict[str, tuple[float, float]] = {}
 _seen: set[str] = set()  # languages present when _stats was computed
+# Requests run on parallel threads: one computes, the others wait, so no request reads the statistics
+# half-made (languages marked seen before every axis was computed: KeyError).
+_stats_lock = threading.Lock()
 
 
 def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]]:
@@ -106,19 +110,20 @@ def axis_stats(cur, langs: set[str]) -> dict[str, dict[str, tuple[float, float]]
     slightly different places on every axis; comparing against their own mean removes that. A
     language with too few sentences for its own statistics gets all languages' pooled ones."""
     axes = axis_vectors()
-    if not langs <= _seen:  # small languages never get their own entry: remember they were counted
-        for name, vector in axes.items():
-            position = "1 - VEC_DISTANCE_COSINE(embedding, %s)"
-            cur.execute(
-                f"SELECT lang, COUNT(*), AVG({position}), STDDEV({position}) FROM sentence GROUP BY lang",
-                (vector, vector),
-            )
-            rows = cur.fetchall()
-            _stats[name] = {lang: (mean, sd) for lang, n, mean, sd in rows if n >= MIN_STATS_SENTENCES}
-            _seen.update(lang for lang, *_ in rows)
-            cur.execute(f"SELECT AVG({position}), STDDEV({position}) FROM sentence", (vector, vector))
-            _pooled[name] = cur.fetchone()
-        _seen.update(langs)  # a language with no sentences yet must not trigger this on every request
+    with _stats_lock:
+        if not langs <= _seen:  # small languages never get their own entry: remember they were counted
+            for name, vector in axes.items():
+                position = "1 - VEC_DISTANCE_COSINE(embedding, %s)"
+                cur.execute(
+                    f"SELECT lang, COUNT(*), AVG({position}), STDDEV({position}) FROM sentence GROUP BY lang",
+                    (vector, vector),
+                )
+                rows = cur.fetchall()
+                _stats[name] = {lang: (mean, sd) for lang, n, mean, sd in rows if n >= MIN_STATS_SENTENCES}
+                _seen.update(lang for lang, *_ in rows)
+                cur.execute(f"SELECT AVG({position}), STDDEV({position}) FROM sentence", (vector, vector))
+                _pooled[name] = cur.fetchone()
+            _seen.update(langs)  # a language with no sentences yet must not trigger this on every request
     return {
         name: {lang: _stats[name][lang] if lang in _stats[name] else _pooled[name] for lang in langs}
         for name in axes

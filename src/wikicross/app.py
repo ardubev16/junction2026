@@ -10,13 +10,14 @@ from collections import defaultdict, deque
 from contextlib import asynccontextmanager
 from pathlib import Path
 from statistics import fmean
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
+import anyio.to_thread
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from . import compare, embed_gpu, wiki
 from .compare import differences
@@ -41,6 +42,9 @@ HATNOTE = re.compile(r"^(pääartikkelit?|huvudartikl(ar|el)|main articles?|furt
 
 @asynccontextmanager
 async def lifespan(_app):
+    # Endpoints are plain functions, run on worker threads that mostly wait on the LLM (~30 s a call) or
+    # Wikipedia: anyio's default 40 would let a few visitors' AI calls stall every other request.
+    anyio.to_thread.current_default_thread_limiter().total_tokens = 200
     with connect() as conn, conn.cursor() as cur:  # an empty database gets every table here
         for stmt in SCHEMA:
             cur.execute(stmt)
@@ -50,9 +54,11 @@ async def lifespan(_app):
 
 app = FastAPI(title="WikiCross", lifespan=lifespan)
 
-# Clients outside ALLOWED_IPS (IPs or CIDR ranges, space-separated) get at most this many requests a
-# minute per zone; the home page states the same numbers. Behind Caddy the client IP comes from
-# X-Forwarded-For, which Caddy sets (uvicorn --forwarded-allow-ips in the Dockerfile).
+# RATE_LIMIT=1 turns the limit on (off by default for now). Then clients outside ALLOWED_IPS (IPs or CIDR
+# ranges, space-separated) get at most this many requests a minute per zone; the home page shows the
+# numbers (/api/limits). Behind Caddy the client IP comes from X-Forwarded-For, which Caddy sets
+# (uvicorn --forwarded-allow-ips in the Dockerfile).
+RATE_LIMIT = os.environ.get("RATE_LIMIT", "0") == "1"
 ALLOWED_IPS = [ipaddress.ip_network(n, strict=False) for n in os.environ.get("ALLOWED_IPS", "127.0.0.1 ::1").split()]
 LIMITS = {"llm": 30, "api": 60}
 # shortcut: in-process memory, one counter per IP and zone kept forever; fine for one server process.
@@ -78,7 +84,7 @@ def allowed(host: str) -> bool:
 @app.middleware("http")
 async def rate_limit(request, call_next):
     host = request.client.host if request.client else ""
-    if (z := zone(request.url.path)) and not allowed(host):
+    if RATE_LIMIT and (z := zone(request.url.path)) and not allowed(host):
         now, hits = time.monotonic(), _hits[host, z]
         while hits and hits[0] <= now - 60:
             hits.popleft()
@@ -88,6 +94,12 @@ async def rate_limit(request, call_next):
                                 429, headers={"Retry-After": str(wait)})
         hits.append(now)
     return await call_next(request)
+
+
+@app.get("/api/limits")
+def limits():
+    """The rate limits per address and minute (as LIMITS), or null when off: the home page states them."""
+    return LIMITS if RATE_LIMIT else None
 
 
 def split(text: str) -> list[tuple[str, str]]:
@@ -360,6 +372,13 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
                 raise HTTPException(404, f"no article titled {title!r} here or on {lang}.wikipedia.org")
             wikidata_id = p["wikidata_id"]
             seed_host, seed_title, seed_lang = f"{lang}.wikipedia.org", p["title"], lang
+        # One request at a time indexes a topic: others for it (by any title or edition) wait here, then find
+        # it stored and its differences cached. A MariaDB lock, freed when this connection closes, errors
+        # included; after an hour of waiting the request goes ahead anyway.
+        cur.execute("SELECT GET_LOCK(%s, 0)", (f"wikicross:{wikidata_id}",))
+        if not cur.fetchone()[0]:
+            progress("This topic is being loaded: waiting for it to finish")
+            cur.execute("SELECT GET_LOCK(%s, 3600)", (f"wikicross:{wikidata_id}",))
         wiki.ensure_editions(cur, wikidata_id, seed_host, seed_title, seed_lang, progress)
         cur.execute(
             "SELECT lang, page_id, title, url, text FROM article WHERE wikidata_id = %s "
@@ -375,17 +394,7 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         progress(f"Splitting {len(every)} editions into passages and embedding the new ones")
         ensure_chunks(cur, [(lang, page_id, text) for lang, page_id, _, _, text in every])
 
-        # Whole-article distance between languages, from each edition's article vector.
-        cur.execute(
-            """SELECT x.lang, y.lang, VEC_DISTANCE_COSINE(vx.embedding, vy.embedding)
-               FROM article x JOIN article y ON y.wikidata_id = x.wikidata_id AND x.lang < y.lang
-               JOIN article_vector vx ON vx.lang = x.lang AND vx.page_id = x.page_id
-               JOIN article_vector vy ON vy.lang = y.lang AND vy.page_id = y.page_id
-               WHERE x.wikidata_id = %s""",
-            (wikidata_id,),
-        )
         kept = {a[0] for a in articles}
-        similarity = [{"a": a, "b": b, "distance": d} for a, b, d in cur.fetchall() if a in kept and b in kept]
 
         # A reload reads the differences computed for these editions by this code.
         # shortcut: passage matching also searches other topics' passages (HNSW over the corpus), so a
@@ -411,7 +420,6 @@ def compare_editions(title: str, lang: str | None, progress, dialects: bool = Tr
         "wikidata_id": wikidata_id,
         "articles": [{"lang": lang, "title": t, "url": u} for lang, _, t, u, _ in articles],
         "languages": [a[0] for a in every],
-        "similarity": similarity,
         "differences": found,
     }
 
@@ -437,15 +445,20 @@ def strings(keys) -> dict:
     return {"type": "object", "properties": {k: {"type": "string"} for k in keys}, "required": list(keys)}
 
 
+# Sizes: a passage is at most ~6,200 characters (measured), a finding has one per edition (54 at most so
+# far). Larger requests are refused before they reach the paid LLM.
+Text = Annotated[str, Field(max_length=20_000)]
+
+
 class Passage(BaseModel):
-    lang: str
-    heading: str
-    text: str  # the whole passage, for context
-    sentence: str  # the quote shown on the card, inside `text`
+    lang: str = Field(max_length=20)
+    heading: Text
+    text: Text  # the whole passage, for context
+    sentence: Text  # the quote shown on the card, inside `text`
 
 
 class ExplainRequest(BaseModel):
-    passages: list[Passage]  # parts about the same subject, one per language
+    passages: list[Passage] = Field(max_length=10)  # parts about the same subject, one per language (the UI sends 3)
 
 
 KINDS = ("factual", "bias", "framing")  # the kinds of difference the AI tells apart (`kind`)
@@ -526,7 +539,8 @@ def explain(req: ExplainRequest):
 
 
 class TranslateRequest(BaseModel):
-    texts: dict[str, str]  # language code -> text, may contain <mark>…</mark>
+    # language code -> text, may contain <mark>…</mark>: a quote and its heading per edition, or its paragraph
+    texts: dict[Annotated[str, Field(max_length=40)], Text] = Field(max_length=200)
     target: str
 
 

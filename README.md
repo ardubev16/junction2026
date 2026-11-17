@@ -54,8 +54,8 @@ the seconds so far; the web app and the extension poll it each second under a sp
 translations show the same spinner.
 
 **Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
-work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article` /
-`article_vector` (`topic_editions` marks a topic fetched), the anchor sentences of the framing axes and
+work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article`
+(`topic_editions` marks a topic fetched), the anchor sentences of the framing axes and
 of the appendix headings in `embedding_cache`, LLM answers in `llm_cache`, and each topic's computed
 differences in `diff_cache`, valid while its editions, the comparison code (`compare.py`) and the
 model (`embed_gpu.py`) are unchanged. Measured: Talvisota (66 editions) 43.9 s the first time, 0.29 s on
@@ -99,6 +99,7 @@ domain's A record at it (DNS only, no proxy in front; no AAAA record, see below)
 cat >> .env <<'EOF'
 COMPOSE_PROFILES=deploy
 DOMAIN=wikicross.example.com
+RATE_LIMIT=1                  # optional: turn the rate limit on (off by default)
 ALLOWED_IPS=198.51.100.23     # not rate-limited (the event network): IPs or CIDR ranges, space-separated
 MODAL_TOKEN_ID=ak-…           # `uv run modal token new` or modal.com/settings/tokens
 MODAL_TOKEN_SECRET=as-…
@@ -111,9 +112,12 @@ copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross
 | gzip > wikicross.sql.gz` here, `gunzip -c wikicross.sql.gz | docker compose exec -T mariadb mariadb
 -uwikicross -pwikicross wikicross` there.
 
-**Rate limit** (`app.py`, `LIMITS`; stated on the home page): anyone can use it, but a client outside
+**Rate limit** (`app.py`, `LIMITS`; off unless `RATE_LIMIT=1`; when on, stated on the home page through
+`GET /api/limits`): anyone can use it, but a client outside
 `ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/explain` + `/api/translate` (the LLM),
-then 429 with `Retry-After`; `/api/progress`, polled each second, is not counted. The client is the
+then 429 with `Retry-After`; `/api/progress`, polled each second, and `/api/titles` are not counted.
+Whether on or off, `/api/explain` and `/api/translate` refuse oversized requests (422): at most 20,000
+characters a text, 10 passages, 200 texts. The client is the
 address Caddy sets in `X-Forwarded-For` (a forged one is overwritten). `ALLOWED_IPS` unset: only
 localhost is exempt, so `uv run wikicross` locally is never limited. Use public IPv4 addresses: a
 client reaching the VM over IPv6 shows up as Docker's private gateway address, hence the A record

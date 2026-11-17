@@ -100,6 +100,9 @@ async function search(q, push) {
 }
 window.addEventListener("popstate", () => { const q = urlQuery(); if (q.title) search(q, false); });
 if (urlQuery().title) search(urlQuery(), false);
+// The rate limits, if on (RATE_LIMIT in app.py): stated on the home page.
+const limits = ref(null);
+api.get("/api/limits").then((l) => { limits.value = l; }).catch(() => {});
 
 const data = computed(() => view.value.data);
 const query = computed(() => view.value.query);
@@ -124,10 +127,9 @@ const refilter = ({ langs, dialects }) => search({ ...query.value, langs, dialec
   <main>
     <template v-if="view.state === 'idle'">
       <p class="muted">Pick an article to see where all its Wikipedia versions frame things differently.</p>
-      <!-- Keep in sync with LIMITS in app.py. -->
-      <CdxMessage type="warning">
-        Fair use: outside the event network, each address can make 60 requests a minute, and 30 a minute for AI
-        summaries and translations. Past that, wait a minute and try again.
+      <CdxMessage v-if="limits" type="warning">
+        Fair use: outside the event network, each address can make {{ limits.api }} requests a minute, and {{ limits.llm }} a
+        minute for AI summaries and translations. Past that, wait a minute and try again.
       </CdxMessage>
     </template>
 

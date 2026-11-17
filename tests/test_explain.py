@@ -28,3 +28,16 @@ def test_explain_keeps_only_phrases_in_the_quote_and_skips_missing_translations(
     assert x["kind"] == "bias"
     answer["kind"] = "contradiction"  # not one of KINDS: no badge rather than an unknown one
     assert TestClient(m.app, client=("127.0.0.1", 1)).post("/api/explain", json={"passages": passages}).json()["kind"] is None
+
+
+def test_oversized_requests_never_reach_the_llm(monkeypatch):
+    def fail(*_):
+        raise AssertionError("LLM called")
+
+    monkeypatch.setattr(m, "chat", fail)
+    client = TestClient(m.app, client=("127.0.0.1", 1))
+    big = {"lang": "fi", "heading": "", "text": "x" * 20_001, "sentence": "x"}
+    assert client.post("/api/explain", json={"passages": [big, big]}).status_code == 422
+    assert client.post("/api/translate", json={"texts": {"fi": "x" * 20_001}, "target": "en"}).status_code == 422
+    many = {f"l{i}": "x" for i in range(201)}
+    assert client.post("/api/translate", json={"texts": many, "target": "en"}).status_code == 422
