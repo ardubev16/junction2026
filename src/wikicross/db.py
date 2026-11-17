@@ -41,7 +41,8 @@ SCHEMA = [
       embedding VECTOR(1024)      NOT NULL,
       PRIMARY KEY (lang, page_id, seq, n)
     ) CHARACTER SET utf8mb4""",
-    # LLM answers (summaries, translations), keyed by sha256 of model + prompt.
+    # LLM answers (explanations), keyed by sha256 of model + prompt, and Azure Translator's (translator.py),
+    # keyed by sha256 of the text.
     """CREATE TABLE IF NOT EXISTS llm_cache (
       k        BINARY(32) PRIMARY KEY,
       response MEDIUMTEXT NOT NULL

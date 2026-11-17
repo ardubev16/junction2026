@@ -3,7 +3,8 @@
 WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently**:
 every Latin- or Cyrillic-script edition is fetched live from Wikipedia on the topic's first request
 (`wiki.py`). Detection needs no LLM: only bge-m3 vectors, compared inside MariaDB. The web page then
-asks an LLM for each finding's title and description and for English translations of the quotes.
+asks an LLM for each finding's title and description (with its first quotes in English), and Azure
+Translator for the other quotes and paragraphs.
 
 Passages in two of fi, sv and en are matched over every passage in the database with HNSW, as below.
 Any pair involving another language is matched only inside the topic, by an exact join: HNSW filtered
@@ -107,7 +108,7 @@ sequenceDiagram
     B->>API: GET /api/context (neighbouring sentences, from the sentence table)
   end
   opt "Show all" editions, paragraphs in English
-    B->>API: POST /api/translate (quotes by place; the text comes from the database)
+    B->>API: POST /api/translate (quotes by place, text from the database; Azure Translator)
   end
 ```
 

@@ -124,7 +124,7 @@ copy the database instead: `docker compose exec mariadb mariadb-dump -uwikicross
 
 **Rate limit** (`app.py`, `LIMITS`; off unless `RATE_LIMIT=1`; when on, stated on the home page through
 `GET /api/limits`): anyone can use it, but a client outside
-`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/explain` + `/api/translate` (the LLM),
+`ALLOWED_IPS` gets 60 `/api/` requests a minute and 30 for `/api/explain` + `/api/translate` (LLM, translator),
 then 429 with `Retry-After`; `/api/progress`, polled each second, and `/api/titles` are not counted.
 The LLM never sees text from a client: `/api/diff` explains its own findings (at most 30 a request,
 `limit`), and `/api/explain` and `/api/translate` take quotes by their place (at most 3 and 200),
@@ -233,7 +233,7 @@ so keys for several providers can sit in `.env` together.
 
 | `LLM_PRESET` | API | Model | Key | Measured |
 |---|---|---|---|---|
-| `verda` (default) | OpenAI-compatible (`inference.verda.com`) | `kimi-k3-1-pro` | `VERDA_API_KEY` | one summary in 23 s, one translation in 4 s |
+| `verda` (default) | OpenAI-compatible (`inference.verda.com`) | `kimi-k3-1-pro` | `VERDA_API_KEY` | one summary in 23 s |
 | `gemini` | Gemini `generateContent` | `gemini-4-hydrogen`, thinking `low` | `GEMINI_API_KEY` | free tier: 5 requests/min, 20/day; frequent 503 "high demand" |
 | `minimax` | OpenAI-compatible (OpenRouter) | `minimax/minimax-m3.1-flash` (paid; `:free` retired) | `OPENROUTER_API_KEY` | 10 summaries in 15 s |
 | `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` | `OPENROUTER_API_KEY` | free: 50 requests/day |
@@ -245,6 +245,17 @@ LLM_PRESET=openrouter LLM_MODEL=nvidia/nemotron-3.5-super-vl uv run --env-file .
 
 A new provider with one of these APIs is a new preset; a new API is a `(request, text)` pair in
 `APIS`. Answers are cached per preset in the `llm_cache` table.
+
+### Translator
+
+Snippets past the AI's explanation (quotes past the first three, their headings, paragraphs) are
+translated by [Azure AI Translator](https://learn.microsoft.com/azure/ai-services/translator/)
+(`src/wikicross/translator.py`, Text API v3), not the LLM: `AZURE_TRANSLATOR_KEY` (the resource's key)
+and, for a regional or multi-service resource, `AZURE_TRANSLATOR_REGION` (e.g. `westeurope`) in
+`.env`; `AZURE_TRANSLATOR_URL` overrides the global endpoint. Texts go as HTML, so the quote's
+`<mark>` highlight lands on the matching English words; their language is detected (one request
+mixes many editions). Each translated text is cached in `llm_cache`, so "Show all" pays only for the
+new quotes.
 
 ## How
 
@@ -269,7 +280,7 @@ of what each edition says, quoting the words that differ (never sentences that o
 and each shown quote in English with those words highlighted; the original keeps the same
 words highlighted. Quotes show in English: each quote's translate button shows the original on hover
 (or keyboard focus) and swaps to it on click. Quotes past the first three ("Show all") and paragraphs
-are translated with `/api/translate` when shown. Findings the AI does not confirm move under a "Show N
+are translated by Azure Translator (`/api/translate`) when shown. Findings the AI does not confirm move under a "Show N
 findings the AI marked as irrelevant" button, each saying why. If the LLM fails, a card has no title
 and shows the quotes in their original language until translated. Cached in `llm_cache`. The web app shows the total
 number of differences, ten per page, and filters the compared editions: a language picker

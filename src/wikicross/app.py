@@ -8,7 +8,7 @@ import os
 import re
 import time
 from collections import defaultdict, deque
-from collections.abc import AsyncGenerator, Awaitable, Callable, Collection
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import asynccontextmanager
 from http import HTTPStatus
@@ -27,7 +27,7 @@ from opentelemetry import context as otel_context
 from opentelemetry import trace
 from pydantic import BaseModel, Field
 
-from . import compare, embed_gpu, wiki
+from . import compare, embed_gpu, translator, wiki
 from .compare import MIN_EDITIONS, MIN_OUTLIER, differences
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
@@ -606,11 +606,6 @@ def context(
     return rows[::-1] if up else rows
 
 
-def strings(keys: Collection[str]) -> dict:
-    """JSON schema: an object with a string for each key."""
-    return {"type": "object", "properties": {k: {"type": "string"} for k in keys}, "required": list(keys)}
-
-
 KINDS = ("factual", "bias", "framing")  # the kinds of difference the AI tells apart (`kind`)
 SHOWN = 3  # quotes a card shows, those the AI explains; the rest on "Show all" (ui/shared/util.ts)
 
@@ -719,22 +714,14 @@ def explain(passages: list[dict]) -> dict:
 
 
 def translate(texts: dict[str, str]) -> dict[str, str]:
-    """Translate several texts to English in one LLM call, keeping <mark> highlights on the translated
-    words. Keys are "<lang>" or "<lang>-heading"; English text is passed through.
+    """Translate several texts to English with Azure Translator (translator.py), keeping <mark>
+    highlights on the translated words. Keys are "<lang>" or "<lang>-heading"; English text is passed through.
     """
     todo = {k: t for k, t in texts.items() if k.split("-")[0] != "en" and t.strip()}
     if not todo:
         return texts
-    answer = chat(
-        "Translate each value of the user's JSON object to English; each key starts with the "
-        "value's source language code. Keep line breaks and Markdown list markers. "
-        "Text between <mark> and </mark> is highlighted: "
-        "put <mark> and </mark> around the words of your translation that correspond. "
-        "Reply with an object with the same keys, values translated.",
-        json.dumps(todo, ensure_ascii=False),
-        strings(todo),
-    )
-    return {lang: str(answer.get(lang, t)) if lang in todo else t for lang, t in texts.items()}
+    answer = dict(zip(todo, translator.to_english(list(todo.values())), strict=True))
+    return {k: answer.get(k, t) for k, t in texts.items()}
 
 
 class Quote(BaseModel):
