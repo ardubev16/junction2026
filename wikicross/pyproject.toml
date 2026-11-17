@@ -3,6 +3,8 @@ name = "wikicross"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
 authors = [
     { name = "Lorenzo Bevilacqua", email = "43483037+ardubev16@users.noreply.github.com" }
 ]

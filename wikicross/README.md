@@ -211,3 +211,16 @@ Bavarian `bar`, Võro `vro`, Asturian `ast`, Simple English `simple`, Belarusian
 `POST /api/explain {"passages": [{"lang", "heading", "text", "sentence"}, …]}` (one finding:
 `discrepancy`, `title`, `description` and `quotes` per language: `english`, `heading`, `phrases`),
 `POST /api/translate {"texts": {"fi": "…", "fi-heading": "…"}, "target": "en"}`.
+
+## License
+
+Copyright (C) 2026 Lorenzo Bevilacqua.
+
+WikiCross is free software: you can redistribute it and/or modify it under the terms of the GNU
+General Public License as published by the Free Software Foundation, either version 3 of the License,
+or (at your option) any later version. It is distributed in the hope that it will be useful, but
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See [LICENSE](LICENSE) for the full text.
+
+The front end bundles Codex, the Wikimedia design system (GPL-2.0-or-later), and Vue and Codex's icons
+(MIT), all compatible with GPL-3.0-or-later.

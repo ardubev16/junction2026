@@ -1,6 +1,7 @@
 {
   "private": true,
   "description": "The web app's and the extension's UI: Vue with Codex, the Wikimedia design system. Built into src/wikicross/web and extension/dist (not committed): see the Makefile.",
+  "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "build:web": "vite build -c ui/vite.web.config.js",
