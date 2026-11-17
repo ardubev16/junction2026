@@ -3,6 +3,7 @@ import json
 import httpx
 import pytest
 from fastapi import HTTPException
+from pydantic import SecretStr
 
 from wikicross import translator
 
@@ -15,7 +16,7 @@ def fake_azure(monkeypatch, translate):
         sent.append((params, json))
         return httpx.Response(200, json=[{"translations": [{"text": translate(i["Text"]), "to": "en"}]} for i in json])
 
-    monkeypatch.setenv("AZURE_TRANSLATOR_KEY", "k")
+    monkeypatch.setattr(translator.settings, "azure_translator_key", SecretStr("k"))
     monkeypatch.setattr(translator.httpx, "post", post)
     return sent
 
@@ -53,6 +54,6 @@ def test_each_language_named_and_those_azure_lacks_go_to_the_llm(monkeypatch):
 
 
 def test_no_key_says_which_variable(monkeypatch):
-    monkeypatch.delenv("AZURE_TRANSLATOR_KEY", raising=False)
+    monkeypatch.setattr(translator.settings, "azure_translator_key", None)
     with pytest.raises(HTTPException, match="AZURE_TRANSLATOR_KEY"):
         translator.azure("fi", ["x"])

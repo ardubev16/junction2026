@@ -27,8 +27,12 @@ make web                          # the web app (needs Node; see Front end)
 uv run --env-file .env wikicross   # http://127.0.0.1:8000; .env holds AI_API_KEY
 ```
 
-The server creates its tables on start; the database fills as topics are asked for. Settings by
-environment: `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`.
+The server creates its tables on start; the database fills as topics are asked for. Every setting
+and secret is an environment variable, declared and typed in `src/wikicross/config.py`
+(pydantic-settings): the database (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`), the rate
+limit, the LLM and Azure Translator below. They are validated at start: a bad value (`LLM_PRESET=foo`,
+`DB_PORT=x`) stops the server naming the variable, and secrets print as `**********`. Modal
+(`MODAL_*`) and OpenTelemetry (`OTEL_*`) read their own.
 
 Embedding an article the first time: ~10 s with a warm GPU container (Urho Kekkonen, fi + sv + en),
 then 0.3 s from the database. A cold container first loads the model: ~30–50 s. Modal's vectors

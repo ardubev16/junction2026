@@ -4,7 +4,6 @@ import contextvars
 import hashlib
 import ipaddress
 import json
-import os
 import re
 import time
 from collections import defaultdict, deque
@@ -29,6 +28,7 @@ from pydantic import BaseModel, Field
 
 from . import compare, embed_gpu, translator, wiki
 from .compare import MIN_EDITIONS, MIN_OUTLIER, differences
+from .config import settings
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
 from .llm import chat
@@ -69,8 +69,6 @@ app = FastAPI(title="WikiCross", lifespan=lifespan)
 # ranges, space-separated) get at most this many requests a minute per zone; the home page shows the
 # numbers (/api/limits). Behind Caddy the client IP comes from X-Forwarded-For, which Caddy sets
 # (uvicorn --forwarded-allow-ips in the Dockerfile).
-RATE_LIMIT = os.environ.get("RATE_LIMIT", "0") == "1"
-ALLOWED_IPS = [ipaddress.ip_network(n, strict=False) for n in os.environ.get("ALLOWED_IPS", "127.0.0.1 ::1").split()]
 LIMITS = {"llm": 30, "api": 60}
 # shortcut: in-process memory, one counter per IP and zone kept forever; fine for one server process.
 _hits: dict[tuple[str, str], deque] = defaultdict(deque)
@@ -91,13 +89,13 @@ def allowed(host: str) -> bool:
         ip = ipaddress.ip_address(host)
     except ValueError:
         return False
-    return any(ip in net for net in ALLOWED_IPS)
+    return any(ip in net for net in settings.allowed_ips)
 
 
 @app.middleware("http")
 async def rate_limit(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     host = request.client.host if request.client else ""
-    if RATE_LIMIT and (z := zone(request.url.path)) and not allowed(host):
+    if settings.rate_limit and (z := zone(request.url.path)) and not allowed(host):
         now, hits = time.monotonic(), _hits[host, z]
         while hits and hits[0] <= now - 60:
             hits.popleft()
@@ -115,7 +113,7 @@ async def rate_limit(request: Request, call_next: Callable[[Request], Awaitable[
 @app.get("/api/limits")
 def limits() -> dict[str, int] | None:
     """The rate limits per address and minute (as LIMITS), or null when off: the home page states them."""
-    return LIMITS if RATE_LIMIT else None
+    return LIMITS if settings.rate_limit else None
 
 
 def split(text: str) -> list[tuple[str, str]]:

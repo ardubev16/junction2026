@@ -8,7 +8,6 @@ preset; for a new API, add a (request, text) pair to APIS.
 
 import hashlib
 import json
-import os
 import re
 import time
 from http import HTTPStatus
@@ -16,10 +15,11 @@ from http import HTTPStatus
 import httpx
 from fastapi import HTTPException
 
+from .config import Preset, settings
 from .db import connect
 from .telemetry import CACHE_LOOKUPS
 
-PRESETS: dict[str, dict] = {
+PRESETS: dict[Preset, dict] = {
     "gemini": {
         "api": "gemini",
         "key": "GEMINI_API_KEY",
@@ -50,8 +50,10 @@ PRESETS: dict[str, dict] = {
         "extra": {},
     },
 }
-LLM: dict = PRESETS[os.environ.get("LLM_PRESET", "verda")] | {
-    field: value for field in ("api", "url", "model") if (value := os.environ.get(f"LLM_{field.upper()}"))
+LLM: dict = PRESETS[settings.llm_preset] | {
+    field: value
+    for field, value in (("api", settings.llm_api), ("url", settings.llm_url), ("model", settings.llm_model))
+    if value
 }
 
 
@@ -127,13 +129,17 @@ def chat(system: str, user: str, schema: dict) -> dict:
             CACHE_LOOKUPS.add(1, {"cache": "llm", "result": "hit"})
             return json.loads(row[0])
         CACHE_LOOKUPS.add(1, {"cache": "llm", "result": "miss"})
-        api_key = os.environ.get(LLM["key"]) or os.environ.get("AI_API_KEY")
-        if not api_key:
+        keys = {
+            "GEMINI_API_KEY": settings.gemini_api_key,
+            "VERDA_API_KEY": settings.verda_api_key,
+            "OPENROUTER_API_KEY": settings.openrouter_api_key,
+        }
+        if not (api_key := keys[LLM["key"]] or settings.ai_api_key):
             raise HTTPException(
                 503, f"{LLM['key']} (or AI_API_KEY) not set: start with  uv run --env-file .env wikicross"
             )
         request, text = APIS[LLM["api"]]
-        url, headers, body = request(system, user, schema, api_key)
+        url, headers, body = request(system, user, schema, api_key.get_secret_value())
         for attempt in range(4):
             try:
                 r = httpx.post(url, headers=headers, json=body, timeout=600)

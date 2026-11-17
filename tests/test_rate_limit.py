@@ -7,8 +7,8 @@ from wikicross import app as m
 
 
 def test_outside_clients_are_limited_allowed_ones_are_not(monkeypatch):
-    monkeypatch.setattr(m, "RATE_LIMIT", True)
-    monkeypatch.setattr(m, "ALLOWED_IPS", [ipaddress.ip_network("10.0.0.0/8")])
+    monkeypatch.setattr(m.settings, "rate_limit", True)
+    monkeypatch.setattr(m.settings, "allowed_ips", [ipaddress.ip_network("10.0.0.0/8")])
     monkeypatch.setattr(m, "_hits", defaultdict(deque))
     outside = TestClient(m.app, client=("203.0.113.9", 1))  # not a context manager: no lifespan, no DB
     inside = TestClient(m.app, client=("10.1.2.3", 1))
@@ -24,7 +24,7 @@ def test_outside_clients_are_limited_allowed_ones_are_not(monkeypatch):
 
 
 def test_no_limit_when_off(monkeypatch):
-    monkeypatch.setattr(m, "RATE_LIMIT", False)
+    monkeypatch.setattr(m.settings, "rate_limit", False)
     monkeypatch.setattr(m, "_hits", defaultdict(deque))
     outside = TestClient(m.app, client=("203.0.113.9", 1))
     assert all(outside.post("/api/translate", json={}).status_code == 422 for _ in range(40))

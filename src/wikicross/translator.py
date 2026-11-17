@@ -13,7 +13,6 @@ import hashlib
 import html
 import json
 import logging
-import os
 import re
 from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
@@ -22,11 +21,12 @@ import httpx
 from fastapi import HTTPException
 
 from . import llm
+from .config import settings
 from .db import connect
 from .telemetry import CACHE_LOOKUPS, TRANSLATIONS
 
 log = logging.getLogger(__name__)
-URL = os.environ.get("AZURE_TRANSLATOR_URL", "https://api.cognitive.microsofttranslator.com")
+URL = settings.azure_translator_url
 MAX_ITEMS, MAX_CHARS = 1000, 50_000  # per request (Azure's limits)
 BR = re.compile(r"<br\s*/?>", re.IGNORECASE)
 CYRILLIC = re.compile("[\u0400-\u04ff]")
@@ -69,13 +69,13 @@ def azure(code: str, texts: list[str]) -> list[str]:
     """Texts of one language (Azure's `code`) in English, in as few requests as Azure's limits allow;
     sent as HTML so a <mark> highlight lands on the matching English words.
     """
-    if not (key := os.environ.get("AZURE_TRANSLATOR_KEY")):
+    if not (key := settings.azure_translator_key):
         raise HTTPException(
             HTTPStatus.SERVICE_UNAVAILABLE,
             "AZURE_TRANSLATOR_KEY not set: start with  uv run --env-file .env wikicross",
         )
-    headers = {"Ocp-Apim-Subscription-Key": key}
-    if region := os.environ.get("AZURE_TRANSLATOR_REGION"):
+    headers = {"Ocp-Apim-Subscription-Key": key.get_secret_value()}
+    if region := settings.azure_translator_region:
         headers["Ocp-Apim-Subscription-Region"] = region
     batches: list[list[str]] = [[]]
     for item in map(as_html, texts):

@@ -1,8 +1,8 @@
-import os
-
 import pymysql
 import pymysql.connections
 import pymysql.cursors
+
+from .config import settings
 
 LANGS = ("fi", "sv", "en")
 
@@ -84,11 +84,11 @@ def widen_lang(cur: pymysql.cursors.Cursor) -> None:
 
 def connect() -> pymysql.connections.Connection:
     return pymysql.connect(
-        host=os.environ.get("DB_HOST", "127.0.0.1"),
-        port=int(os.environ.get("DB_PORT", "3308")),
-        user=os.environ.get("DB_USER", "wikicross"),
-        password=os.environ.get("DB_PASSWORD", "wikicross"),
-        database=os.environ.get("DB_NAME", "wikicross"),
+        host=settings.db_host,
+        port=settings.db_port,
+        user=settings.db_user,
+        password=settings.db_password.get_secret_value(),
+        database=settings.db_name,
         charset="utf8mb4",
         autocommit=True,
     )
