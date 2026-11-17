@@ -24,13 +24,14 @@ becomes the active profile), or set `MODAL_PROFILE=fabio-missagia` when starting
 docker compose up -d --wait   # MariaDB on 127.0.0.1:3308, data in the wikicross-data volume
 uv run modal deploy src/wikicross/embed_gpu.py   # bge-m3 on an H100, scales to zero after 5 idle minutes
 make web                          # the web app (needs Node; see Front end)
-uv run --env-file .env wikicross   # http://127.0.0.1:8000; .env holds AI_API_KEY
+cp .env.example .env              # then fill in LLM_API_KEY, AZURE_TRANSLATOR_KEY, …
+uv run --env-file .env wikicross   # http://127.0.0.1:8000
 ```
 
 The server creates its tables on start; the database fills as topics are asked for. Every setting
 and secret is an environment variable, declared and typed in `src/wikicross/config.py`
 (pydantic-settings): the database (`DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD`, `DB_NAME`), the rate
-limit, the LLM and Azure Translator below. They are validated at start: a bad value (`LLM_PRESET=foo`,
+limit, the LLM and Azure Translator below. They are validated at start: a bad value (`LLM_API_TYPE=foo`,
 `DB_PORT=x`) stops the server naming the variable, and secrets print as `**********`. Modal
 (`MODAL_*`) and OpenTelemetry (`OTEL_*`) read their own.
 
@@ -231,24 +232,19 @@ The web app and the extension share their components: see [AGENTS.md](AGENTS.md)
 
 ### LLM
 
-`LLM_PRESET` picks one of the presets in `src/wikicross/llm.py`; `LLM_API`, `LLM_URL`, `LLM_MODEL`
-override single fields of it. Each preset reads its own key variable, falling back to `AI_API_KEY`,
-so keys for several providers can sit in `.env` together.
+Four settings, all required: `LLM_API_TYPE` (`openai`: any OpenAI-compatible `/chat/completions`
+server; `gemini`: Gemini's `generateContent`), `LLM_URL`, `LLM_MODEL`, `LLM_API_KEY`. `LLM_EXTRA`
+(optional, JSON) is merged into each request: the body, or Gemini's `generationConfig`. Tried so far:
 
-| `LLM_PRESET` | API | Model | Key | Measured |
+| `LLM_API_TYPE` | `LLM_URL` | `LLM_MODEL` | `LLM_EXTRA` | Measured |
 |---|---|---|---|---|
-| `verda` (default) | OpenAI-compatible (`inference.verda.com`) | `kimi-k3-1-pro` | `VERDA_API_KEY` | one summary in 23 s |
-| `gemini` | Gemini `generateContent` | `gemini-4-hydrogen`, thinking `low` | `GEMINI_API_KEY` | free tier: 5 requests/min, 20/day; frequent 503 "high demand" |
-| `minimax` | OpenAI-compatible (OpenRouter) | `minimax/minimax-m3.1-flash` (paid; `:free` retired) | `OPENROUTER_API_KEY` | 10 summaries in 15 s |
-| `openrouter` | OpenAI-compatible | `nvidia/nemotron-3.5-super-vl:free` | `OPENROUTER_API_KEY` | free: 50 requests/day |
+| `openai` | `https://inference.verda.com/v1` | `kimi-k3-1-pro` | | one summary in 23 s |
+| `gemini` | `https://generativelanguage.googleapis.com/v1beta` | `gemini-4-hydrogen` | `{"thinkingConfig": {"thinkingLevel": "low"}}` | free tier: 5 requests/min, 20/day; frequent 503 "high demand" |
+| `openai` | `https://openrouter.ai/api/v1` | `minimax/minimax-m3.1-flash` (paid; `:free` retired) | | 10 summaries in 15 s |
+| `openai` | `https://openrouter.ai/api/v1` | `nvidia/nemotron-3.5-super-vl:free` | `{"reasoning": {"enabled": false}}` (same quality, ~0.8 s instead of ~7 s) | free: 50 requests/day |
 
-```bash
-LLM_PRESET=minimax uv run --env-file .env wikicross
-LLM_PRESET=openrouter LLM_MODEL=nvidia/nemotron-3.5-super-vl uv run --env-file .env wikicross
-```
-
-A new provider with one of these APIs is a new preset; a new API is a `(request, text)` pair in
-`APIS`. Answers are cached per preset in the `llm_cache` table.
+A new API is a `(request, text)` pair in `APIS` (`src/wikicross/llm.py`). Answers are cached per API,
+URL, model and `LLM_EXTRA` in the `llm_cache` table.
 
 ### Translator
 

@@ -5,17 +5,17 @@ server, naming the variable. Empty variables count as unset. Modal (MODAL_*) and
 """
 
 from ipaddress import IPv4Network, IPv6Network, ip_network
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
-Preset = Literal["gemini", "verda", "openrouter", "minimax"]  # llm.PRESETS
 Network = IPv4Network | IPv6Network
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_ignore_empty=True, extra="ignore")
+    # hide_input_in_errors: a validation error would otherwise print every variable read, secrets included.
+    model_config = SettingsConfigDict(env_ignore_empty=True, extra="ignore", hide_input_in_errors=True)
 
     # MariaDB, as docker-compose.yml runs it
     db_host: str = "127.0.0.1"
@@ -30,15 +30,13 @@ class Settings(BaseSettings):
         default_factory=lambda: [ip_network("127.0.0.1"), ip_network("::1")]
     )
 
-    # LLM (llm.py): a preset, single fields overridden; each preset's key, else AI_API_KEY
-    llm_preset: Preset = "verda"
-    llm_api: Literal["gemini", "openai"] | None = None
-    llm_url: str | None = None
-    llm_model: str | None = None
-    ai_api_key: SecretStr | None = None
-    gemini_api_key: SecretStr | None = None
-    verda_api_key: SecretStr | None = None
-    openrouter_api_key: SecretStr | None = None
+    # LLM (llm.py), required: its API, endpoint, model and key. LLM_EXTRA (JSON) goes into each request:
+    # the body for "openai", generationConfig for "gemini" (e.g. {"thinkingConfig": {"thinkingLevel": "low"}}).
+    llm_api_type: Literal["gemini", "openai"]
+    llm_url: str
+    llm_model: str
+    llm_api_key: SecretStr
+    llm_extra: dict[str, Any] = {}
 
     # Azure AI Translator (translator.py): the region only for a regional or multi-service resource
     azure_translator_key: SecretStr | None = None
