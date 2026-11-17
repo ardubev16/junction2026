@@ -556,7 +556,7 @@ WEB = Path(__file__).with_name("web")  # the web app, built from ui/ by `make we
 @app.get("/")
 def index():
     if not (WEB / "index.html").exists():
-        return JSONResponse({"detail": "The web app is not built: run `make web` in wikicross/."}, status_code=503)
+        return JSONResponse({"detail": "The web app is not built: run `make web`."}, status_code=503)
     # Revalidate on every load (a 304 when unchanged): browsers otherwise reuse an old page after updates.
     return FileResponse(WEB / "index.html", headers={"Cache-Control": "no-cache"})
 

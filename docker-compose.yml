@@ -1,3 +1,6 @@
+# Fixed so the containers and the database volume keep their names whatever the checkout's folder is.
+name: wikicross
+
 services:
   mariadb:
     image: mariadb:lts

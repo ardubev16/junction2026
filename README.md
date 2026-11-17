@@ -4,6 +4,13 @@ Where do all the Wikipedia versions of an article frame things differently? They
 from Wikipedia the first time an article is asked for, embedded with bge-m3 and compared in MariaDB
 Vector.
 
+Built at Junction 2026 for the [MariaDB challenge "Wikipedia through time"](https://junction2026.com/challenges/mariadb-wikipedia-through-time).
+The challenge's starting points from MariaDB:
+
+- [mariadb-wikipedia-datasets](https://github.com/MariaDB/mariadb-wikipedia-datasets): three Finnish-history Wikipedia datasets for MariaDB
+- [mariadb-vector-wikipedia-rag](https://github.com/MariaDB/mariadb-vector-wikipedia-rag): cross-language semantic search (fi, sv, en) with MariaDB Vector
+- [mariadb-system-versioning-wikipedia](https://github.com/MariaDB/mariadb-system-versioning-wikipedia): every version of the articles in a system-versioned table
+
 ## Run
 
 Needs Docker, uv, Node 20+ (to build the web app) and a [Modal](https://modal.com) account (`uv run modal setup`). Passages and
@@ -70,7 +77,7 @@ messages, popovers, an accordion), design tokens and icons.
   page), built into `extension/dist/content.js`, its CSS inside the panel's shadow root.
 
 The builds are not committed. The Dockerfile builds the web app itself (a Node stage); outside Docker,
-the Makefile in `wikicross/` builds them (it runs `npm ci` first when needed):
+the Makefile builds them (it runs `npm ci` first when needed):
 
 ```bash
 make web            # src/wikicross/web, served by `uv run wikicross` (without it, / answers 503)
@@ -129,7 +136,7 @@ scrolled to; in the source editor it is selected in the wikitext, link markup an
 
 1. Start the backend (above) on `http://127.0.0.1:8000`.
 2. Build it: `make extension` (again after changing `ui/`).
-3. `chrome://extensions` → Developer mode → **Load unpacked** → select `wikicross/extension`.
+3. `chrome://extensions` → Developer mode → **Load unpacked** → select `extension/`.
 4. Open an article, e.g. `https://fi.wikipedia.org/wiki/Talvisota`, and click the button; or its
    edit view, where it loads at once.
 
