@@ -11,6 +11,7 @@
 .steps li.todo, .steps li.skipped, .steps li.skipped .cdx-icon { color: var(--color-subtle); }
 .steps li.active { font-weight: bold; } .steps li.active .muted { font-weight: normal; }
 .steps li.done .cdx-icon { color: var(--color-success); }
+.steps li.total { font-weight: bold; } .steps li.total .dot { visibility: hidden; }
 .steps .cdx-progress-indicator { flex: none; width: 20px; height: 20px; min-width: 0; min-height: 0; }
 .steps .dot { flex: none; box-sizing: border-box; width: 10px; height: 10px; margin: 0 5px; border: 1px solid var(--border-color-base); border-radius: 50%; }
 .filters { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }

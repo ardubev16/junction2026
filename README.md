@@ -50,10 +50,15 @@ looks them up in that edition only (in the database, else on de.wikipedia.org), 
 
 **Loading feedback**: while `/api/diff` works, `/api/progress?title=` gives its steps in order
 (`app.STEPS`: looking the topic up, fetching the editions, embedding passages, matching them, embedding
-their sentences, comparing), the ones it has reached, a detail ("fetched 12 of 63") and the seconds so
-far. The web app and the extension (`ui/shared/LoadingSteps.vue`) poll it each second and list the
-steps: done ones checked, the current one spinning, the ones this request did not need (a topic fetched
-before, differences cached) marked "not needed". AI checks and translations show a spinner.
+their sentences, comparing), the ones it has reached with the second each began, a detail ("fetched 12
+of 63") and the seconds so far; the `/api/diff` answer's `progress` has all of them. The web app and
+the extension (`ui/shared/LoadingSteps.vue`) poll it each second and list the steps, each with its
+seconds, and the total: done ones checked, the current one spinning, the ones this request did not
+need (a topic fetched before, differences cached) marked "not needed". In the web app a last step
+waits for the AI to explain and translate the page's findings ("7 of 10, 1 failed"); the results show
+once it is done, with the steps under "Loaded in N s". A request that gets no answer at all (a dropped
+connection, "Failed to fetch") is sent again twice, after 1 s and 2 s (`ui/web/main.js`,
+`extension/background.js`): AI answers are cached, so a retry costs nothing once one is made.
 
 **Caches in MariaDB**: everything computed once is kept, so a reload or a server restart repeats no
 work. Passage and sentence vectors live in `chunk` and `sentence`, the editions in `article`
@@ -212,8 +217,9 @@ each finding keeps the chosen editions' sentences, its deviations redone from th
 API: `GET /api/titles?q=Talvi` (up to 10 topics, one each: those compared before whose title in any
 language starts with q, then English Wikipedia's suggestions; each in English, else its longest
 edition, with Wikipedia's short description and thumbnail, as the search box's suggestions show them),
-`GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, and
-their `total`; each finding has every edition's `deviations` on its axis, shown under the "i" next
+`GET /api/diff?title=Talvisota&limit=10&offset=0` (`differences`, best first, one page of them, their
+`total`, and the `progress` it took, as `/api/progress`; each finding has every edition's `deviations`
+on its axis, shown under the "i" next
 to its label; `&focus=fi` puts the findings involving that edition first; `&langs=fi,sv,ru` keeps
 only those editions; `&dialects=false` leaves
 out editions without a two-letter ISO 639-1 code, i.e. regional languages and varieties such as

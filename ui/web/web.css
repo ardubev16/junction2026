@@ -20,4 +20,5 @@ h1 { font-size: var(--font-size-xxx-large); margin: 0; }
 .editions b { color: var(--color-base); font-weight: normal; }
 a { color: var(--color-link); text-decoration: none; } a:hover { text-decoration: underline; }
 .loading { margin: 2rem 0; font-size: var(--font-size-large); }
+.timing { margin-top: .6rem; } .timing .loading { margin: 0; font-size: var(--font-size-medium); }
 .pager { display: flex; gap: 1rem; align-items: center; justify-content: center; margin: 1.5rem 0; }

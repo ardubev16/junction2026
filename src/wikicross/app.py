@@ -286,10 +286,21 @@ STEPS = {
     "sentences": "Embedding the sentences of matched passages",
     "compare": "Comparing the sentences",
 }
-# What each running /api/diff is doing: title asked for -> {"visited": step keys so far, "detail", "start"}.
-# Two requests for one title share the first one's entry (the second finds its work done, or waits for it).
-# shortcut: in this process only; with several server processes, keep it in a table.
+# What each running /api/diff is doing: title asked for -> {"visited": [step key, seconds from the start
+# when it began] so far, "detail", "start"}. Two requests for one title share the first one's entry (the
+# second finds its work done, or waits for it). shortcut: in this process only; with several server
+# processes, keep it in a table.
 PROGRESS: dict[str, dict] = {}
+
+
+def report(entry: dict | None) -> dict:
+    """A diff's progress as the loading view reads it: the `steps` (key and label, in order), those
+    `visited` ([key, start second], the last one current), its `detail` and the `seconds` so far."""
+    steps = [{"key": k, "label": v} for k, v in STEPS.items()]
+    if entry is None:
+        return {"steps": steps, "visited": [], "detail": "", "seconds": 0}
+    return {"steps": steps, "visited": entry["visited"], "detail": entry["detail"],
+            "seconds": round(time.monotonic() - entry["start"], 1)}
 
 
 @app.get("/api/diff")
@@ -299,15 +310,15 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
     counts all); `lang` is the edition the title is from (any if not given: then looked up on English
     Wikipedia if the database does not have it), `focus` an edition whose findings go first.
     `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect();
-    `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not."""
+    `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not;
+    `progress` the steps this request took, each with its start second, and its `seconds` in all."""
     mine = {"visited": [], "detail": "", "start": time.monotonic()}
-    owner = PROGRESS.setdefault(title, mine) is mine
+    owner = PROGRESS.setdefault(title, mine) is mine  # only the first request for a title is polled
 
     def progress(step: str, detail: str = "") -> None:
-        if owner:
-            if mine["visited"][-1:] != [step]:
-                mine["visited"].append(step)
-            mine["detail"] = detail
+        if not mine["visited"] or mine["visited"][-1][0] != step:
+            mine["visited"].append([step, round(time.monotonic() - mine["start"], 1)])
+        mine["detail"] = detail
 
     progress("lookup")
     try:
@@ -316,6 +327,7 @@ def diff(title: str, limit: int = 10, offset: int = 0, lang: str | None = None, 
         data["differences"].sort(key=lambda f: focus is not None and all(m["lang"] != focus for m in f["members"]))
         data["total"] = len(data["differences"])
         data["differences"] = data["differences"][offset : offset + limit]
+        data["progress"] = report(mine)
         return data
     finally:
         if owner:
@@ -330,14 +342,8 @@ def is_dialect(lang: str) -> bool:
 
 @app.get("/api/progress")
 def progress_of(title: str):
-    """The steps of a /api/diff (`steps`: key and label, in order), those a running one for this title has
-    reached (`visited`, the last is the current one; empty if none runs), the current step's `detail`
-    and the seconds so far."""
-    steps = [{"key": k, "label": v} for k, v in STEPS.items()]
-    if (entry := PROGRESS.get(title)) is None:
-        return {"steps": steps, "visited": [], "detail": "", "seconds": 0}
-    return {"steps": steps, "visited": entry["visited"], "detail": entry["detail"],
-            "seconds": round(time.monotonic() - entry["start"])}
+    """The steps of a /api/diff running for this title, and its progress: see report()."""
+    return report(PROGRESS.get(title))
 
 
 def narrow(found: list[dict], kept: set[str]) -> list[dict]:

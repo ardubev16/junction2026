@@ -23,7 +23,7 @@ const props = defineProps({
   locateLabel: { type: Object, default: () => ({ text: "Show on page", title: "Highlight this on the page" }) },
   irrelevantTarget: { type: Object, default: null },
 });
-const emit = defineEmits(["dismiss"]);
+const emit = defineEmits(["dismiss", "ready"]);
 const api = inject("api");
 
 const f = props.finding;
@@ -96,6 +96,12 @@ function explain() {
     .catch((err) => { ai.error = `AI unavailable, quotes in their original language: ${err.message}`; })
     .finally(() => { ai.done = true; });
 }
+// Once the AI answered (or failed) and the quotes it did not cover are translated (or failed): for the
+// loading view's AI step. Registered after translateQuotes' watcher, so it sees that translation start.
+let readied = false;
+watch(() => ai.done && !translating.value, (ready) => {
+  if (ready && !readied) { readied = true; emit("ready", { failed: !!(ai.error || translateError.value) }); }
+});
 
 const card = ref(null);
 let observer;

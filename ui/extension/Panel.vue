@@ -28,7 +28,7 @@ function load(next = query) {
   requested = true;
   query = next;
   const mine = ++loads;
-  view.value = { state: "loading", id: mine };
+  view.value = { state: "loading", id: mine, times: { start: performance.now(), result: null, aiDone: null } };
   const filtered = { ...(query.langs && { langs: query.langs.join(",") }), ...(!query.dialects && { dialects: false }) };
   api.get("/api/diff", { title: props.title, lang: props.lang, focus: props.lang, limit: 30, ...filtered })
     .then((data) => {
@@ -78,7 +78,7 @@ const card = (f) => ({ finding: f, focusLang: props.lang, lazy: true, observeRoo
       <CdxButton weight="quiet" aria-label="Close" title="Close" @click="open = false"><CdxIcon :icon="cdxIconClose" /></CdxButton>
     </header>
     <div class="body">
-      <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="title" />
+      <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="title" :times="view.times" />
       <template v-else-if="view.state === 'error'">
         <CdxMessage type="error">{{ view.message }}</CdxMessage>
         <CdxButton v-if="filtered" size="small" @click="load({ langs: null, dialects: true })">Compare all editions</CdxButton>

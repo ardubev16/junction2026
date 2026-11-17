@@ -5,6 +5,12 @@ const BACKEND = "http://127.0.0.1:8000";
 const GETS = ["/api/diff", "/api/progress"];
 const POSTS = ["/api/explain", "/api/translate"];
 
+// A request that got no answer at all (the connection dropped) is sent again, twice, after 1 s and 2 s:
+// AI answers are cached on the server, so asking again costs nothing once one is made. As the web app.
+const retrying = (url, init, retries = 2) => fetch(url, init).catch((err) => {
+  if (!retries) throw err;
+  return new Promise((done) => setTimeout(done, 1000 * (3 - retries))).then(() => retrying(url, init, retries - 1));
+});
 // The backend's answer as {data} or {error, status}.
 const reply = (request, sendResponse) => request
   .then(async (r) => {
@@ -21,11 +27,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (message?.type === "get" && GETS.includes(message.path)) {
-    reply(fetch(`${BACKEND}${message.path}?${new URLSearchParams(message.params)}`), sendResponse);
+    reply(retrying(`${BACKEND}${message.path}?${new URLSearchParams(message.params)}`), sendResponse);
     return true; // the answer comes asynchronously
   }
   if (message?.type === "post" && POSTS.includes(message.path)) {
-    reply(fetch(`${BACKEND}${message.path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(message.body) }), sendResponse);
+    reply(retrying(`${BACKEND}${message.path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(message.body) }), sendResponse);
     return true;
   }
   return false;
