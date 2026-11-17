@@ -55,13 +55,16 @@ async function translateQuotes() {
     texts[p.lang] = p.sentence;
     if (p.heading) texts[`${p.lang}-heading`] = p.heading;
   }
+  let ok = false;
   try {
     const t = await api.post("/api/translate", { texts, target: "en" });
     for (const p of todo) english[p.lang] = { quote: t[p.lang], heading: t[`${p.lang}-heading`] ?? p.heading };
     translateError.value = "";
+    ok = true;
   } catch (err) { translateError.value = `Could not translate: ${err.message}`; }
   translating.value = false;
-  translateQuotes();  // shown meanwhile
+  // Quotes shown meanwhile. Not after a failure: the same quotes would be sent again at once, forever.
+  if (ok) translateQuotes();
 }
 watch([pool, () => ai.done], translateQuotes);
 
