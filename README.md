@@ -75,6 +75,8 @@ every pull request and push to `main`, pushing `ghcr.io/ardubev16/wikicross:main
 [Conventional Commits](https://www.conventionalcommits.org/) on `main` (version in `pyproject.toml` and
 `uv.lock`, `CHANGELOG.md`); merging it tags `vX.Y.Z`, publishes the GitHub release and pushes the image
 as `X.Y.Z`, `X.Y` and `latest`.
+[Renovate](https://docs.renovatebot.com/) keeps dependencies, actions and hooks up to date with the shared
+config in [ardubev16/common](https://github.com/ardubev16/common) (`renovate.json`).
 
 ## Chrome extension
 
