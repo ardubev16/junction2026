@@ -8,4 +8,4 @@ extension/dist/
 extension.zip
 .DS_Store
 # VizTracer output (scripts/profile.py)
-profile*.json
+profiles/

@@ -172,14 +172,25 @@ uv run --group otel --env-file .env opentelemetry-instrument uvicorn wikicross.a
 comparing), then the first page's ten AI calls at once, as the web app makes them:
 
 ```bash
-make profile TITLE=Joensuu EDITION=fi                          # a topic never loaded, into profile.json
-make profile TITLE=Talvisota EDITION=fi PROFILE_ARGS="--fresh --no-ai"
-make profile-view                                              # the timeline, in the browser (vizviewer)
+make profile TITLE=Joensuu EDITION=fi                          # a topic never loaded, into profiles/Joensuu.json
+make profile TITLE=Trento PROFILE_ARGS=--fresh NAME=trento-fresh   # into profiles/trento-fresh.json
+make profile-view NAME=trento-fresh                            # its timeline, in the browser (vizviewer)
 ```
 
-`--fresh` deletes the topic's editions, passages, sentences and cached differences first (LLM answers
-stay cached); `--no-ai` stops after the comparison; calls under 20 µs are left out (`--min-duration`)
-to keep the file loadable. Every thread is traced: the edition fetchers, Modal's client, the AI calls.
+Each run goes to `profiles/NAME.json` (NAME: the title unless given; `profiles/` is not committed), so
+runs can be kept side by side; `make profile-view` without NAME lists them. `--fresh` profiles a topic
+loaded before as new: it deletes the topic's editions, passages, sentences and cached differences
+first, and makes the LLM calls instead of reading their cached answers. `--no-ai` stops after the
+comparison; calls under 20 µs are left out (`--min-duration`) to keep the file loadable. Every thread
+is traced: the edition fetchers, Modal's client, the AI calls. A new topic makes three GPU calls:
+the section headings (to drop references and links), the passages, the matched sentences; the first
+also pays for the GPU container's start when it was idle.
+
+### Checks
+
+`make check` runs everything a change must pass: ruff (lint, every rule but those `pyproject.toml`
+turns off, each with its reason, and formatting), ty (Python types), vue-tsc (the front end's types)
+and the tests. `make fix` applies what ruff can fix by itself.
 
 ### Chrome extension
 
