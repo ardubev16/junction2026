@@ -1,4 +1,6 @@
 // What the content script asks the background (background.ts), and its answers.
+// The WikiCross backend: change it with "host_permissions" in manifest.json.
+export const BACKEND = "http://127.0.0.1:8000";
 export type Message =
   | { type: "open"; title: string; lang: string } // the web app on that topic, in a new tab
   | { type: "get"; path: string; params: Record<string, string> }

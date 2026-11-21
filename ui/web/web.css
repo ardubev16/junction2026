@@ -37,6 +37,7 @@ header {
   width: 1.6rem;
   height: 1.6rem;
   flex: none;
+  color: var(--color-progressive);
 }
 main {
   max-width: 1200px;
@@ -146,4 +147,31 @@ a:hover {
   gap: 0.2rem;
   color: var(--color-subtle);
   font-variant-numeric: tabular-nums;
+}
+/* The About page: one readable column of text. */
+.about {
+  max-width: 46rem;
+  margin: 1rem auto;
+  line-height: var(--line-height-content);
+}
+.about dt {
+  font-weight: bold;
+  margin-top: 0.6rem;
+}
+.about dd {
+  margin: 0.1rem 0 0;
+}
+.about li {
+  margin: 0.3rem 0;
+}
+/* As Wikipedia's footer: small, muted, links in a row. */
+footer {
+  border-top: 1px solid var(--border-color-subtle);
+  padding: 1rem 1.5rem 2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 1.5rem;
+  justify-content: center;
+  font-size: var(--font-size-small);
+  color: var(--color-subtle);
 }

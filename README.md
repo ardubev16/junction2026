@@ -22,8 +22,9 @@ cp .env.example .env                              # fill in the keys
 uv run --env-file .env wikicross                  # http://127.0.0.1:8000
 ```
 
-To use an embedder deployed in another Modal workspace (the team's: `fabio-missagia`), skip the deploy
-and run `uv run modal token new --profile fabio-missagia`, or set `MODAL_PROFILE`.
+The embedder runs in the active Modal profile's workspace (`uv run modal profile current`): after
+switching workspace, deploy it there again. To use one deployed in another workspace instead, skip the
+deploy and run `uv run modal token new --profile <workspace>`, or set `MODAL_PROFILE`.
 
 ## Configuration
 
@@ -134,7 +135,7 @@ set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`.
 | Endpoint | |
 |---|---|
 | `GET /api/titles?q=Talvi` | topic suggestions for the search box |
-| `GET /api/diff?title=…&lang=fi&limit=10&offset=0` | a page of findings (`limit` ≤ 30), strongest first, those the decision model finds no disagreement in left out; `kinds` counts them by kind; `focus`, `langs=fi,sv`, `dialects=false`, `kinds=factual,bias` filter |
+| `GET /api/diff?title=…&lang=fi&limit=10&offset=0` | a page of findings (`limit` ≤ 30), strongest first, those the decision model finds no disagreement in left out; `kinds` counts them by kind; `focus`, `langs=fi,sv`, `kinds=factual,bias` filter; `dialects=true` includes the editions without a two-letter code |
 | `GET /api/progress?title=…` | the steps of a running `/api/diff`, with server timings |
 | `GET /api/context?lang=…&page_id=…&seq=…&n=…&direction=up` | sentences around a quote |
 | `POST /api/explain {"quotes": [{lang, page_id, seq, n}, …]}` | explain one card's 2–3 quotes |

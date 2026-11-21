@@ -8,7 +8,7 @@ import shared from "../shared/style.css?inline";
 import { API, type Api, type Member } from "../shared/types";
 import { searchParams } from "../shared/util";
 import own from "./extension.css?inline";
-import type { Message, Reply } from "./messages";
+import { BACKEND, type Message, type Reply } from "./messages";
 import FindingsPanel from "./FindingsPanel.vue";
 
 const lang = location.hostname.split(".")[0];
@@ -157,6 +157,7 @@ async function ask<T>(message: Message): Promise<T> {
 const api: Api = {
   get: (path, query) => ask({ type: "get", path, params: Object.fromEntries(searchParams(query)) }),
   post: (path, body) => ask({ type: "post", path, body }),
+  about: `${BACKEND}/about`,
 };
 
 if (article) {
@@ -174,8 +175,10 @@ if (article) {
   // The page highlight: a CSS Custom Highlight over the evidence, so the page's DOM (and VisualEditor's
   // model of it) is never touched.
   const highlight = document.createElement("style");
+  // Wikipedia's own Codex tokens when the skin defines them (Vector 2022 does), else their values.
   highlight.textContent =
-    "::highlight(wikicross) { background-color: #fef6e7; text-decoration: underline 2px #edab00; }";
+    "::highlight(wikicross) { background-color: var(--background-color-warning-subtle, #fef6e7); " +
+    "text-decoration: underline 2px var(--border-color-warning, #edab00); }";
   document.head.append(highlight);
   // Codex popovers close on a mousedown or focus outside them, checked on the document, where an event
   // from the shadow root looks like it came from the host: keep events inside a popover, or on the button

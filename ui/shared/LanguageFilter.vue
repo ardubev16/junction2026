@@ -17,7 +17,7 @@ const props = withDefaults(
     dialects?: boolean;
     kinds?: Kind[] | null;
   }>(),
-  { langs: null, dialects: true, kinds: null },
+  { langs: null, dialects: false, kinds: null },
 ); // langs, kinds null: all
 const emit = defineEmits<{ change: [Filters] }>();
 const KINDS = Object.keys(KIND_NAMES) as Kind[];

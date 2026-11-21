@@ -1,5 +1,5 @@
 <!-- The web app: search a topic, see where its Wikipedia editions state things differently, a page of
-     findings at a time. The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=0&kinds=factual),
+     findings at a time. The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=1&kinds=factual),
      so results can be shared and Back/Forward work; `lang` (the edition the title is from) comes from a
      suggestion or the extension's link. -->
 <script setup lang="ts">
@@ -30,6 +30,7 @@ import {
   type TitleSuggestion,
 } from "../shared/types";
 import { KIND_NAMES, langName } from "../shared/util";
+import AboutPage from "./AboutPage.vue";
 import EditionsMenu from "./EditionsMenu.vue";
 
 const api = inject(API)!;
@@ -47,7 +48,7 @@ const urlQuery = (): Query => {
     lang: p.get("lang"),
     page: Math.max(1, parseInt(p.get("page") ?? "", 10) || 1),
     langs: p.get("langs")?.split(",").filter(Boolean) || null,
-    dialects: p.get("dialects") !== "0",
+    dialects: p.get("dialects") === "1", // hidden unless asked for
     kinds:
       p
         .get("kinds")
@@ -59,7 +60,7 @@ const urlQuery = (): Query => {
 const params = ({ lang, langs, dialects, kinds }: Query): Params => ({
   ...(lang && { lang }),
   ...(langs && { langs: langs.join(",") }),
-  ...(!dialects && { dialects: 0 }),
+  ...(dialects && { dialects: 1 }),
   ...(kinds?.length && { kinds: kinds.join(",") }),
 });
 const queryString = (q: Query) =>
@@ -140,9 +141,12 @@ type View =
   | ({ state: "loading" } & Run)
   | ({ state: "done"; data: Diff; query: Query } & Run);
 const view = ref<View>({ state: "idle" });
+// /about shows the About page instead of a search (the server serves the app there too).
+const about = ref(location.pathname === "/about");
 let current = 0;
 async function search(q: Query, push: boolean) {
-  if (push) history.pushState(null, "", `?${queryString(q)}`);
+  about.value = false;
+  if (push) history.pushState(null, "", `/?${queryString(q)}`);
   setSearchValue(q.title);
   document.title = `${q.title} — WikiCross`;
   const mine = ++current; // a slower, older search must not overwrite a newer one
@@ -167,10 +171,11 @@ async function search(q: Query, push: boolean) {
 }
 const done = computed(() => (view.value.state === "done" ? view.value : null));
 window.addEventListener("popstate", () => {
+  about.value = location.pathname === "/about";
   const q = urlQuery();
-  if (q.title) search(q, false);
+  if (!about.value && q.title) search(q, false);
 });
-if (urlQuery().title) search(urlQuery(), false);
+if (!about.value && urlQuery().title) search(urlQuery(), false);
 // The rate limits, if on (RATE_LIMIT in app.py): stated on the home page.
 const limits = ref<Limits | null>(null);
 api
@@ -215,74 +220,86 @@ const refilter = (filters: Filters) => {
     </div>
   </header>
   <main>
-    <template v-if="view.state === 'idle'">
-      <p class="muted">Pick an article to see where all its Wikipedia versions frame things differently.</p>
-      <CdxMessage v-if="limits" type="warning">
-        Fair use: outside the event network, each address can make {{ limits.api }} requests a minute, and
-        {{ limits.llm }} a minute for AI summaries and translations. Past that, wait a minute and try again.
-      </CdxMessage>
-    </template>
-
-    <CdxMessage v-else-if="view.state === 'error'" type="error">{{ view.message }}</CdxMessage>
-
-    <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="view.title" />
-
-    <div v-if="done" :key="done.id" class="layout">
-      <LanguageFilter
-        :languages="done.data.languages"
-        :counts="done.data.kinds"
-        :langs="done.query.langs"
-        :dialects="done.query.dialects"
-        :kinds="done.query.kinds"
-        @change="refilter"
-      />
-      <div class="results">
-        <div class="pagehead">
-          <h1>{{ head?.title }}</h1>
-          <EditionsMenu :articles="done.data.articles" />
-        </div>
-        <CdxMessage v-if="done.data.unchecked" type="warning" inline>
-          Some findings could not be checked, so they are shown unfiltered and without a kind:
-          {{ done.data.unchecked }}
+    <AboutPage v-if="about" />
+    <template v-else>
+      <template v-if="view.state === 'idle'">
+        <p class="muted">Pick an article to see where all its Wikipedia versions frame things differently.</p>
+        <CdxMessage v-if="limits" type="warning">
+          Fair use: outside the event network, each address can make {{ limits.api }} requests a minute, and
+          {{ limits.llm }} a minute for AI summaries and translations. Past that, wait a minute and try again.
         </CdxMessage>
-        <template v-if="done.data.total">
-          <div class="listhead">
-            <h2>{{ done.data.total }} differences</h2>
-            <nav v-if="pages > 1" class="pager compact" aria-label="Pages of differences">
-              <CdxButton
-                weight="quiet"
-                :disabled="done.query.page <= 1"
-                aria-label="Previous page"
-                @click="go(done.query.page - 1)"
-                ><CdxIcon :icon="cdxIconPrevious"
-              /></CdxButton>
-              <span>{{ done.query.page }} / {{ pages }}</span>
-              <CdxButton
-                weight="quiet"
-                :disabled="done.query.page >= pages"
-                aria-label="Next page"
-                @click="go(done.query.page + 1)"
-                ><CdxIcon :icon="cdxIconNext"
+      </template>
+
+      <CdxMessage v-else-if="view.state === 'error'" type="error">{{ view.message }}</CdxMessage>
+
+      <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="view.title" />
+
+      <div v-if="done" :key="done.id" class="layout">
+        <LanguageFilter
+          :languages="done.data.languages"
+          :counts="done.data.kinds"
+          :langs="done.query.langs"
+          :dialects="done.query.dialects"
+          :kinds="done.query.kinds"
+          @change="refilter"
+        />
+        <div class="results">
+          <div class="pagehead">
+            <h1>{{ head?.title }}</h1>
+            <EditionsMenu :articles="done.data.articles" />
+          </div>
+          <CdxMessage v-if="done.data.unchecked" type="warning" inline>
+            Some findings could not be checked, so they are shown unfiltered and without a kind:
+            {{ done.data.unchecked }}
+          </CdxMessage>
+          <template v-if="done.data.total">
+            <div class="listhead">
+              <h2>{{ done.data.total }} differences</h2>
+              <nav v-if="pages > 1" class="pager compact" aria-label="Pages of differences">
+                <CdxButton
+                  weight="quiet"
+                  :disabled="done.query.page <= 1"
+                  aria-label="Previous page"
+                  @click="go(done.query.page - 1)"
+                  ><CdxIcon :icon="cdxIconPrevious"
+                /></CdxButton>
+                <span>{{ done.query.page }} / {{ pages }}</span>
+                <CdxButton
+                  weight="quiet"
+                  :disabled="done.query.page >= pages"
+                  aria-label="Next page"
+                  @click="go(done.query.page + 1)"
+                  ><CdxIcon :icon="cdxIconNext"
+                /></CdxButton>
+              </nav>
+            </div>
+            <FindingCard v-for="(f, i) in done.data.differences" :key="`${done.id}-${i}`" :finding="f" paragraphs />
+            <nav v-if="pages > 1" class="pager" aria-label="Pages of differences">
+              <CdxButton :disabled="done.query.page <= 1" @click="go(done.query.page - 1)"
+                ><CdxIcon :icon="cdxIconPrevious" /> Previous</CdxButton
+              >
+              <span>Page {{ done.query.page }} of {{ pages }}</span>
+              <CdxButton :disabled="done.query.page >= pages" @click="go(done.query.page + 1)"
+                >Next <CdxIcon :icon="cdxIconNext"
               /></CdxButton>
             </nav>
-          </div>
-          <FindingCard v-for="(f, i) in done.data.differences" :key="`${done.id}-${i}`" :finding="f" paragraphs />
-          <nav v-if="pages > 1" class="pager" aria-label="Pages of differences">
-            <CdxButton :disabled="done.query.page <= 1" @click="go(done.query.page - 1)"
-              ><CdxIcon :icon="cdxIconPrevious" /> Previous</CdxButton
-            >
-            <span>Page {{ done.query.page }} of {{ pages }}</span>
-            <CdxButton :disabled="done.query.page >= pages" @click="go(done.query.page + 1)"
-              >Next <CdxIcon :icon="cdxIconNext"
-            /></CdxButton>
-          </nav>
-        </template>
-        <p v-else class="muted">The editions state nothing differently that WikiCross can find.</p>
-        <CdxAccordion class="timing">
-          <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
-          <LoadingSteps :title="done.title" :result="done.data.progress" />
-        </CdxAccordion>
+          </template>
+          <p v-else class="muted">The editions state nothing differently that WikiCross can find.</p>
+          <CdxAccordion class="timing">
+            <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
+            <LoadingSteps :title="done.title" :result="done.data.progress" />
+          </CdxAccordion>
+        </div>
       </div>
-    </div>
+    </template>
   </main>
+  <footer>
+    <a href="/about">About WikiCross</a>
+    <span
+      >Quotes from Wikipedia, under
+      <a href="https://creativecommons.org/licenses/by-sa/4.0/" rel="license">CC BY-SA 4.0</a></span
+    >
+    <span>Not affiliated with the Wikimedia Foundation</span>
+    <a href="https://github.com/ardubev16/junction2026">Source code</a>
+  </footer>
 </template>

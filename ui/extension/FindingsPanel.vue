@@ -33,8 +33,10 @@ type View =
   | { state: "error"; message: string; status: number }
   | { state: "done"; data: Diff; id: number };
 const view = ref<View>({ state: "idle" });
+// Dialects hidden by default, as in the web app, unless this page is one (it would hide its own edition).
+const DEFAULT: Filters = { langs: null, dialects: props.lang.length !== 2, kinds: null };
 const ALL: Filters = { langs: null, dialects: true, kinds: null };
-let query: Filters = ALL,
+let query: Filters = DEFAULT,
   requested = false,
   loads = 0;
 
@@ -45,7 +47,7 @@ function load(next: Filters = query) {
   view.value = { state: "loading", id: mine };
   const filtered = {
     ...(query.langs && { langs: query.langs.join(",") }),
-    ...(!query.dialects && { dialects: false }),
+    ...(query.dialects && { dialects: true }),
     ...(query.kinds && { kinds: query.kinds.join(",") }),
   };
   // Unexplained: each card asks the AI as it nears the panel's view, so nothing is asked until the panel opens.

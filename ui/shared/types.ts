@@ -20,6 +20,7 @@ export interface Decision {
   kind: Kind;
   real: number; // probability that it is a disagreement at all
   strength: number; // 0 minor – 2 major
+  outlier: string | null; // the edition whose quote stands apart (three quotes or more), or none
 }
 
 /** compare.differences(): editions placed apart on a framing axis, judged by the decision model. */
@@ -114,6 +115,7 @@ export type ApiError = Error & { status: number };
 export interface Api {
   get<T>(path: string, params?: Params): Promise<T>;
   post<T>(path: string, body: unknown): Promise<T>;
+  about: string; // the web app's About page, which explains a finding's numbers
 }
 export const API: InjectionKey<Api> = Symbol("api");
 

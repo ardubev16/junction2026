@@ -1,12 +1,11 @@
 // Calls the WikiCross backend for the content script. Fetching here, with the host permission in
 // manifest.json, avoids CORS: the page itself (https://*.wikipedia.org) could not call localhost.
-// To use another backend, change BACKEND and "host_permissions" together. Built into
+// To use another backend, change BACKEND (messages.ts) and "host_permissions" together. Built into
 // extension/dist/background.js (`npm run build:extension`).
-import type { Message, Reply } from "./messages";
+import { BACKEND, type Message, type Reply } from "./messages";
 
-const BACKEND = "http://127.0.0.1:8000";
 const GETS = ["/api/diff", "/api/progress"];
-const POSTS = ["/api/explain", "/api/translate"];
+const POSTS = ["/api/explain", "/api/translate", "/api/consensus"];
 
 // A request that got no answer at all (the connection dropped) is sent again, twice, after 1 s and 2 s:
 // AI answers are cached on the server, so asking again costs nothing once one is made. As the web app.

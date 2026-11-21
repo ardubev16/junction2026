@@ -1,16 +1,24 @@
-<!-- The numbers behind a finding: an "i" button opening a Codex popover. -->
+<!-- The numbers behind a finding, in a Codex popover behind an "i" button: the decision model's verdict
+     first, then how the quotes were matched and the tone axis that made them a candidate. Short: the
+     About page explains each number. -->
 <script setup lang="ts">
-import { computed, ref, type ComponentPublicInstance } from "vue";
+import { computed, inject, ref, type ComponentPublicInstance } from "vue";
 import { CdxButton, CdxIcon, CdxPopover } from "@wikimedia/codex";
 import { cdxIconInfo } from "@wikimedia/codex-icons";
-import type { Finding } from "./types";
-import { langName, sigma } from "./util";
+import { API, type Finding } from "./types";
+import { KIND_NAMES, langName, sigma } from "./util";
 
 const props = defineProps<{ finding: Finding }>();
+const api = inject(API)!;
 const open = ref(false),
   anchor = ref<ComponentPublicInstance | null>(null);
-const rows = computed(() => Object.entries(props.finding.deviations).sort((a, b) => b[1] - a[1]));
-const own = computed(() => props.finding.deviations[props.finding.lang] ?? props.finding.deviation);
+const d = computed(() => props.finding.decision);
+// The strength score (0–2) as its nearest level.
+const strength = computed(() => (d.value ? ["minor", "notable", "major"][Math.round(d.value.strength)] : ""));
+// The edition furthest along the tone axis: why this became a candidate, whoever stands apart in fact.
+const axisLang = computed(() =>
+  Object.entries(props.finding.deviations).reduce((a, b) => (Math.abs(b[1]) > Math.abs(a[1]) ? b : a)),
+);
 </script>
 
 <template>
@@ -21,7 +29,6 @@ const own = computed(() => props.finding.deviations[props.finding.lang] ?? props
     class="info"
     data-popover-anchor
     aria-label="The numbers behind this finding"
-    title="The numbers behind this finding"
     @click="open = !open"
   >
     <CdxIcon :icon="cdxIconInfo" size="small" />
@@ -32,26 +39,32 @@ const own = computed(() => props.finding.deviations[props.finding.lang] ?? props
     placement="bottom-end"
     class="numbers"
     use-close-button
-    :title="`How far apart: the ${finding.axis} axis`"
+    title="The numbers behind this finding"
   >
-    <p>
-      Each sentence has a position on this axis: towards +, an edition {{ finding.ends[0] }}; towards −, it
-      {{ finding.ends[1] }}. Positions are measured against the language's own sentences, so 1σ is a typical spread
-      within that language.
-    </p>
-    <p>
-      {{ langName(finding.lang) }} sits {{ sigma(own) }} from the average of the others; a finding needs at least 1.2σ
-      either way. Each edition, from its others' average:
-    </p>
     <table>
-      <tr v-for="[l, d] in rows" :key="l" :class="{ this: l === finding.lang }">
-        <td>{{ langName(l) }}</td>
-        <td class="num">{{ sigma(d) }}</td>
+      <tr>
+        <th scope="row">Decision model</th>
+        <td v-if="d">
+          {{ KIND_NAMES[d.kind] }}, {{ Math.round(d.real * 100) }}% likely a disagreement; {{ strength }} ({{
+            d.strength.toFixed(1)
+          }}
+          of 2)
+        </td>
+        <td v-else>not checked</td>
+      </tr>
+      <tr v-if="d?.outlier">
+        <th scope="row">Stands apart</th>
+        <td>{{ langName(d.outlier) }}</td>
+      </tr>
+      <tr>
+        <th scope="row">Match</th>
+        <td>distance {{ finding.distance.toFixed(2) }} (one statement up to 0.35)</td>
+      </tr>
+      <tr>
+        <th scope="row">Tone</th>
+        <td>{{ langName(axisLang[0]) }} {{ sigma(axisLang[1]) }} on the {{ finding.axis }} axis</td>
       </tr>
     </table>
-    <p class="muted">
-      The sentences are matched as one statement: their largest cosine distance is {{ finding.distance.toFixed(2) }}
-      (0 is the same meaning; up to 0.35 counts).
-    </p>
+    <a :href="`${api.about}#numbers`" target="_blank" rel="noopener">What these numbers mean</a>
   </CdxPopover>
 </template>

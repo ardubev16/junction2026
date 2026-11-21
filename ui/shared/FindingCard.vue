@@ -8,7 +8,14 @@
      about its subject (/api/consensus): their positions, most editions first. -->
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
-import { CdxButton, CdxIcon, CdxInfoChip, CdxMessage, CdxProgressIndicator } from "@wikimedia/codex";
+import {
+  CdxButton,
+  CdxIcon,
+  CdxInfoChip,
+  CdxMessage,
+  CdxProgressIndicator,
+  CdxTooltip as vTooltip,
+} from "@wikimedia/codex";
 import {
   cdxIconArticle,
   cdxIconCollapse,
@@ -281,7 +288,7 @@ const hiddenPositions = computed(() => (consensus.value?.positions.length ?? 0) 
                 <MarkedText :text="inEnglish(p) ? withMarks(p.sentence, phrases[p.lang]) : english[p.lang].quote" />
               </div>
             </span>
-            <span v-else-if="!settled || translating" class="tr" title="Translating…"
+            <span v-else-if="!settled || translating" class="tr"
               ><CdxProgressIndicator>Translating</CdxProgressIndicator></span
             >
           </template>
@@ -328,9 +335,13 @@ const hiddenPositions = computed(() => (consensus.value?.positions.length ?? 0) 
             <span class="muted"> · {{ p.editions.length }} edition{{ p.editions.length === 1 ? "" : "s" }}</span>
             <CdxInfoChip v-if="p.i === 0 && leads" class="lead">Most editions</CdxInfoChip>
             <div class="langs">
-              <span v-for="l in p.editions" :key="l" :title="consensus.sentences[l] ?? 'One of the quotes above'">{{
-                langName(l)
-              }}</span>
+              <span
+                v-for="l in p.editions"
+                :key="l"
+                v-tooltip="consensus.sentences[l] ?? 'One of the quotes above'"
+                tabindex="0"
+                >{{ langName(l) }}</span
+              >
             </div>
           </li>
         </ol>
@@ -343,8 +354,8 @@ const hiddenPositions = computed(() => (consensus.value?.positions.length ?? 0) 
           {{ allPositions ? "Show fewer" : `Show ${hiddenPositions} more` }}
         </CdxButton>
         <p class="muted">
-          Most editions is not proof: they may give the value for different dates, or copy one another. Hover an edition
-          for its sentence.
+          Most editions is not proof: they may give the value for different dates, or copy one another. Hover or focus
+          an edition for its sentence.
         </p>
       </template>
     </section>

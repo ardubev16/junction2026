@@ -67,6 +67,7 @@ header h2 {
   width: 20px;
   height: 20px;
   flex: none;
+  color: var(--color-progressive);
 }
 .body {
   padding: 0.4rem 0.8rem 0.8rem;

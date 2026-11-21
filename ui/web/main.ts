@@ -29,5 +29,6 @@ const api: Api = {
   get: (path, params) => request(`${path}?${searchParams(params)}`),
   post: (path, body) =>
     request(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  about: "/about",
 };
 createApp(App).provide(API, api).mount("#app");
