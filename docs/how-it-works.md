@@ -186,7 +186,57 @@ $$\Delta_\ell = z_\ell - \frac{1}{|G|-1}\sum_{k \in G,\,k \neq \ell} z_k$$
 With two editions this is just their difference. The largest $|\Delta|$ over editions and axes is
 reported when it is at least 1.2σ; with three or more editions, that edition is the outlier.
 
-### 5. Worked example (real output)
+### 5. Judging the candidates (`decide.py`)
+
+Every candidate's first three quotes go to a decision model (OpenRouter's Decisions API,
+`perplexity/pplx-decider-v1.3`) with two typed questions: its **kind** (factual, bias, framing, or none)
+and its **strength** (minor, notable, major), answered as calibrated probabilities, not text. "None" is
+dropped; the rest are ordered by P(disagreement) × (1 + strength). Ten candidates go in one request,
+eight requests at a time: Google's 1,528 candidates take 10 s on a first load, then come from
+`llm_cache`. On the 18 labelled findings (`python -m wikicross.evals decide`) it is right on all 18;
+the LLM's own verdict, before, on 82%.
+
+#### Is detection tuned right? (November 2026)
+
+Full setup, per-band tables and the rejected alternatives: [experiments](experiments/README.md).
+
+The decision model makes a cheap judge, so its verdicts can label candidates in bulk. On Kuopio,
+Talvisota and Google, detection was re-run with both thresholds opened (distance up to 0.45, no
+deviation gate: 26,303 candidates), and every candidate judged:
+
+| Candidates kept if | Candidates | Judged real | Precision |
+|---|---|---|---|
+| distance ≤ 0.35, deviation ≥ 1.2σ (today) | 2,306 | 371 | 0.16 |
+| distance ≤ 0.35, any deviation | 10,241 | 1,718 | 0.17 |
+| distance ≤ 0.40, any deviation | 17,755 | 2,601 | 0.15 |
+| distance ≤ 0.35, the quotes' numbers differ | 3,908 | 1,371 | 0.35 |
+| distance ≤ 0.35, numbers differ or deviation ≥ 1.2σ | 5,380 | 1,462 | 0.27 |
+| distance ≤ 0.35, today's count per topic, numbers-differ first, then by deviation | 2,306 | 777 | 0.34 |
+
+- **The deviation gate does not select disagreements.** About 13% of candidates are real at every
+  deviation, from 0σ to over 3σ, and 90% of the real ones are factual, which tone axes catch only by
+  chance: today's gate passes about a fifth of what the decision model would confirm. Only bias grows
+  with deviation (bias: 21 of 1,815 real below 1σ, 32 of 265 above 2σ).
+- **Distance**: precision is flat (0.16–0.21) up to 0.35, then falls (0.12, 0.09): 0.35 stays.
+- **Opening the gate** finds 4.6× as many real disagreements for 4.4× the decision calls (Google:
+  about 660 requests, 45 s on a first load): not kept.
+- **A number rule as a prefilter** (both quotes have numbers, and they differ, grouping ignored) has
+  twice the precision and 80% of the recall. At today's candidate count it finds 2.1× the real
+  disagreements; but filled with number candidates first, the budget then holds almost no bias ones (0
+  of today's 11). As a filter it would replace the gate, not the judge: number rules failed before as the
+  *judge* (they paired unrelated figures; see below), which the decision model now is.
+- **A linear probe** on the two quotes' bge-m3 vectors (|u−v|, u⊙v), trained on the decision model's
+  labels for two topics and tested on the third: AUC 0.76 (Kuopio), 0.58 (Talvisota), 0.54 (Google). It
+  does not carry across topics.
+
+Thresholds stay as they are; the number prefilter is the candidate change worth making, with a share
+of the budget kept for tone candidates. Any such change is checked by the yield eval:
+`python -m wikicross.evals yield` counts candidates and confirmed findings on the three topics and fails
+if a topic keeps over 15% fewer than its baseline (`yield --update` on main's code first, as the
+on-demand CI job does: counts depend on the database's corpus). Narrowing `FRAMING_MAX` to 0.30, for
+example, keeps 20 of 60 (Kuopio), 107 of 248, 87 of 160: all three fail.
+
+### 6. Worked example (real output)
 
 | Topic | Kind | Editions | Result |
 |---|---|---|---|
@@ -209,7 +259,7 @@ Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vecto
 
 | Decision | Chosen | Alternative | Why |
 |---|---|---|---|
-| Who judges "different" | semantic axes | LLM per pair; rules about numbers; NLI on translations | an LLM call per matched pair is 35–60 calls per article. Two earlier versions flagged contradictions and were removed: number rules (missed names, dates and outcomes; paired unrelated figures) and NLI classifiers on machine translations (about half the findings real, minutes per topic's first load; commit `56dcbbe`) |
+| Who judges "different" | a decision model, on candidates from semantic axes | LLM per pair; rules about numbers; NLI on translations | a decision model answers in typed probabilities, 10 candidates a request, ~0.5 s: every candidate of a topic is judged on its first load. An LLM call per pair was 35–60 calls per article. Two earlier versions flagged contradictions and were removed: number rules (missed names, dates and outcomes; paired unrelated figures) and NLI classifiers on machine translations (about half the findings real, minutes per topic's first load; commit `56dcbbe`) |
 | Matching rule | mutual nearest + threshold | nearest only | one-to-one: a long paragraph cannot match everything |
 | Passage search | HNSW over the whole corpus | exact join within the topic | finds counterparts in other articles; stays fast as the corpus grows |
 | Sentence search | exact join within passage pairs | HNSW | measured 0.11 s vs 3.68 s; exact; no index to maintain on the largest table |
@@ -218,14 +268,15 @@ Per article that is about **8.6 passages and 34 sentences**, i.e. about 43 vecto
 
 ## Limitations
 
-- **Only tone.** Facts only one edition states are never reported (no partner), and neither are
-  editions stating different facts.
-- **Framing is noisy.** Strong hits (≥2σ) are usually real; around 1.2–1.5σ, many are
-  wording differences (Urho Kekkonen: 11 framing findings, the top 3 convincing).
+- **Candidates come from tone axes.** Detection is tuned for tone, so most factual disagreements never
+  become candidates (see "Is detection tuned right?"); facts only one edition states are never reported
+  (no partner).
+- **The judge is one model.** Its verdicts drive filtering, kinds and order; the labelled findings and
+  the yield eval watch it, and an outage shows the candidates unchecked, with a warning.
 - **Three axes.** Others (blame/agency, nationalist vs neutral framing) would need their own anchors
-  and checking. The wording axis also fires on sentences that differ in a fact rather than in tone
-  ("largest" vs "second largest" national park).
-- **Thresholds are tuned on two articles** (Winter War, Urho Kekkonen).
+  and checking.
+- **Thresholds are tuned on a few articles** (Winter War, Urho Kekkonen; checked on Kuopio,
+  Talvisota and Google).
 
 ## Scaling to more languages
 

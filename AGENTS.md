@@ -18,6 +18,9 @@
 - No LLM in detection. The AI is on by default; a failed LLM call must leave the findings usable
   (original quotes, no title). After changing the explain prompt, the LLM or a threshold in `compare.py`,
   run `make eval` (labelled findings in `evals/`); add a case for each wrong finding you fix.
+- **Experiments are recorded in [docs/experiments/](docs/experiments/README.md)**: read its index before
+  trying something (it may have been measured already); give each new experiment a page (question, setup,
+  numbers, outcome, how to repeat) and a row in the index, also when it failed.
 - Never read `.env` values; refer to key names only.
 - Use uv (`uv run pytest`); MariaDB runs from `docker-compose.yml`.
 - **`make check` must pass**: the prek hooks (`.pre-commit-config.yaml`: format, lint and types for Python,
