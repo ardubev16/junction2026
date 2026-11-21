@@ -115,6 +115,9 @@ Baseline (local database, 2026-11-22): Kuopio 262 candidates / 60 kept, Talvisot
 reused): 125 / 20, 583 / 107, 734 / 87, all three flagged, exit 1. Note: that run overwrote the topics'
 `diff_cache` rows (keyed by wikidata id); the next real load recomputes them.
 
+After the decider gained its outlier question (same day): 54, 236 and 158 kept (−10%, −5%, −1%), within
+the 15% tolerance. Questions asked together in one request nudge each other's answers a little.
+
 ## CI without Modal
 
 Not run; an estimate. The reference topics hold ~5.4k passages and ~22k sentences in the database (only
@@ -122,5 +125,18 @@ matched passages get sentences). At the CPU rates measured with Ollama (≈2 pas
 on a laptop) that is ~1.5 h per fresh run, too slow for CI; CPU vectors would also differ slightly from
 the GPU's. Better: a MariaDB dump of the reference topics (articles, chunks, sentences, embedding and
 decision caches) restored in CI. No Wikipedia fetches, no embedding, and only new candidates ask the
-judge. It needs a home outside git (~100 MB of vectors: a release asset or the Actions cache) and a
+judge. It needs a home outside git (~100 MB of vectors: 4 KB × ~27k, float32 barely compresses) and a
 refresh when the embedding model or the chunking changes.
+
+Where it could live:
+
+| Option | For | Against |
+|---|---|---|
+| **GHCR: a MariaDB image with the fixture baked in** (`ghcr.io/ardubev16/wikicross-evaldb:<date>`), used directly as the job's `services.mariadb.image` | no download step; versioned by tag; the registry and `GITHUB_TOKEN` push already used for the app image; free for a public package | an image build per refresh (a workflow: dump, then `docker build` from `mariadb:lts` with the dump in `/docker-entrypoint-initdb.d`, or the data directory baked for a faster start) |
+| GitHub release asset (`gh release download`) | simplest; up to 2 GB per file; versioned | a restore step on every run (a minute or two for ~100 MB of inserts) |
+| Actions cache | built in, 10 GB | evicted after 7 days unused; not reproducible as a reference |
+| Git LFS | in the repository | 1 GB of free storage and bandwidth a month: a few CI runs |
+| Hugging Face dataset, or object storage (Cloudflare R2: 10 GB free, no egress fees) | large, versioned | another account and its secrets |
+
+Recommended: the GHCR image. The yield job's two runs, main then branch, would then start from the
+fixture instead of an empty database.

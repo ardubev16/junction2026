@@ -9,6 +9,8 @@ pending), **planned** (not run yet).
 
 | Date | Experiment | Result | Status |
 |---|---|---|---|
+| 2026-11-22 | [Decider asks for the outlier](2026-11-decision-model.md#follow-up-outlier-and-a-same-thing-question-2026-11-22) | Manila: English named (the tone axis said Italian); decide accuracy 0.95 on 20 cases, Trento#5 the miss | adopted |
+| 2026-11-22 | ["Same specific thing?" question, passage context](2026-11-decision-model.md#follow-up-outlier-and-a-same-thing-question-2026-11-22) | 0.85 and 0.55 (drops populations from different years); context 0.90 (fixes Trento, breaks two) | rejected |
 | 2026-11-22 | [Detection thresholds against the decision model](2026-11-detection-thresholds.md) | The 1.2σ deviation gate does not select disagreements (13% real at every deviation) and passes ~1/5 of what the judge confirms; distance 0.35 is right | thresholds kept; documented |
 | 2026-11-22 | [Number prefilter for candidates](2026-11-detection-thresholds.md#number-prefilter) | Same candidate budget, 2.1× the real disagreements (precision 0.34 vs 0.16), but almost no bias ones | open |
 | 2026-11-22 | [Linear probe on bge-m3 vectors](2026-11-detection-thresholds.md#linear-probe) | Cross-topic AUC 0.54–0.76: does not carry across topics | rejected |
@@ -21,15 +23,16 @@ pending), **planned** (not run yet).
 
 ## Running now
 
-Nothing. Last run: the yield eval on the current code matched its baseline exactly (Kuopio 60, Talvisota
-248, Google 160 kept; [yield eval](2026-11-detection-thresholds.md#yield-eval)).
+Nothing. Last run: the yield eval after the outlier question, 54 / 236 / 158 kept, within 15% of the
+baseline ([yield eval](2026-11-detection-thresholds.md#yield-eval)).
 
 ## Planned
 
 | Experiment | Why | Notes |
 |---|---|---|
 | [Number prefilter with a share kept for tone](2026-11-detection-thresholds.md#next-number-prefilter-with-a-tone-share) | 2× the real findings at today's decision cost, without losing bias | check with the yield eval, by kind |
-| [CI embeddings without Modal](2026-11-detection-thresholds.md#ci-without-modal) | the yield eval on CI needs Modal | CPU is ~1.5 h for the reference topics (estimate); a database fixture needs no embedding |
+| [CI fixture: where the test database lives](2026-11-detection-thresholds.md#ci-without-modal) | the yield eval on CI needs Modal and Wikipedia; CPU embedding is ~1.5 h (estimate) | recommended: a MariaDB image with the fixture on GHCR |
+| [Other ways to find disagreements](ideas.md) | different things matched (Trento), real ones missed | 10 ideas ranked: value-masked matching and instruction embeddings first |
 | Wikidata as ground truth for factual disagreements | "most editions" is not truth (see consensus) | needs mapping the subject to a property: unreliable, untried |
 | Staying under Wikimedia's API rate limits | 200 requests/min per client | options in [TODO.md](../../TODO.md) |
 

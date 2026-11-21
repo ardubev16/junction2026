@@ -50,6 +50,40 @@ orders by P(disagreement) × (1 + strength). If the model fails, findings stay u
 warning. Answers are cached per finding in `llm_cache`; the cache key includes the questions, so editing
 a criterion re-asks every candidate once.
 
+## Follow-up: outlier, and a "same thing?" question (2026-11-22)
+
+Two reported findings, added as cases:
+
+- **Battle of Manila (1945)#116**, labelled with outlier `en`. en dates the Tagaytay drop to 3
+  February; it, bg and id say 4 February. The card said "Outlier: Italian": that was the tone axis's
+  furthest edition, which says nothing about whose fact differs.
+- **Trento#5**, "different". mk says Trento went to Italy in 1919; ru says it was annexed by Germany into
+  the Third Reich (1943). Different events, judged factual at P 1.00. The card's LLM explanation saw it
+  ("they do not state anything about the same specific thing") and gave no title.
+
+Variants on the 20 cases (`python -m wikicross.evals decide`; each variant with fresh answers):
+
+| Variant | Accuracy | Wrong | Outlier (Manila) |
+|---|---|---|---|
+| kind only (as adopted) | 0.95 | Trento#5 | en ✓ |
+| kind + a `noul` "one same specific thing?" (drop below 0.5) | 0.85 | Kuopio#0 (P 0.25), Kuopio#3 (0.16), Trento#5 (0.79) | en ✓ |
+| kind + "the same event or moment?" wording | 0.55 | 7 Kuopio population cases, Kuopio#59, Manila | en ✓ |
+| kind only, each quote's passage as context | 0.90 | Kuopio#7, Kuopio#8 | en ✓ |
+| kind + "same moment?", passage as context | 0.65 | 7 Kuopio population cases | en ✓ |
+
+- **Outlier question: adopted.** A `choice` among the shown quotes' languages, or none, asked when
+  there are three quotes or more: right on Manila in every variant. It replaces the axis's outlier on
+  the card and in its order.
+- **"Same thing?" question: rejected.** Populations given for different years are a real disagreement,
+  yet "not the same moment"; the question drops them, and Trento still passes at P 0.79.
+- **Passage context: rejected for now.** It fixes Trento but breaks two other cases. With 20 cases that
+  is a wash, at about 3× the input tokens.
+- Trento#5 stays a known miss. Telling "same place, different time" apart needs time anchoring (see
+  [ideas](ideas.md)).
+
+Not adopted either: vetoing a finding when the card's LLM says it is no disagreement. The LLM's verdict
+scored 0.82 on the cases, against the decider's 0.95, so requiring both would drop real findings.
+
 ## Open points
 
 - Two judges can disagree: a card's LLM description sometimes says the quotes "do not address the same
