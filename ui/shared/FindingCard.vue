@@ -5,7 +5,8 @@
      in English; each one's translate button shows the original on hover and swaps to it on click. Quotes
      beyond the first SHOWN (all of them if the AI failed), and paragraphs, are translated when shown, by
      their place: the server reads their text. A finding the AI marks irrelevant moves to
-     `irrelevantTarget` (a Teleport, so it keeps its state). -->
+     `irrelevantTarget` (a Teleport, so it keeps its state). A factual disagreement can ask what the other
+     editions say about its subject (/api/consensus): their positions, most editions first. -->
 <script setup lang="ts">
 import { computed, inject, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { CdxButton, CdxIcon, CdxInfoChip, CdxMessage, CdxProgressIndicator } from "@wikimedia/codex";
@@ -17,11 +18,12 @@ import {
   cdxIconLinkExternal,
   cdxIconListBullet,
   cdxIconSearch,
+  cdxIconUserGroup,
 } from "@wikimedia/codex-icons";
 import MarkedText from "./MarkedText";
 import ExpandableQuote, { contextOf } from "./ExpandableQuote";
 import NumbersButton from "./NumbersButton.vue";
-import { API, errorText, type English, type Explanation, type Finding, type Member } from "./types";
+import { API, errorText, type Consensus, type English, type Explanation, type Finding, type Member } from "./types";
 import { KIND_NAMES, KIND_STATUS, SHOWN, langName, linkMarks, markParts, snippetUrl, withMarks } from "./util";
 
 const props = withDefaults(
@@ -165,11 +167,48 @@ const doLocate = () => {
 };
 // The whole card shows the page's quote too; its links, buttons, menus and highlights keep their own action.
 const onCardClick = (e: MouseEvent) => {
-  if (props.locate && own && !(e.target as Element).closest("a, button, mark, .tip, .cdx-popover")) doLocate();
+  if (props.locate && own && !(e.target as Element).closest("a, button, mark, .tip, .cdx-popover, .consensus"))
+    doLocate();
 };
 const swapQuote = (p: Member) => {
   if (!original.delete(p.lang)) original.add(p.lang);
 };
+
+// What the other editions say about a factual disagreement's subject: asked for once, when first opened.
+const others = ref(false),
+  consensus = ref<Consensus | null>(null),
+  consensusError = ref("");
+async function toggleOthers() {
+  others.value = !others.value;
+  if (!others.value || consensus.value || !ai.value) return;
+  consensusError.value = "";
+  try {
+    consensus.value = await api.post<Consensus>("/api/consensus", {
+      quotes: first.map(place),
+      subject: ai.value.subject,
+    });
+  } catch (err) {
+    consensusError.value = `Could not ask the other editions: ${errorText(err)}`;
+  }
+}
+const stated = computed(() => (consensus.value ? Object.keys(consensus.value.sentences).length : 0));
+// A position holding a shown quote takes that quote's colour.
+const colorOf = (langs: string[]) => {
+  const i = first.findIndex((m) => langs.includes(m.lang));
+  return i < 0 ? "" : `c${i % 4}`;
+};
+const leads = computed(() => {
+  const p = consensus.value?.positions ?? [];
+  return p.length > 1 && p[0].editions.length > p[1].editions.length;
+});
+const TOP = 5; // positions listed before "Show all", besides those of the quotes
+const allPositions = ref(false);
+const positions = computed(() =>
+  (consensus.value?.positions ?? [])
+    .map((p, i) => ({ ...p, i, color: colorOf(p.editions) }))
+    .filter((p) => allPositions.value || p.i < TOP || p.color),
+);
+const hiddenPositions = computed(() => (consensus.value?.positions.length ?? 0) - positions.value.length);
 </script>
 
 <template>
@@ -284,7 +323,54 @@ const swapQuote = (p: Member) => {
           <CdxIcon :icon="cdxIconArticle" size="small" /> {{ context ? "Show sentences" : "Show paragraphs" }}
           <CdxIcon :icon="context ? cdxIconCollapse : cdxIconExpand" size="small" />
         </CdxButton>
+        <CdxButton
+          v-if="ai?.discrepancy && ai.kind === 'factual' && ai.subject"
+          size="small"
+          :aria-expanded="String(others)"
+          @click="toggleOthers"
+        >
+          <CdxIcon :icon="cdxIconUserGroup" size="small" /> What do the other editions say?
+          <CdxIcon :icon="others ? cdxIconCollapse : cdxIconExpand" size="small" />
+        </CdxButton>
       </div>
+      <section v-if="others" class="consensus">
+        <CdxMessage v-if="consensusError" type="error" inline>{{ consensusError }}</CdxMessage>
+        <p v-else-if="!consensus" class="pending">
+          <CdxProgressIndicator>Asking</CdxProgressIndicator> Reading the other editions…
+        </p>
+        <p v-else-if="!consensus.positions.length" class="muted">
+          No other edition has a sentence close enough to these quotes to compare.
+        </p>
+        <template v-else>
+          <p class="muted">
+            {{ stated }} of the {{ consensus.asked }} other editions closest to these quotes state {{ ai?.subject }}:
+          </p>
+          <ol>
+            <li v-for="p in positions" :key="p.i" :class="p.color">
+              <b>{{ p.claim }}</b>
+              <span class="muted"> · {{ p.editions.length }} edition{{ p.editions.length === 1 ? "" : "s" }}</span>
+              <CdxInfoChip v-if="p.i === 0 && leads" class="lead">Most editions</CdxInfoChip>
+              <div class="langs">
+                <span v-for="l in p.editions" :key="l" :title="consensus.sentences[l] ?? 'One of the quotes above'">{{
+                  langName(l)
+                }}</span>
+              </div>
+            </li>
+          </ol>
+          <CdxButton
+            v-if="hiddenPositions || allPositions"
+            size="small"
+            weight="quiet"
+            @click="allPositions = !allPositions"
+          >
+            {{ allPositions ? "Show fewer" : `Show ${hiddenPositions} more` }}
+          </CdxButton>
+          <p class="muted">
+            Most editions is not proof: they may give the value for different dates, or copy one another. Hover an
+            edition for its sentence.
+          </p>
+        </template>
+      </section>
     </article>
   </Teleport>
 </template>

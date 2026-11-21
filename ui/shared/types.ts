@@ -70,6 +70,13 @@ export interface Explanation {
   quotes: Record<string, { english: string; heading: string; phrases: string[] }>;
 }
 
+/** app.consensus_of(): what the editions say about a factual disagreement's subject, most editions first. */
+export interface Consensus {
+  positions: { claim: string; editions: string[] }[];
+  asked: number; // other editions with a sentence close to the quotes
+  sentences: Record<string, string>; // those stating the subject, by language
+}
+
 export interface ContextSentence {
   seq: number;
   n: number;

@@ -116,7 +116,7 @@ wikicross | gzip > wikicross.sql.gz`, then load it with `gunzip -c … | docker 
 mariadb -uwikicross -pwikicross wikicross`.
 
 **Rate limit** (`RATE_LIMIT=1`): outside `ALLOWED_IPS`, 60 API requests a minute and 30 AI requests
-(`/api/explain`, `/api/translate`) per address; the home page states the limits. In-process counters.
+(`/api/explain`, `/api/translate`, `/api/consensus`) per address; the home page states the limits. In-process counters.
 
 **Telemetry**: the image runs under `opentelemetry-instrument`, off unless `OTEL_SDK_DISABLED=false`.
 It traces requests, HTTP calls and SQL, with a span per loading step and metrics for step durations,
@@ -133,6 +133,7 @@ set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`.
 | `GET /api/progress?title=…` | the steps of a running `/api/diff`, with server timings |
 | `GET /api/context?lang=…&page_id=…&seq=…&n=…&direction=up` | sentences around a quote |
 | `POST /api/explain {"quotes": [{lang, page_id, seq, n}, …]}` | explain one card's 2–3 quotes |
+| `POST /api/consensus {"quotes": […], "subject": "…"}` | a factual disagreement: what the other editions' closest sentences say about its subject, grouped by claim |
 | `POST /api/translate {"quotes": […], "paragraphs": false}` | quotes (or their paragraphs) in English |
 | `GET /api/limits` | the rate limits, or null when off |
 

@@ -39,6 +39,8 @@ FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit
 MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
 MIN_EDITIONS = 2  # a comparison needs two editions
 MIN_OUTLIER = 3  # with this many editions or more, the furthest is the outlier
+CONSENSUS_MAX = PASSAGE_MAX  # a sentence this close to a finding may state its subject; the LLM tells if it does
+CONSENSUS_EDITIONS = 40  # other editions asked about a finding at most, the closest: one LLM call
 
 # axis -> (anchors for the positive end, anchors for the negative end, how each end reads)
 AXES = {
@@ -381,3 +383,30 @@ def differences(
             )
     framing.sort(key=lambda f: -abs(f["deviation"]))
     return framing
+
+
+def nearest_elsewhere(cur: pymysql.cursors.Cursor, quotes: list[tuple]) -> list[dict]:
+    """For a finding's quotes (lang, page_id, seq, n): in each other edition of their topic, the sentence
+    closest to their mean, if within CONSENSUS_MAX ({"lang", "sentence"}, closest first, CONSENSUS_EDITIONS at
+    most). Exact search over the topic's sentences: those of passages a comparison matched, already split.
+    """
+    places = ", ".join(["(%s, %s, %s, %s)"] * len(quotes))
+    cur.execute(
+        f"SELECT embedding FROM sentence WHERE (lang, page_id, seq, n) IN ({places})", [v for q in quotes for v in q]
+    )
+    vectors = [np.frombuffer(e, "<f4") for (e,) in cur.fetchall()]
+    if not vectors:
+        return []
+    mean = unit(unit(np.stack(vectors)).mean(0)).astype("<f4").tobytes()
+    cur.execute(
+        f"""WITH d AS (
+              SELECT s.lang, s.text, VEC_DISTANCE_COSINE(s.embedding, %s) AS dist
+              FROM sentence s JOIN article a USING (lang, page_id)
+              WHERE a.wikidata_id IN (SELECT wikidata_id FROM article
+                                      WHERE (lang, page_id) IN ({", ".join(["(%s, %s)"] * len(quotes))}))
+                AND s.lang NOT IN ({", ".join(["%s"] * len(quotes))})),
+            r AS (SELECT d.*, ROW_NUMBER() OVER (PARTITION BY lang ORDER BY dist) AS rk FROM d)
+            SELECT lang, text FROM r WHERE rk = 1 AND dist <= %s ORDER BY dist LIMIT %s""",
+        [mean, *[v for q in quotes for v in q[:2]], *[q[0] for q in quotes], CONSENSUS_MAX, CONSENSUS_EDITIONS],
+    )
+    return [{"lang": lang, "sentence": text} for lang, text in cur.fetchall()]

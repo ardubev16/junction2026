@@ -110,6 +110,11 @@ sequenceDiagram
   opt "Show all" editions, paragraphs in English
     B->>API: POST /api/translate (quotes by place, text from the database; Azure Translator)
   end
+  opt "What do the other editions say?" (a factual disagreement)
+    B->>API: POST /api/consensus (its quotes by place, the AI's subject)
+    API->>DB: each other edition's sentence closest to the quotes' mean (≤ CONSENSUS_MAX, 40 at most)
+    API->>API: LLM: the editions grouped by the claim they state (cached in llm_cache)
+  end
 ```
 
 ## Step by step

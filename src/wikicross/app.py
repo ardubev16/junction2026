@@ -27,7 +27,7 @@ from opentelemetry import trace
 from pydantic import BaseModel, Field
 
 from . import compare, embed_gpu, translator, wiki
-from .compare import MIN_EDITIONS, MIN_OUTLIER, differences
+from .compare import MIN_EDITIONS, MIN_OUTLIER, differences, nearest_elsewhere
 from .config import settings
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
@@ -79,7 +79,7 @@ def zone(path: str) -> str | None:
     title suggestions come with every few keystrokes, both cheap, so neither is counted. /api/diff's AI
     calls are bounded by its page (`limit`) and cached.
     """
-    if path in ("/api/explain", "/api/translate"):
+    if path in ("/api/explain", "/api/translate", "/api/consensus"):
         return "llm"
     return "api" if path.startswith("/api/") and path not in ("/api/progress", "/api/titles") else None
 
@@ -817,6 +817,79 @@ def explain_quotes(req: ExplainRequest) -> dict:
     if len(passages) < MIN_EDITIONS:
         raise HTTPException(HTTPStatus.NOT_FOUND, "these quotes are not in the database")
     return explain(passages)
+
+
+def consensus(subject: str, passages: list[dict], others: list[dict]) -> list[dict]:
+    """What the editions say about the subject a finding's quotes (lang, sentence) disagree on, the quotes'
+    and the other editions' nearest sentences (`others`, compare.nearest_elsewhere): their positions, most
+    editions first, each a `claim` in English and its `editions`. Editions not stating it are left out.
+    """
+    known = [p["lang"] for p in passages] + [o["lang"] for o in others]
+    if not others:
+        return []  # nothing to compare against: the quotes alone are the finding
+    answer = chat(
+        "Quotes from different language editions of Wikipedia disagree about a subject; sentences from other "
+        "editions may state it too. positions: the editions grouped by what they state about the subject, "
+        "one position per distinct value or claim. claim: that value or claim in English, at most 8 words, "
+        "with the date it is given for if stated. editions: the language codes stating it, the same value "
+        "however worded; a rounded value goes with the value it rounds. Every quote's edition is in a "
+        "position; an edition whose sentence does not state the subject itself is in none.",
+        f"subject: {subject}\n\n"
+        + "\n".join(f"quote [{p['lang']}]: {p['sentence']}" for p in passages)
+        + "\n\n"
+        + "\n".join(f"edition [{o['lang']}]: {o['sentence']}" for o in others),
+        {
+            "type": "object",
+            "properties": {
+                "positions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "claim": {"type": "string"},
+                            "editions": {"type": "array", "items": {"type": "string", "enum": known}},
+                        },
+                        "required": ["claim", "editions"],
+                    },
+                },
+            },
+            "required": ["positions"],
+        },
+    )
+    seen: set[str] = set()  # an edition in one position only: the first the LLM put it in
+    positions = []
+    for p in answer.get("positions") or []:
+        if not isinstance(p, dict) or not isinstance(p.get("editions"), list):
+            continue
+        langs = [lang for lang in p["editions"] if lang in known and lang not in seen]
+        seen.update(langs)
+        if langs:
+            positions.append({"claim": str(p.get("claim") or ""), "editions": langs})
+    return sorted(positions, key=lambda p: -len(p["editions"]))
+
+
+class ConsensusRequest(BaseModel):
+    quotes: list[Quote] = Field(min_length=MIN_EDITIONS, max_length=SHOWN)  # those the AI explained
+    subject: str = Field(min_length=1, max_length=300)  # the explanation's
+
+
+@app.post("/api/consensus")
+def consensus_of(req: ConsensusRequest) -> dict:
+    """consensus() of a finding the AI found a factual disagreement in, asked for by its card, with how
+    many other editions were asked (`asked`) and the sentences of those stating the subject (`sentences`).
+    """
+    passages = passages_of(req.quotes)
+    if len(passages) < MIN_EDITIONS:
+        raise HTTPException(HTTPStatus.NOT_FOUND, "these quotes are not in the database")
+    with connect() as conn, conn.cursor() as cur:
+        others = nearest_elsewhere(cur, [(q.lang, q.page_id, q.seq, q.n) for q in req.quotes])
+    positions = consensus(req.subject, passages, others)
+    stated = {lang for p in positions for lang in p["editions"]}
+    return {
+        "positions": positions,
+        "asked": len(others),
+        "sentences": {o["lang"]: o["sentence"] for o in others if o["lang"] in stated},
+    }
 
 
 class TranslateRequest(BaseModel):
