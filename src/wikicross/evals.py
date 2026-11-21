@@ -1,16 +1,17 @@
-"""Evaluations on labelled findings (evals/findings.json): how well the AI explains them, and how well
-bge-m3's distances tell a shared claim from two different ones. Not unit tests: they call the LLM or
-Modal, and their scores move with the model. CI runs them on demand and weekly
-(.github/workflows/evals.yaml); each exits 1 below its floor.
+"""Evaluations on labelled findings (evals/findings.json): how well the decision model tells real
+disagreements apart, how well the AI explains them, and how well bge-m3's distances tell a shared claim
+from two different ones. Not unit tests: they call the models or Modal, and their scores move with the
+model. CI runs them on demand and weekly (.github/workflows/evals.yaml); each exits 1 below its floor.
 
+    uv run --env-file .env python -m wikicross.evals decide      # the decision model: needs the database
     uv run --env-file .env python -m wikicross.evals explain     # the LLM: needs the database (its cache)
     uv run --env-file .env python -m wikicross.evals embeddings  # bge-m3 on Modal
     uv run --env-file .env python -m wikicross.evals add Google en 9 different   # label a finding
 
 A case is one finding's first SHOWN quotes, each with its passage, and a label:
-- "differ": the quotes make one claim and differ about it: the AI should confirm a discrepancy;
-- "agree": one claim, stated alike: no discrepancy;
-- "different": claims about different things: no discrepancy, and ideally not grouped at all.
+- "differ": the quotes make one claim and differ about it: a real disagreement, to keep;
+- "agree": one claim, stated alike: to drop;
+- "different": claims about different things: to drop, and ideally not grouped at all.
 """
 
 import argparse
@@ -24,7 +25,7 @@ from typing import Literal
 import numpy as np
 from fastapi import HTTPException
 
-from . import app, llm
+from . import app, decide, llm
 from .compare import FRAMING_MAX
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
@@ -35,7 +36,13 @@ Label = Literal["differ", "agree", "different"]
 MARK = re.compile(r"<mark>(.*?)</mark>", re.DOTALL)
 OVERLONG = 2.2  # an English quote this many times its original's length is a translated passage
 # Floors, set below what the current prompt and model measure: a run under one is a regression.
-FLOORS = {"accuracy": 0.8, "highlighted": 0.85, "not_overlong": 0.9, "embeddings_accuracy": 0.6}
+FLOORS = {
+    "decide_accuracy": 0.9,
+    "accuracy": 0.8,
+    "highlighted": 0.85,
+    "not_overlong": 0.9,
+    "embeddings_accuracy": 0.6,
+}
 
 
 def load() -> list[dict]:
@@ -69,12 +76,35 @@ def score_explanation(case: dict, x: dict) -> dict:
     }
 
 
-def explain_eval() -> int:
-    llm.READ_CACHE = False  # the model as it answers now
+def schema() -> None:
     with connect() as conn, conn.cursor() as cur:  # an empty database (CI) gets its tables
         for stmt in SCHEMA:
             cur.execute(stmt)
         widen_lang(cur)
+
+
+def decide_eval() -> int:
+    """The decision model's verdict on each case: a disagreement (kept) only for "differ"."""
+    llm.READ_CACHE = False  # the model as it answers now
+    schema()
+    cases = load()
+    decisions, error = decide.decide(
+        [[{"lang": p["lang"], "sentence": p["sentence"]} for p in c["passages"]] for c in cases], lambda *_: None
+    )
+    correct = 0
+    for case, d in zip(cases, decisions, strict=True):
+        ok = d is not None and (d["kind"] != decide.NONE) == (case["label"] == "differ")
+        correct += ok
+        verdict = f"{d['kind']:<8} P(disagreement) {d['real']:.2f}  strength {d['strength']:.2f}" if d else "ERROR"
+        print(f"{case['id']:<14} {case['label']:<9} {'ok   ' if ok else 'WRONG'} {verdict}")
+    if error:
+        print(error)
+    return report({"decide_accuracy": correct / len(cases)})  # an error counts as wrong
+
+
+def explain_eval() -> int:
+    llm.READ_CACHE = False  # the model as it answers now
+    schema()
     cases = load()
 
     def run(case: dict) -> dict:
@@ -137,12 +167,14 @@ def report(result: dict[str, float]) -> int:
 
 
 def add(title: str, lang: str, index: int, label: Label) -> None:
-    """Label the finding at `index` (0 = best) of a topic and append it to the cases: its first SHOWN
-    quotes, as the AI gets them. Needs the database and Modal, like the server.
+    """Label a topic's candidate finding at `index` (0 = the largest deviation; before the decision model
+    drops any) and append it to the cases: its first SHOWN quotes, as the models get them. Needs the
+    database and Modal, like the server.
     """
-    finding = app.diff(title, lang=lang, offset=index, limit=1, ai=False)["differences"][0]
+    finding = app.compare_editions(title, lang, lambda *_: None)["differences"][index]
+    members = sorted(finding["members"], key=lambda m: not (finding["outlier"] and m["lang"] == finding["lang"]))
     case_id = f"{title}#{index}"
-    passages = [{k: m[k] for k in ("lang", "heading", "text", "sentence")} for m in finding["members"][: app.SHOWN]]
+    passages = [{k: m[k] for k in ("lang", "heading", "text", "sentence")} for m in members[: app.SHOWN]]
     cases = [c for c in load() if c["id"] != case_id] if CASES.exists() else []
     cases.append({"id": case_id, "label": label, "passages": passages})
     CASES.write_text(json.dumps(cases, ensure_ascii=False, indent=2) + "\n")
@@ -152,6 +184,7 @@ def add(title: str, lang: str, index: int, label: Label) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest="command", required=True)
+    commands.add_parser("decide", help="the decision model's verdicts")
     commands.add_parser("explain", help="the LLM's verdicts, highlights and translations")
     commands.add_parser("embeddings", help="bge-m3 distances against FRAMING_MAX")
     adding = commands.add_parser("add", help="label a finding of a topic as a new case")
@@ -163,7 +196,7 @@ def main() -> None:
     if args.command == "add":
         add(args.title, args.lang, args.index, args.label)
     else:
-        sys.exit(explain_eval() if args.command == "explain" else embeddings_eval())
+        sys.exit({"decide": decide_eval, "explain": explain_eval, "embeddings": embeddings_eval}[args.command]())
 
 
 if __name__ == "__main__":

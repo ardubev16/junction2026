@@ -46,22 +46,17 @@ main {
 /* Filters on the left, as Wikipedia's Appearance panel on the right; stacked on narrow screens. */
 .layout {
   display: grid;
-  grid-template-columns: 13rem minmax(0, 1fr);
+  grid-template-columns: 15rem minmax(0, 1fr);
   gap: 2rem;
   align-items: start;
 }
-.layout > .filters,
-.layout > .filters-show {
+.layout > .filters {
   position: sticky;
   top: 1rem;
   margin-top: 1.4rem;
 }
-.layout:has(> .filters-show) {
-  grid-template-columns: auto minmax(0, 1fr);
-}
 @media (max-width: 860px) {
-  .layout,
-  .layout:has(> .filters-show) {
+  .layout {
     grid-template-columns: minmax(0, 1fr);
   }
   .layout > .filters {
@@ -122,8 +117,11 @@ a:hover {
   margin: 2rem 0;
   font-size: var(--font-size-large);
 }
+/* How long the load took: for the curious, at the very bottom, small. */
 .timing {
-  margin-top: 0.6rem;
+  margin-top: 2rem;
+  font-size: var(--font-size-small);
+  color: var(--color-subtle);
 }
 .timing .loading {
   margin: 0;
@@ -135,4 +133,17 @@ a:hover {
   align-items: center;
   justify-content: center;
   margin: 1.5rem 0;
+}
+/* The count of findings with a compact pager on its right: "‹ 1 / 4 ›". */
+.listhead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.pager.compact {
+  margin: 0;
+  gap: 0.2rem;
+  color: var(--color-subtle);
+  font-variant-numeric: tabular-nums;
 }

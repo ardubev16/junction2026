@@ -1,5 +1,4 @@
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from wikicross import app as m
@@ -75,19 +74,6 @@ def test_a_discrepancy_needs_a_shared_subject_visible_in_the_quotes(monkeypatch)
     assert verdict("the year", "1918", "1920") is True
     assert verdict("", "1918", "1920") is False  # no shared subject
     assert verdict("the population", "900", "800") is False  # figures found only in the passages
-
-
-def test_a_failed_llm_call_leaves_the_finding_usable(monkeypatch):
-    def fail(*_):
-        raise HTTPException(502, "LLM error 503: overloaded")
-
-    monkeypatch.setattr(m, "chat", fail)
-    member = {"lang": "fi", "heading": "", "text": "Se oli sota.", "sentence": "Se oli sota."}
-    findings = [{"members": [member, {**member, "lang": "sv"}]}]
-    steps = []
-    m.explain_page(findings, lambda key, detail="": steps.append((key, detail)))
-    assert findings[0]["ai"] == {"error": "LLM error 503: overloaded"}
-    assert steps[-1] == ("ai", "1 of 1, 1 failed")
 
 
 def test_ai_endpoints_take_only_quotes_by_place(monkeypatch):

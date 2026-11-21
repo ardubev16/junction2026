@@ -316,5 +316,29 @@
         "sentence": "The population density is anly 66 /km2 (170 /sq mi), but the ceety's urban auries are populatit very densely (urban aurie: 1 617.6 /km²), naitionally seicont anly tae capital Helsinki (urban aurie: 1,690.0/km²)."
       }
     ]
+  },
+  {
+    "id": "Kuopio#59",
+    "label": "different",
+    "passages": [
+      {
+        "lang": "en",
+        "heading": "Economy",
+        "text": "The most significant recent business projects are the centralization of Honeywell's Finnish operations in Kuopio, the completion of Ark Therapeutics' gene medicine plant, the marine industry concentration built by Bella Boats at the Marine Park in Haapaniemi's Siikaniemi and the construction of Junttan's EUR 15 million assembly plant at Kylmämäki at the end of 2008. The site of Junttan's current factory in Särkilahti will have space for a large shopping center. The 9.7-hectare plot purchased by Savocon and TKD Finland for EUR 11 million has a building right for 58,500 square meters. The two companies plan to invest a total of about 40 million euros in the project. A significant industrial player is also Savon Sello company in Sorsasalo, which is currently owned by Powerflute Oyj. One of the biggest projects and investments of recent years is the preparation of the construction of Finnpulp's largest and most modern softwood pulp mill in Kuopio. The most significant retail investments are the Prisma hypermarket completed in December 2007 and the Päiväranta's K-Citymarket completed in August 2008. A hardware store Kodin Terra was opened in Pitkälahti, as well as the Ikano Group's Matkus Shopping Center in the Hiltulanlahti area in November 2012 and an IKEA department store in May 2013.",
+        "sentence": "The two companies plan to invest a total of about 40 million euros in the project."
+      },
+      {
+        "lang": "ba",
+        "heading": "Иҡтисады",
+        "text": "Фин Finnpulp компанияһы ҡалала  ылыҫлы целлюлоза етештереү буйынса донъяла иң ҙур завод төҙөргә ниәтләй.  Проекттың бюджеты 1,4 миллиард евро тәшкил итәсәк.",
+        "sentence": "Проекттың бюджеты 1,4 миллиард евро тәшкил итәсәк."
+      },
+      {
+        "lang": "ru",
+        "heading": "Экономика",
+        "text": "В городе находится офис Junttan Oy, производителя гидравлического сваебойного оборудования.\nФинская компания Finnpulp планирует построить в городе крупнейший в мире завод по производству хвойной целлюлозы. Бюджет проекта составит 1,4 миллиарда евро.",
+        "sentence": "Бюджет проекта составит 1,4 миллиарда евро."
+      }
+    ]
   }
 ]

@@ -55,8 +55,8 @@ const steps = computed((): Row[] => {
     const k = visited.findIndex(([key]) => key === s.key);
     if (k < 0) return { ...s, state: i < last || props.result ? "skipped" : "todo" };
     const seconds = (k + 1 < visited.length ? visited[k + 1][1] : p.seconds) - visited[k][1];
-    // The AI step keeps its count once done ("10 of 10, 1 failed"): it is the last step.
-    const detail = s.key === current || (s.key === "ai" && props.result) ? p.detail : undefined;
+    // The last step keeps its count once done ("1511 of 1511").
+    const detail = s.key === current || (s.key === "decide" && props.result) ? p.detail : undefined;
     return { ...s, state: s.key === current ? "active" : "done", seconds: Math.max(0, seconds), detail };
   });
 });

@@ -38,6 +38,11 @@ class Settings(BaseSettings):
     llm_api_key: SecretStr
     llm_extra: dict[str, Any] = {}
 
+    # Decision model (decide.py), required: OpenRouter's Decisions API endpoint, model and key
+    decision_url: str = "https://openrouter.ai/api/alpha/decisions"
+    decision_model: str = "perplexity/pplx-decider-v1.3:free"
+    decision_api_key: SecretStr
+
     # Azure AI Translator (translator.py): the region only for a regional or multi-service resource
     azure_translator_key: SecretStr | None = None
     azure_translator_region: str | None = None

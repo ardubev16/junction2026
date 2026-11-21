@@ -1,6 +1,6 @@
 <!-- The web app: search a topic, see where its Wikipedia editions state things differently, a page of
-     findings at a time. The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=0), so
-     results can be shared and Back/Forward work; `lang` (the edition the title is from) comes from a
+     findings at a time. The query lives in the URL (?title=…&lang=…&page=…&langs=fi,sv&dialects=0&kinds=factual),
+     so results can be shared and Back/Forward work; `lang` (the edition the title is from) comes from a
      suggestion or the extension's link. -->
 <script setup lang="ts">
 import { computed, inject, nextTick, ref } from "vue";
@@ -13,7 +13,7 @@ import {
   type SearchResult,
   type SearchResultClickEvent,
 } from "@wikimedia/codex";
-import { cdxIconEye, cdxIconEyeClosed, cdxIconNext, cdxIconPrevious } from "@wikimedia/codex-icons";
+import { cdxIconNext, cdxIconPrevious } from "@wikimedia/codex-icons";
 import FindingCard from "../shared/FindingCard.vue";
 import LanguageFilter from "../shared/LanguageFilter.vue";
 import LoadingSteps from "../shared/LoadingSteps.vue";
@@ -24,11 +24,12 @@ import {
   statusOf,
   type Diff,
   type Filters,
+  type Kind,
   type Limits,
   type Params,
   type TitleSuggestion,
 } from "../shared/types";
-import { langName } from "../shared/util";
+import { KIND_NAMES, langName } from "../shared/util";
 import EditionsMenu from "./EditionsMenu.vue";
 
 const api = inject(API)!;
@@ -47,13 +48,19 @@ const urlQuery = (): Query => {
     page: Math.max(1, parseInt(p.get("page") ?? "", 10) || 1),
     langs: p.get("langs")?.split(",").filter(Boolean) || null,
     dialects: p.get("dialects") !== "0",
+    kinds:
+      p
+        .get("kinds")
+        ?.split(",")
+        .filter((k): k is Kind => k in KIND_NAMES) || null,
   };
 };
 // Only the parameters that differ from the defaults.
-const params = ({ lang, langs, dialects }: Query): Params => ({
+const params = ({ lang, langs, dialects, kinds }: Query): Params => ({
   ...(lang && { lang }),
   ...(langs && { langs: langs.join(",") }),
   ...(!dialects && { dialects: 0 }),
+  ...(kinds?.length && { kinds: kinds.join(",") }),
 });
 const queryString = (q: Query) =>
   `${new URLSearchParams({ title: q.title, ...params(q), ...(q.page > 1 && { page: String(q.page) }) } as Record<string, string>)}`;
@@ -97,11 +104,11 @@ async function onInput(typed: string) {
     lang: s.lang,
     supportingText: s.lang !== "en" ? `(${langName(s.lang)})` : "",
     thumbnail: s.thumbnail && /^https:\/\//.test(s.thumbnail) ? { url: s.thumbnail } : null,
-    url: `?${queryString({ title: s.title, lang: s.lang, page: 1, langs: null, dialects: urlQuery().dialects })}`,
+    url: `?${queryString({ ...urlQuery(), title: s.title, lang: s.lang, page: 1, langs: null })}`,
   }));
 }
 const choose = (title: string, lang?: string) => {
-  const q: Query = { title, lang, page: 1, langs: null, dialects: urlQuery().dialects };
+  const q: Query = { ...urlQuery(), title, lang, page: 1, langs: null };
   if (q.title) search(q, queryString(q) !== location.search.slice(1));
 };
 // A suggestion is a link (for a new tab); a plain click compares it here, without a page load.
@@ -122,15 +129,7 @@ async function onSearchSubmit(e: Event) {
 }
 
 // --- Results.
-// Findings the AI check does not confirm leave the list for a hidden one under it, behind a button.
-const irrelevant = ref<HTMLElement | null>(null),
-  dismissed = ref(0),
-  showIrrelevant = ref(false);
-const resetDismissed = () => {
-  dismissed.value = 0;
-  showIrrelevant.value = false;
-};
-// The loading view lists a search's steps, the AI's included, until /api/diff answers; then the results show.
+// The loading view lists a search's steps until /api/diff answers; then the results show.
 interface Run {
   title: string;
   id: number;
@@ -149,16 +148,14 @@ async function search(q: Query, push: boolean) {
   const mine = ++current; // a slower, older search must not overwrite a newer one
   view.value = { state: "loading", title: q.title, id: mine };
   try {
-    // The first page comes explained, as one wait; later ones show at once, each card asking the AI as it nears the view.
+    // Unexplained: each card asks the AI as it nears the view, so only findings someone reads cost a call.
     const data = await api.get<Diff>("/api/diff", {
       title: q.title,
       limit: PER_PAGE,
       offset: (q.page - 1) * PER_PAGE,
       ...params(q),
-      ...(q.page > 1 && { ai: false }),
     });
     if (mine !== current) return;
-    resetDismissed();
     view.value = { state: "done", data, query: q, title: q.title, id: mine };
   } catch (err) {
     if (mine === current)
@@ -187,13 +184,12 @@ const head = computed(
   () => done.value && (done.value.data.articles.find((a) => a.lang === "en") || done.value.data.articles[0]),
 );
 const pages = computed(() => Math.ceil((done.value?.data.total ?? 0) / PER_PAGE));
-const from = computed(() => ((done.value?.query.page ?? 1) - 1) * PER_PAGE);
 const go = (page: number) => {
   if (done.value) search({ ...done.value.query, page }, true);
   window.scrollTo(0, 0);
 };
-const refilter = ({ langs, dialects }: Filters) => {
-  if (done.value) search({ ...done.value.query, langs, dialects, page: 1 }, true);
+const refilter = (filters: Filters) => {
+  if (done.value) search({ ...done.value.query, ...filters, page: 1 }, true);
 };
 </script>
 
@@ -234,8 +230,10 @@ const refilter = ({ langs, dialects }: Filters) => {
     <div v-if="done" :key="done.id" class="layout">
       <LanguageFilter
         :languages="done.data.languages"
+        :counts="done.data.kinds"
         :langs="done.query.langs"
         :dialects="done.query.dialects"
+        :kinds="done.query.kinds"
         @change="refilter"
       />
       <div class="results">
@@ -243,32 +241,32 @@ const refilter = ({ langs, dialects }: Filters) => {
           <h1>{{ head?.title }}</h1>
           <EditionsMenu :articles="done.data.articles" />
         </div>
-        <CdxAccordion class="timing">
-          <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
-          <LoadingSteps :title="done.title" :result="done.data.progress" />
-        </CdxAccordion>
+        <CdxMessage v-if="done.data.unchecked" type="warning" inline>
+          Some findings could not be checked, so they are shown unfiltered and without a kind:
+          {{ done.data.unchecked }}
+        </CdxMessage>
         <template v-if="done.data.total">
-          <h2>{{ done.data.total }} differences</h2>
-          <p class="muted">Strongest first. Showing {{ from + 1 }}–{{ from + done.data.differences.length }}.</p>
-          <FindingCard
-            v-for="(f, i) in done.data.differences"
-            :key="`${done.id}-${i}`"
-            :finding="f"
-            paragraphs
-            :irrelevant-target="irrelevant"
-            @dismiss="dismissed++"
-          />
-          <CdxButton
-            v-if="dismissed"
-            size="small"
-            :aria-expanded="String(showIrrelevant)"
-            @click="showIrrelevant = !showIrrelevant"
-          >
-            <CdxIcon :icon="showIrrelevant ? cdxIconEyeClosed : cdxIconEye" size="small" />
-            {{ showIrrelevant ? "Hide" : "Show" }} {{ dismissed }} finding{{ dismissed === 1 ? "" : "s" }} the AI marked
-            as irrelevant
-          </CdxButton>
-          <div v-show="showIrrelevant" ref="irrelevant" class="irrelevant"></div>
+          <div class="listhead">
+            <h2>{{ done.data.total }} differences</h2>
+            <nav v-if="pages > 1" class="pager compact" aria-label="Pages of differences">
+              <CdxButton
+                weight="quiet"
+                :disabled="done.query.page <= 1"
+                aria-label="Previous page"
+                @click="go(done.query.page - 1)"
+                ><CdxIcon :icon="cdxIconPrevious"
+              /></CdxButton>
+              <span>{{ done.query.page }} / {{ pages }}</span>
+              <CdxButton
+                weight="quiet"
+                :disabled="done.query.page >= pages"
+                aria-label="Next page"
+                @click="go(done.query.page + 1)"
+                ><CdxIcon :icon="cdxIconNext"
+              /></CdxButton>
+            </nav>
+          </div>
+          <FindingCard v-for="(f, i) in done.data.differences" :key="`${done.id}-${i}`" :finding="f" paragraphs />
           <nav v-if="pages > 1" class="pager" aria-label="Pages of differences">
             <CdxButton :disabled="done.query.page <= 1" @click="go(done.query.page - 1)"
               ><CdxIcon :icon="cdxIconPrevious" /> Previous</CdxButton
@@ -280,6 +278,10 @@ const refilter = ({ langs, dialects }: Filters) => {
           </nav>
         </template>
         <p v-else class="muted">The editions state nothing differently that WikiCross can find.</p>
+        <CdxAccordion class="timing">
+          <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
+          <LoadingSteps :title="done.title" :result="done.data.progress" />
+        </CdxAccordion>
       </div>
     </div>
   </main>

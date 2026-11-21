@@ -1,6 +1,5 @@
 """API: where all the Wikipedia versions of one article frame things differently."""
 
-import contextvars
 import hashlib
 import ipaddress
 import json
@@ -8,7 +7,6 @@ import re
 import time
 from collections import defaultdict, deque
 from collections.abc import AsyncGenerator, Awaitable, Callable
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import asynccontextmanager
 from http import HTTPStatus
 from pathlib import Path
@@ -26,7 +24,7 @@ from opentelemetry import context as otel_context
 from opentelemetry import trace
 from pydantic import BaseModel, Field
 
-from . import compare, embed_gpu, translator, wiki
+from . import compare, decide, embed_gpu, translator, wiki
 from .compare import MIN_EDITIONS, MIN_OUTLIER, differences, nearest_elsewhere
 from .config import settings
 from .db import SCHEMA, connect, widen_lang
@@ -344,7 +342,7 @@ def titles(q: str) -> list[dict]:
 
 # The steps of a /api/diff, in order, as the loading view lists them; progress(key, detail) moves to one.
 # Steps a request does not need (a topic fetched before skips "editions"; cached differences skip the
-# three after "passages"; an empty page skips "ai") are passed over.
+# three after "passages") are passed over.
 STEPS = {
     "lookup": "Looking the topic up",
     "editions": "Fetching its editions from Wikipedia",
@@ -352,7 +350,7 @@ STEPS = {
     "match": "Matching passages across languages",
     "sentences": "Embedding the sentences of matched passages",
     "compare": "Comparing the sentences",
-    "ai": "Explaining and translating the findings with AI",
+    "decide": "Checking which are real disagreements",
 }
 # What each running /api/diff is doing: title asked for -> {"visited": [step key, seconds from the start
 # when it began] so far, "detail", "start"}. Two requests for one title share the first one's entry (the
@@ -380,22 +378,23 @@ def report(entry: dict | None) -> dict:
 def diff(
     title: str,
     *,
-    limit: Annotated[int, Query(ge=0, le=30)] = 10,  # each finding returned costs an LLM call (cached)
+    limit: Annotated[int, Query(ge=0, le=30)] = 10,
     offset: int = 0,
     lang: str | None = None,
     focus: str | None = None,
     dialects: bool = True,
     langs: str | None = None,
-    ai: bool = True,
+    kinds: str | None = None,
 ) -> dict:
-    """What a topic's editions state differently, best first, `limit` of them from `offset` (`total`
-    counts all); `lang` is the edition the title is from (any if not given: then looked up on English
-    Wikipedia if the database does not have it), `focus` an edition whose findings go first.
-    `dialects=false` leaves out editions without a two-letter (ISO 639-1) code: see is_dialect();
-    `langs=fi,sv,ru` compares only those editions. `languages` lists every edition, filtered or not;
-    each finding's members come in the order cards show them, and with `ai` its explanation of the first
-    SHOWN (explain_page(); without, cards ask /api/explain as they are scrolled to); `progress` the steps
-    this request took, each with its start second, and its `seconds` in all.
+    """What a topic's editions state differently, `limit` findings from `offset` (`total` counts all);
+    `lang` is the edition the title is from (any if not given: then looked up on English Wikipedia if the
+    database does not have it), `focus` an edition whose findings go first. `dialects=false` leaves out
+    editions without a two-letter (ISO 639-1) code: see is_dialect(); `langs=fi,sv,ru` compares only those
+    editions; `kinds=factual,bias` keeps only findings of those KINDS. `languages` lists every edition,
+    filtered or not. The decision model judges every finding (judge()): those it finds no disagreement in
+    are left out, `kinds` counts the rest by kind, and the strongest come first. Each finding's members
+    come in the order cards show them; cards ask /api/explain for the AI's explanation as they are
+    scrolled to. `progress`: the steps this request took, each with its start second, and its `seconds`.
     """
     mine: dict = {"visited": [], "detail": "", "start": time.monotonic()}
     owner = PROGRESS.setdefault(title, mine) is mine  # only the first request for a title is polled
@@ -423,14 +422,17 @@ def diff(
         data = compare_editions(
             title, lang, progress, dialects=dialects, langs=set(langs.split(",")) if langs else None
         )
-        # findings involving the focus edition first, each group in its own order, then the page
-        data["differences"].sort(key=lambda f: focus is not None and all(m["lang"] != focus for m in f["members"]))
-        data["total"] = len(data["differences"])
-        page = data["differences"] = data["differences"][offset : offset + limit]
-        for f in page:  # the focus edition's quote first, then the outlier's, then the rest in order
+        found = data.pop("differences")
+        for f in found:  # the focus edition's quote first, then the outlier's, then the rest in order
             f["members"].sort(key=lambda m, f=f: (m["lang"] != focus, not (f["outlier"] and m["lang"] == f["lang"])))
-        if ai:
-            explain_page(page, progress)
+        found, data["unchecked"] = judge(found, progress)
+        data["kinds"] = {k: sum(f["kind"] == k for f in found) for k in KINDS}
+        wanted = set(kinds.split(",")) if kinds else None
+        found = [f for f in found if wanted is None or f["kind"] in wanted]
+        # findings involving the focus edition first, then the strongest
+        found.sort(key=lambda f: (focus is not None and all(m["lang"] != focus for m in f["members"]), -rank(f)))
+        data["total"] = len(found)
+        data["differences"] = found[offset : offset + limit]
         data["progress"] = report(mine)
         return data
     finally:
@@ -585,6 +587,29 @@ def compare_editions(
     }
 
 
+def judge(found: list[dict], progress: Progress) -> tuple[list[dict], str | None]:
+    """The findings the decision model sees a disagreement in (decide.decide() of the first SHOWN quotes),
+    each with its `kind` and `decision`; and why some went unchecked, if they did: those stay, kind None.
+    """
+    decisions, error = decide.decide(
+        [[{"lang": m["lang"], "sentence": m["sentence"]} for m in f["members"][:SHOWN]] for f in found],
+        lambda done, total: progress("decide", f"{done} of {total}"),
+    )
+    kept = []
+    for f, d in zip(found, decisions, strict=True):
+        if d is None or d["kind"] != decide.NONE:
+            kept.append({**f, "kind": d and d["kind"], "decision": d})
+    return kept, error
+
+
+def rank(f: dict) -> float:
+    """How strongly a finding is a disagreement, by the decision model: P(disagreement) times strength
+    (0-2) + 1; unchecked findings after the checked, in their order (the axis deviation).
+    """
+    d = f["decision"]
+    return d["real"] * (1 + d["strength"]) if d else -1
+
+
 @app.get("/api/context")
 def context(
     lang: str, page_id: int, seq: int, n: int, direction: Literal["up", "down"], *, count: int = 3
@@ -604,34 +629,8 @@ def context(
     return rows[::-1] if up else rows
 
 
-KINDS = ("factual", "bias", "framing")  # the kinds of difference the AI tells apart (`kind`)
-SHOWN = 3  # quotes a card shows, those the AI explains; the rest on "Show all" (ui/shared/util.ts)
-
-
-def explain_page(findings: list[dict], progress: Progress) -> None:
-    """Set each finding's `ai`: explain() of its first SHOWN members, or {"error"} if the LLM failed (the
-    card then shows the quotes in their language). All at once, as the "ai" step.
-    """
-    if not findings:
-        return
-    failed = 0
-    progress("ai", f"0 of {len(findings)}")
-
-    def one(f: dict) -> bool:
-        try:
-            f["ai"] = explain(f["members"][:SHOWN])
-        except HTTPException as e:
-            f["ai"] = {"error": str(e.detail)}
-            return False
-        return True
-
-    # A context per call: each carries the step's trace span, as wiki.ensure_editions' fetches.
-    with ThreadPoolExecutor(len(findings)) as pool:
-        jobs = [pool.submit(contextvars.copy_context().run, one, f) for f in findings]
-        for k, job in enumerate(as_completed(jobs), 1):
-            failed += not job.result()
-            progress("ai", f"{k} of {len(findings)}" + (f", {failed} failed" if failed else ""))
-
+KINDS = decide.KINDS  # the kinds of difference: `kind`, from the decision model
+SHOWN = 3  # quotes a card shows, those the AI explains and the decision model judges (ui/shared/util.ts)
 
 DIGIT_GROUP = r"[.,'\s\u00a0\u202f]"  # what may group a number's digits: 122,590 = 122.590 = 122 590
 
@@ -810,8 +809,8 @@ class ExplainRequest(BaseModel):
 
 @app.post("/api/explain")
 def explain_quotes(req: ExplainRequest) -> dict:
-    """explain() of a finding's first SHOWN quotes, by place: for a card /api/diff did not explain (ai=false),
-    once it is scrolled to.
+    """explain() of a finding's first SHOWN quotes, by place: a card asks once it nears the view, so only
+    findings someone reads are explained and translated.
     """
     passages = passages_of(req.quotes)
     if len(passages) < MIN_EDITIONS:

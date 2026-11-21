@@ -1,22 +1,28 @@
-<!-- Which editions are compared, as a panel in the style of Wikipedia's "Appearance" menu: a ruled title
-     with a "hide" button, then one ruled section per filter. Languages: a picker (a Codex popover of
-     checkboxes; Apply asks the server again, comparing only those). Dialects (editions without a
-     two-letter code): shown or hidden. Hidden, the panel is one "Filters" button; remembered per browser. -->
+<!-- What is shown, as a panel in the style of Wikipedia's "Appearance" menu: a ruled title, then one ruled
+     section per filter. Kinds: checkboxes, each with how many findings the decision model found of it.
+     Languages: a picker (a Codex popover of checkboxes; Apply asks the server again, comparing only
+     those). Dialects (editions without a two-letter code): shown or hidden. -->
 <script setup lang="ts">
 import { computed, ref, watch, type ComponentPublicInstance } from "vue";
 import { CdxButton, CdxCheckbox, CdxIcon, CdxPopover, CdxRadio } from "@wikimedia/codex";
-import { cdxIconExpand, cdxIconFunnel } from "@wikimedia/codex-icons";
-import type { Filters } from "./types";
-import { langName } from "./util";
+import { cdxIconExpand } from "@wikimedia/codex-icons";
+import type { Filters, Kind } from "./types";
+import { KIND_NAMES, langName } from "./util";
 
-const props = withDefaults(defineProps<{ languages: string[]; langs?: string[] | null; dialects?: boolean }>(), {
-  langs: null,
-  dialects: true,
-}); // langs null: all
+const props = withDefaults(
+  defineProps<{
+    languages: string[];
+    counts: Record<Kind, number>;
+    langs?: string[] | null;
+    dialects?: boolean;
+    kinds?: Kind[] | null;
+  }>(),
+  { langs: null, dialects: true, kinds: null },
+); // langs, kinds null: all
 const emit = defineEmits<{ change: [Filters] }>();
-const HIDDEN = "wikicross-filters-hidden";
-const hidden = ref(localStorage.getItem(HIDDEN) === "1");
-watch(hidden, (h) => localStorage.setItem(HIDDEN, h ? "1" : "0"));
+const KINDS = Object.keys(KIND_NAMES) as Kind[];
+const current = (): Filters => ({ langs: props.langs, dialects: props.dialects, kinds: props.kinds });
+
 const open = ref(false),
   anchor = ref<ComponentPublicInstance | null>(null),
   chosen = ref<string[]>([]);
@@ -29,23 +35,24 @@ const label = computed(() =>
 );
 const apply = () => {
   open.value = false;
-  emit("change", {
-    langs: chosen.value.length === props.languages.length ? null : [...chosen.value],
-    dialects: props.dialects,
-  });
+  emit("change", { ...current(), langs: chosen.value.length === props.languages.length ? null : [...chosen.value] });
 };
-const setDialects = (shown: boolean) => emit("change", { langs: props.langs, dialects: shown });
+const shownKinds = computed(() => props.kinds ?? KINDS);
+// At least one kind stays on: unticking the last one is ignored.
+const setKinds = (picked: Kind[]) => {
+  if (picked.length) emit("change", { ...current(), kinds: picked.length === KINDS.length ? null : picked });
+};
 </script>
 
 <template>
-  <CdxButton v-if="hidden" class="filters-show" weight="quiet" @click="hidden = false">
-    <CdxIcon :icon="cdxIconFunnel" size="small" /> Filters
-  </CdxButton>
-  <aside v-else class="filters" aria-labelledby="filters-title">
-    <div class="filters-head">
-      <b id="filters-title">Filters</b>
-      <CdxButton size="small" @click="hidden = true">hide</CdxButton>
-    </div>
+  <aside class="filters" aria-labelledby="filters-title">
+    <div class="filters-head"><b id="filters-title">Filters</b></div>
+    <fieldset>
+      <legend>Kinds</legend>
+      <CdxCheckbox v-for="k in KINDS" :key="k" :model-value="shownKinds" :input-value="k" @update:model-value="setKinds"
+        >{{ KIND_NAMES[k] }} <span class="count">{{ counts[k] }}</span></CdxCheckbox
+      >
+    </fieldset>
     <fieldset>
       <legend>Languages</legend>
       <CdxButton ref="anchor" weight="quiet" action="progressive" data-popover-anchor @click="open = !open">
@@ -58,14 +65,14 @@ const setDialects = (shown: boolean) => emit("change", { langs: props.langs, dia
         :model-value="dialects ? 'show' : 'hide'"
         name="dialects"
         input-value="show"
-        @update:model-value="setDialects(true)"
+        @update:model-value="emit('change', { ...current(), dialects: true })"
         >Show</CdxRadio
       >
       <CdxRadio
         :model-value="dialects ? 'show' : 'hide'"
         name="dialects"
         input-value="hide"
-        @update:model-value="setDialects(false)"
+        @update:model-value="emit('change', { ...current(), dialects: false })"
         >Hide</CdxRadio
       >
     </fieldset>

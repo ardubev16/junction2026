@@ -52,8 +52,9 @@ check: node_modules
 	uvx prek run --all-files
 	uv run pytest -q
 
-# The labelled findings in evals/: the AI's explanations (LLM) and bge-m3's distances (Modal); see
-# src/wikicross/evals.py. Run after changing the prompt, the model or a threshold.
+# The labelled findings in evals/: the decision model's verdicts, the AI's explanations (LLM) and bge-m3's
+# distances (Modal); see src/wikicross/evals.py. Run after changing a prompt, a model or a threshold.
 eval:
+	uv run --env-file .env python -m wikicross.evals decide
 	uv run --env-file .env python -m wikicross.evals explain
 	uv run --env-file .env python -m wikicross.evals embeddings

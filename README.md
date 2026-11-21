@@ -32,6 +32,9 @@ Every setting is an environment variable, typed and validated at start in
 
 - **LLM** (required): `LLM_API_TYPE` (`openai` for any OpenAI-compatible server, or `gemini`),
   `LLM_URL`, `LLM_MODEL`, `LLM_API_KEY`; optional `LLM_EXTRA`, JSON merged into each request.
+- **Decision model** (required): `DECISION_API_KEY`, an OpenRouter key; `DECISION_URL` and
+  `DECISION_MODEL` default to OpenRouter's Decisions API and `perplexity/pplx-decider-v1.3:free`. It
+  judges every candidate finding (a real disagreement, and of which kind) and orders them.
 - **Azure AI Translator**: `AZURE_TRANSLATOR_KEY`, and `AZURE_TRANSLATOR_REGION` for a regional
   resource. It translates quotes past a card's first three and paragraphs; languages Azure lacks
   (Frisian, Esperanto, …) fall back to the LLM and are logged.
@@ -129,7 +132,7 @@ set `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_EXPORTER_OTLP_HEADERS`.
 | Endpoint | |
 |---|---|
 | `GET /api/titles?q=Talvi` | topic suggestions for the search box |
-| `GET /api/diff?title=…&lang=fi&limit=10&offset=0` | a page of findings (`limit` ≤ 30), best first; `focus`, `langs=fi,sv`, `dialects=false` filter; `ai=false` leaves them unexplained |
+| `GET /api/diff?title=…&lang=fi&limit=10&offset=0` | a page of findings (`limit` ≤ 30), strongest first, those the decision model finds no disagreement in left out; `kinds` counts them by kind; `focus`, `langs=fi,sv`, `dialects=false`, `kinds=factual,bias` filter |
 | `GET /api/progress?title=…` | the steps of a running `/api/diff`, with server timings |
 | `GET /api/context?lang=…&page_id=…&seq=…&n=…&direction=up` | sentences around a quote |
 | `POST /api/explain {"quotes": [{lang, page_id, seq, n}, …]}` | explain one card's 2–3 quotes |

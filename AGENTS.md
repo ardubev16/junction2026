@@ -1,8 +1,8 @@
 # Agents
 
 - **The web app and the Chrome extension share their UI** (`ui/shared/`, Vue): a finding shows the
-  same in both (AI kind, title and description, English quotes with a per-quote original, coloured quote
-  boxes, "Show all", the language and dialect filters, the irrelevant list), so change it there, once.
+  same in both (kind, AI title and description, English quotes with a per-quote original, coloured quote
+  boxes, "Show all", the kind, language and dialect filters), so change it there, once.
   Only page-specific parts differ, through `FindingCard` props: the web app (`ui/web/`) pages through
   all findings and has "Show paragraphs" with expanding context; the extension (`ui/extension/`) lists
   this edition's findings first (up to 30), asks the AI as cards scroll into view, and has "Show on

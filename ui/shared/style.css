@@ -72,19 +72,14 @@
   border: 1px solid var(--border-color-base);
   border-radius: 50%;
 }
-/* The filters, as Wikipedia's "Appearance" panel: a bold title and "hide" over a rule, then sections
-   each under a muted, ruled legend. */
+/* The filters, as Wikipedia's "Appearance" panel: a bold title over a rule, then sections each under a
+   muted, ruled legend. */
 .filters {
   font-size: var(--font-size-small);
 }
 .filters-head {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
   padding-bottom: 0.4rem;
   border-bottom: 1px solid var(--border-color-subtle);
-}
-.filters-head b {
   font-size: var(--font-size-medium);
 }
 .filters fieldset {
@@ -99,8 +94,12 @@
   color: var(--color-subtle);
   border-bottom: 1px solid var(--border-color-subtle);
 }
-.filters .cdx-radio {
+.filters .cdx-radio,
+.filters .cdx-checkbox {
   margin: 0.4rem 0;
+}
+.filters .count {
+  color: var(--color-subtle);
 }
 .filters fieldset > .cdx-button {
   margin-left: -0.5rem; /* quiet button: its text in line with the legend */
@@ -186,11 +185,6 @@
 }
 .card > .cdx-message {
   margin: 0.5rem 0;
-}
-.reason {
-  color: var(--color-subtle);
-  font-style: italic;
-  margin: 0 0 0.6rem;
 }
 .summary {
   font-family: var(--font-family-serif);
@@ -363,8 +357,4 @@ mark {
   background: var(--hl, var(--background-color-option-yellow));
   border-bottom: 2px solid var(--hl-line, var(--border-color-option-yellow));
   padding: 0 1px;
-}
-.irrelevant {
-  border-top: 1px dashed var(--border-color-base);
-  margin-top: 1rem;
 }

@@ -2,9 +2,10 @@
 
 WikiCross finds where the Wikipedia editions of one topic **frame the same thing differently**:
 every Latin- or Cyrillic-script edition is fetched live from Wikipedia on the topic's first request
-(`wiki.py`). Detection needs no LLM: only bge-m3 vectors, compared inside MariaDB. The web page then
-asks an LLM for each finding's title and description (with its first quotes in English), and Azure
-Translator for the other quotes and paragraphs.
+(`wiki.py`). Candidates come from bge-m3 vectors alone, compared inside MariaDB; a decision model
+(`decide.py`) then judges every candidate's quotes, dropping those that are no disagreement, naming the
+kind of the rest and ordering them. Each card, once shown, asks an LLM for its title and description (with
+its first quotes in English), and Azure Translator for the other quotes and paragraphs.
 
 Passages in two of fi, sv and en are matched over every passage in the database with HNSW, as below.
 Any pair involving another language is matched only inside the topic, by an exact join: HNSW filtered
@@ -27,9 +28,10 @@ flowchart TD
   P --> E2[Split matched passages into sentences, embed on demand]
   E2 --> S[Sentence matching inside each passage pair: exact join]
   S --> G[Group matched sentences across languages: one group per fact]
-  G --> F2[Framing: position on semantic axes, furthest edition → outlier]
-  F2 --> R[JSON: differences, best first]
-  R --> UI[Web page and Chrome extension: quotes side by side, each linked to its place on Wikipedia; AI titles in the web page]
+  G --> F2[Framing: position on semantic axes, furthest edition → candidate]
+  F2 --> D[decide.py: decision model per candidate: kind or none, strength]
+  D --> R[JSON: disagreements, strongest first, counted by kind]
+  R --> UI[Web page and Chrome extension: quotes side by side, each linked to its place on Wikipedia; AI titles per card as shown]
 ```
 
 Two different questions are answered by two different mechanisms:
@@ -96,12 +98,10 @@ sequenceDiagram
     API->>DB: INSERT sentence
   end
   API->>DB: one query: sentence pairs + axis positions (window functions)
-  API->>API: group, flag values and framing
-  par each finding on the page (web app, first page)
-    API->>API: explain: title, description, quotes in English (LLM, cached in llm_cache)
-  end
-  API-->>B: differences (explained, or not: ai=false)
-  opt later pages, extension: each card as it nears the view
+  API->>API: group, flag values and framing: candidates
+  API->>API: decide: each candidate's kind or none, strength (decision model, batches of 10, cached in llm_cache)
+  API-->>B: the disagreements, strongest first, counts by kind
+  opt each card as it nears the view
     B->>API: POST /api/explain (its quotes by place)
   end
   opt "Show paragraphs", then "Expand up / down" (web page only)

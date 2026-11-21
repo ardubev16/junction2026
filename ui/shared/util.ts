@@ -14,12 +14,11 @@ export const langName = (code: string): string => {
 export const SHOWN = 3; // quotes per card; the rest on "Show all"
 
 export const KIND_NAMES: Record<Kind, string> = { factual: "Factual disagreement", bias: "Bias", framing: "Framing" };
-// Each kind as a Codex info chip status; "none" is a finding the AI marked irrelevant.
-export const KIND_STATUS: Record<Kind | "none", StatusType> = {
+// Each kind as a Codex info chip status.
+export const KIND_STATUS: Record<Kind, StatusType> = {
   factual: "error",
   bias: "warning",
   framing: "progressive",
-  none: "notice",
 };
 
 /** Query parameters as URLSearchParams takes them. */

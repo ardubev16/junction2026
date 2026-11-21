@@ -15,9 +15,17 @@ export interface Member {
   sentence: string;
 }
 
-/** compare.differences(): editions placed apart on a framing axis. */
+/** app.judge(): the decision model's reading of a finding's first SHOWN quotes. */
+export interface Decision {
+  kind: Kind;
+  real: number; // probability that it is a disagreement at all
+  strength: number; // 0 minor – 2 major
+}
+
+/** compare.differences(): editions placed apart on a framing axis, judged by the decision model. */
 export interface Finding {
-  kind: "framing";
+  kind: Kind | null; // null: unchecked (the decision model failed)
+  decision: Decision | null;
   axis: string;
   ends: [string, string];
   lang: string; // the edition furthest from the others' average
@@ -26,7 +34,6 @@ export interface Finding {
   outlier: boolean;
   distance: number;
   members: Member[]; // in the order a card shows them
-  ai?: Explanation | { error: string }; // app.explain_page() (ai=true): of the first SHOWN members, or why not
 }
 
 export interface Article {
@@ -49,6 +56,8 @@ export interface Diff {
   languages: string[];
   differences: Finding[];
   total: number;
+  kinds: Record<Kind, number>; // findings of each kind, before the kind filter
+  unchecked: string | null; // why some findings could not be judged (they are kept, kind null)
   progress: Progress;
 }
 
@@ -92,10 +101,11 @@ export interface Limits {
 /** Quotes in English, by language: the AI's or the translator's. */
 export type English = Record<string, { quote: string; heading: string }>;
 
-/** Which editions are compared (LanguageFilter): langs null is all. */
+/** Which editions and kinds are shown (LanguageFilter): langs and kinds null are all. */
 export interface Filters {
   langs: string[] | null;
   dialects: boolean;
+  kinds: Kind[] | null;
 }
 
 export type Params = Record<string, string | number | boolean>;
