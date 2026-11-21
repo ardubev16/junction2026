@@ -633,60 +633,107 @@ def explain_page(findings: list[dict], progress: Progress) -> None:
             progress("ai", f"{k} of {len(findings)}" + (f", {failed} failed" if failed else ""))
 
 
+DIGIT_GROUP = r"[.,'\s\u00a0\u202f]"  # what may group a number's digits: 122,590 = 122.590 = 122 590
+
+
+def locate(phrase: str, sentence: str) -> str | None:
+    """The part of the sentence a phrase the LLM copied stands for: exact, else ignoring case, spacing and
+    how numbers group their digits. None if it is not there (e.g. given in English, not the quote's language).
+    """
+    phrase = phrase.strip()
+    if not phrase or phrase in sentence:
+        return phrase or None
+    pattern = ""
+    for i, ch in enumerate(phrase):
+        between_digits = 0 < i < len(phrase) - 1 and phrase[i - 1].isdigit() and phrase[i + 1].isdigit()
+        if between_digits and re.fullmatch(DIGIT_GROUP, ch):
+            pattern += DIGIT_GROUP + "?"
+        elif ch.isspace():
+            pattern += "" if pattern.endswith(r"\s+") else r"\s+"
+        else:
+            pattern += re.escape(ch)
+        if ch.isdigit() and i + 1 < len(phrase) and phrase[i + 1].isdigit():
+            pattern += DIGIT_GROUP + "?"  # 122590 in the phrase, 122 590 in the sentence
+    m = re.search(pattern, sentence, re.IGNORECASE)
+    return m.group(0) if m else None
+
+
 def explain(passages: list[dict]) -> dict:
     """Whether the quotes (finding members: lang, heading, its passage `text` and the quote `sentence`,
-    one per language) disagree on the facts or present the same subject clearly differently, which
-    `kind` (KINDS) of difference it is; a title and a description of it, and each quote in English with
-    the words that differ marked.
+    one per language) make a claim about one same `subject` and differ about it, which `kind` (KINDS) of
+    difference it is; a title and a description of it, and each quote in English with the words that
+    differ marked. Measured on labelled findings by `python -m wikicross.evals explain`.
     """
     answer = chat(
-        "You compare quotes about the same subject from different language editions of Wikipedia, each "
-        "given with the passage around it. kind: factual when they state different facts about the same "
-        "thing that cannot all be true (numbers, dates, names, places, outcomes, causes, who did what); "
-        "bias when one is clearly more favourable or critical, or uses loaded or emotive words where "
-        "another is neutral; framing when the facts agree but are presented differently, such as settled "
-        "in one and disputed in another, or with a different emphasis or perspective. If more than one "
-        "applies, the strongest. One edition including facts the others leave out, length or detail alone "
-        "do not count. discrepancy: whether such a difference is clear. title: in English, at most 10 "
-        'words, naming which edition says what, e.g. "Finnish calls it an invasion, Russian a border '
-        'conflict" or "Finnish dates it 1918, Swedish 1920". quotes: for each language code, english: '
-        "the quote translated to English (unchanged if it is English), with <mark> and </mark> around the "
-        "1-3 short parts that differ; heading: the section heading in English; phrases: those same parts "
-        "copied verbatim from the original quote. description: in English, 2-4 sentences explaining in "
-        "detail what each edition says and how they differ, quoting the marked parts of the English "
-        "quotes, each quoted part wrapped in <mark> and </mark> exactly as in its quote. Every sentence "
-        'must add substance: never name or justify the kind of difference (no "this is a factual '
-        'contradiction", "they cannot all be true", "not merely a difference in tone or detail"), '
-        "never restate the title. Do not suggest edits or actions.",
+        "You compare quotes from different language editions of Wikipedia about one topic. Each quote comes "
+        "with its section heading and, for context only, the passage around it.\n"
+        "subject: the one specific thing every quote itself states a value or judgement of, so that the "
+        'quotes can be compared directly, in English (e.g. "Kuopio\'s population", "when the war ended", '
+        '"how the attack is judged"). Only the quotes count: a claim found only in a passage does not. '
+        "Empty if the quotes do not all state something about the same specific thing, even when they are "
+        "about the same product, place or event: e.g. one gives the number of data centers and another the "
+        "number of employees; one names a feature and another a different feature; one calls a service the "
+        "most popular and another a key to the company's success.\n"
+        "discrepancy: true only if subject is not empty and the quotes clearly differ about it. kind: factual "
+        "when they state facts about it that cannot all be true (numbers, dates, names, places, outcomes, "
+        "causes, who did what); bias when one is clearly more favourable or critical, or uses loaded or "
+        "emotive words where another is neutral; framing when the facts agree but are presented differently, "
+        "such as settled in one and disputed in another. If more than one applies, the strongest. A quote "
+        "giving details the others leave out, or differing only in length or detail, is not a discrepancy.\n"
+        "title: in English, at most 10 words, naming which edition says what about the subject, e.g. "
+        '"Finnish calls it an invasion, Russian a border conflict" or "Finnish dates it 1918, Swedish 1920".\n'
+        "quotes: for each language code, in this order: phrases: the 1-3 short parts of the quote that differ, "
+        'copied character for character from the line starting "quote:" in its own language (not from '
+        "the passage, not translated); english: the quote, and only the quote (never the passage), "
+        "translated to English, unchanged if it is English, with <mark> and </mark> around the translation "
+        "of each of those parts; heading: the section heading in English.\n"
+        "description: in English, 2-4 sentences on what each edition says about the subject and how they "
+        "differ, quoting the marked parts of the English quotes, each wrapped in <mark> and </mark> exactly "
+        "as in its English quote (never the original-language words). Every sentence must add substance: "
+        'never name or justify the kind of difference (no "this is a factual contradiction", "they cannot '
+        'all be true"), never restate the title. Do not suggest edits or actions.',
+        # The quote last, after its passage: models translated the passage when the quote came first.
         "\n\n".join(
-            f"[{p['lang']}] section: {p['heading'] or '(intro)'}\nquote: {p['sentence']}\npassage: {p['text']}"
+            f"[{p['lang']}] section: {p['heading'] or '(intro)'}\n"
+            f"passage (context only): {p['text']}\n"
+            f"quote: {p['sentence']}"
             for p in passages
         ),
         {
             "type": "object",
             "properties": {
+                "subject": {"type": "string"},
                 "discrepancy": {"type": "boolean"},
                 "kind": {"type": "string", "enum": list(KINDS)},
                 "title": {"type": "string"},
-                "description": {"type": "string"},
                 "quotes": {
                     "type": "object",
                     "properties": {
                         p["lang"]: {
                             "type": "object",
                             "properties": {
-                                "english": {"type": "string"},
+                                # Before english: asked after it, models copied their English marks.
+                                "phrases": {
+                                    "type": "array",
+                                    "items": {"type": "string"},
+                                    "description": "the 1-3 parts that differ, copied from this quote, "
+                                    "in its own language",
+                                },
+                                "english": {
+                                    "type": "string",
+                                    "description": "this quote alone in English, those parts marked",
+                                },
                                 "heading": {"type": "string"},
-                                "phrases": {"type": "array", "items": {"type": "string"}},
                             },
-                            "required": ["english", "heading", "phrases"],
+                            "required": ["phrases", "english", "heading"],
                         }
                         for p in passages
                     },
                     "required": [p["lang"] for p in passages],
                 },
+                "description": {"type": "string"},
             },
-            "required": ["discrepancy", "kind", "title", "description", "quotes"],
+            "required": ["subject", "discrepancy", "kind", "title", "quotes", "description"],
         },
     )
     quotes = q if isinstance(q := answer.get("quotes"), dict) else {}
@@ -699,11 +746,16 @@ def explain(passages: list[dict]) -> dict:
         out[p["lang"]] = {
             "english": q["english"],
             "heading": str(q.get("heading") or p["heading"]),
-            # Only phrases that really occur: the UI marks them in the original by exact match.
-            "phrases": [h for h in phrases if isinstance(h, str) and h and h in p["sentence"]],
+            # As they occur in the quote: the UI marks them in the original by exact match.
+            "phrases": [s for h in phrases if isinstance(h, str) and (s := locate(h, p["sentence"]))],
         }
+    subject = str(answer.get("subject") or "").strip()
+    # The differing words must be in the quotes themselves, two of them at least: models compared figures
+    # found only in a passage, or quotes about different things.
+    visible = sum(bool(q["phrases"]) for q in out.values()) >= MIN_EDITIONS
     return {
-        "discrepancy": answer.get("discrepancy") is True,
+        "subject": subject,
+        "discrepancy": answer.get("discrepancy") is True and bool(subject) and visible,
         "kind": answer.get("kind") if answer.get("kind") in KINDS else None,
         "title": str(answer.get("title", "")),
         "description": str(answer.get("description", "")),

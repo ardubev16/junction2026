@@ -1,0 +1,73 @@
+name: Evals
+
+# The AI's explanations and bge-m3's distances on the labelled findings in evals/ (src/wikicross/evals.py).
+# They need the LLM and Modal: set the secrets LLM_API_KEY, MODAL_TOKEN_ID, MODAL_TOKEN_SECRET and the
+# variables LLM_API_TYPE, LLM_URL, LLM_MODEL (Settings → Secrets and variables → Actions); without them a
+# job skips with a notice. Weekly too: the provider's model can change under the same name.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+  pull_request:
+    paths:
+      - src/wikicross/app.py
+      - src/wikicross/compare.py
+      - src/wikicross/llm.py
+      - src/wikicross/evals.py
+      - evals/**
+
+permissions:
+  contents: read
+
+env:
+  LLM_API_TYPE: ${{ vars.LLM_API_TYPE }}
+  LLM_URL: ${{ vars.LLM_URL }}
+  LLM_MODEL: ${{ vars.LLM_MODEL }}
+  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+
+jobs:
+  explain:
+    runs-on: ubuntu-latest
+    services:
+      mariadb: # the LLM answers' cache table; empty, so every answer is fresh
+        image: mariadb:lts
+        env:
+          MARIADB_ROOT_PASSWORD: wikicross
+          MARIADB_DATABASE: wikicross
+          MARIADB_USER: wikicross
+          MARIADB_PASSWORD: wikicross
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-retries 30
+    env:
+      DB_PORT: 3306
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Explanations of the labelled findings
+        run: |
+          if [ -z "$LLM_API_KEY" ]; then echo "::notice::LLM_API_KEY not set: explain eval skipped"; exit 0; fi
+          uv run python -m wikicross.evals explain
+
+  embeddings:
+    runs-on: ubuntu-latest
+    env:
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      # Required by the app's settings to start; this eval makes no LLM call.
+      LLM_API_TYPE: openai
+      LLM_URL: http://llm.invalid/v1
+      LLM_MODEL: none
+      LLM_API_KEY: none
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: bge-m3 distances of the labelled findings
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ]; then
+            echo "::notice::MODAL_TOKEN_ID not set: embeddings eval skipped"; exit 0
+          fi
+          uv run python -m wikicross.evals embeddings

@@ -16,7 +16,8 @@
 - **Builds are not committed**: `src/wikicross/web/` and `extension/dist/` come from `make web` /
   `make extension` (and the Dockerfile); never edit or commit them.
 - No LLM in detection. The AI is on by default; a failed LLM call must leave the findings usable
-  (original quotes, no title).
+  (original quotes, no title). After changing the explain prompt, the LLM or a threshold in `compare.py`,
+  run `make eval` (labelled findings in `evals/`); add a case for each wrong finding you fix.
 - Never read `.env` values; refer to key names only.
 - Use uv (`uv run pytest`); MariaDB runs from `docker-compose.yml`.
 - **`make check` must pass**: the prek hooks (`.pre-commit-config.yaml`: format, lint and types for Python,

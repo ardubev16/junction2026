@@ -1,7 +1,7 @@
 # Front-end builds: the web app (served by the server) and the Chrome extension's scripts, both from ui/
 # (Vue + Codex, TypeScript: type-checked first). Their output is not committed; the Dockerfile builds the
 # web app itself. Also: checks (the prek hooks, pytest) and profiling the pipeline of a new article.
-.PHONY: all web extension extension-zip dev clean check profile profile-view
+.PHONY: all web extension extension-zip dev clean check eval profile profile-view
 
 all: web extension
 
@@ -51,3 +51,9 @@ profile-view:
 check: node_modules
 	uvx prek run --all-files
 	uv run pytest -q
+
+# The labelled findings in evals/: the AI's explanations (LLM) and bge-m3's distances (Modal); see
+# src/wikicross/evals.py. Run after changing the prompt, the model or a threshold.
+eval:
+	uv run --env-file .env python -m wikicross.evals explain
+	uv run --env-file .env python -m wikicross.evals embeddings

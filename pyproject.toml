@@ -75,3 +75,6 @@ ignore = [
 "src/wikicross/wiki.py" = [
   "T201", # its print()s are the server's log lines (uvicorn configures no app logger)
 ]
+"src/wikicross/evals.py" = [
+  "T201", # a command-line tool prints
+]

@@ -60,6 +60,7 @@ comparison code or model changes; to force it, delete the topic's `diff_cache` r
 | `make extension` / `make extension-zip` | build the extension into `extension/dist/` / pack it |
 | `prek install` | run the checks below on every commit (once per clone; [prek](https://github.com/j178/prek), or `uvx prek install`) |
 | `make check` | the pre-commit hooks on all files (format, lint, types: Python, TypeScript/Vue, Markdown, TOML, Dockerfile, Caddyfile; fixing what they can) and pytest: must pass |
+| `make eval` | the AI's explanations and bge-m3's distances on the labelled findings in `evals/`, with floors (`src/wikicross/evals.py`); `python -m wikicross.evals add TITLE LANG INDEX LABEL` labels one more |
 | `make profile TITLE=Joensuu EDITION=fi [NAME=…] [PROFILE_ARGS=--fresh]` | VizTracer profile of a topic's first load, into `profiles/NAME.json` |
 | `make profile-view NAME=…` | open a profile (without NAME: list them) |
 
@@ -70,7 +71,10 @@ not committed. `--fresh` profiles a loaded topic as new, LLM calls included.
 ### CI and releases
 
 GitHub Actions (`.github/workflows/`): `ci.yaml` runs the prek hooks, the tests and the image build on
-every pull request and push to `main`, pushing `ghcr.io/ardubev16/wikicross:main` from `main`.
+every pull request and push to `main`, pushing `ghcr.io/ardubev16/wikicross:main` from `main`. `evals.yaml`
+runs `make eval`'s two evals on demand, weekly and on pull requests touching the prompt, the comparison
+or the cases; it needs the secrets `LLM_API_KEY`, `MODAL_TOKEN_ID`, `MODAL_TOKEN_SECRET` and the variables
+`LLM_API_TYPE`, `LLM_URL`, `LLM_MODEL`, and skips without them.
 [release-please](https://github.com/googleapis/release-please) keeps a release PR open from the
 [Conventional Commits](https://www.conventionalcommits.org/) on `main` (version in `pyproject.toml` and
 `uv.lock`, `CHANGELOG.md`); merging it tags `vX.Y.Z`, publishes the GitHub release and pushes the image

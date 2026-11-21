@@ -62,6 +62,7 @@ export interface TitleSuggestion {
 
 /** app.explain(): the AI's reading of a finding's first SHOWN quotes. */
 export interface Explanation {
+  subject: string; // the one thing all quotes state something about; empty: none, so no discrepancy
   discrepancy: boolean;
   kind: Kind | null;
   title: string;
