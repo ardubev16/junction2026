@@ -76,3 +76,46 @@ jobs:
             echo "::notice::MODAL_TOKEN_ID not set: embeddings eval skipped"; exit 0
           fi
           uv run python -m wikicross.evals embeddings
+
+  # Detection's yield, A/B in one database: main's code saves the baseline, then this branch's must keep
+  # within YIELD_DROP of it (counts depend on the database's corpus, so they are never compared across
+  # databases). On demand only: an empty database fetches the reference topics from Wikipedia and embeds
+  # them on Modal (minutes); the second run reuses all of it and asks the decider only about new candidates.
+  yield:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:lts
+        env:
+          MARIADB_ROOT_PASSWORD: wikicross
+          MARIADB_DATABASE: wikicross
+          MARIADB_USER: wikicross
+          MARIADB_PASSWORD: wikicross
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 5s
+          --health-retries 30
+    env:
+      DB_PORT: 3306
+      MODAL_TOKEN_ID: ${{ secrets.MODAL_TOKEN_ID }}
+      MODAL_TOKEN_SECRET: ${{ secrets.MODAL_TOKEN_SECRET }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Baseline on main
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ "$DECISION_API_KEY" = none ]; then
+            echo "::notice::MODAL_TOKEN_ID or DECISION_API_KEY not set: yield eval skipped"; exit 0
+          fi
+          git checkout origin/main -- src
+          uv run python -m wikicross.evals yield --update
+          git checkout HEAD -- src
+      - name: This branch against it
+        run: |
+          if [ -z "$MODAL_TOKEN_ID" ] || [ "$DECISION_API_KEY" = none ]; then exit 0; fi
+          uv run python -m wikicross.evals yield

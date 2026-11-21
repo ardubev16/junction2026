@@ -423,8 +423,7 @@ def diff(
             title, lang, progress, dialects=dialects, langs=set(langs.split(",")) if langs else None
         )
         found = data.pop("differences")
-        for f in found:  # the focus edition's quote first, then the outlier's, then the rest in order
-            f["members"].sort(key=lambda m, f=f: (m["lang"] != focus, not (f["outlier"] and m["lang"] == f["lang"])))
+        card_order(found, focus)
         found, data["unchecked"] = judge(found, progress)
         data["kinds"] = {k: sum(f["kind"] == k for f in found) for k in KINDS}
         wanted = set(kinds.split(",")) if kinds else None
@@ -439,6 +438,14 @@ def diff(
         end_step()
         if owner:
             PROGRESS.pop(title, None)
+
+
+def card_order(found: list[dict], focus: str | None = None) -> None:
+    """Each finding's members in the order its card shows them, the first SHOWN being the ones the models
+    judge: the focus edition's quote first, then the outlier's, then the rest in order.
+    """
+    for f in found:
+        f["members"].sort(key=lambda m, f=f: (m["lang"] != focus, not (f["outlier"] and m["lang"] == f["lang"])))
 
 
 ISO_639_1_LEN = 2  # letters in an ISO 639-1 language code

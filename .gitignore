@@ -9,3 +9,5 @@ extension.zip
 .DS_Store
 # VizTracer output (scripts/profile.py)
 profiles/
+# The yield eval's baseline: per database (src/wikicross/evals.py, yield_eval)
+evals/yield.json

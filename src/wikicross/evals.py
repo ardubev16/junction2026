@@ -6,6 +6,7 @@ model. CI runs them on demand and weekly (.github/workflows/evals.yaml); each ex
     uv run --env-file .env python -m wikicross.evals decide      # the decision model: needs the database
     uv run --env-file .env python -m wikicross.evals explain     # the LLM: needs the database (its cache)
     uv run --env-file .env python -m wikicross.evals embeddings  # bge-m3 on Modal
+    uv run --env-file .env python -m wikicross.evals yield       # detection on TOPICS: Wikipedia, Modal, decider
     uv run --env-file .env python -m wikicross.evals add Google en 9 different   # label a finding
 
 A case is one finding's first SHOWN quotes, each with its passage, and a label:
@@ -43,6 +44,11 @@ FLOORS = {
     "not_overlong": 0.9,
     "embeddings_accuracy": 0.6,
 }
+# The reference topics of the yield eval: a city (94 editions), a war (a long article in many editions)
+# and a company (127 editions); a topic keeping more than YIELD_DROP fewer findings than in YIELD fails.
+TOPICS = ("Kuopio", "Talvisota", "Google")
+YIELD = CASES.with_name("yield.json")
+YIELD_DROP = 0.15
 
 
 def load() -> list[dict]:
@@ -166,13 +172,50 @@ def report(result: dict[str, float]) -> int:
     return 1 if failed else 0
 
 
+def yield_eval(*, update: bool) -> int:
+    """Detection's yield on the reference topics: per topic, its candidates and how many the decision
+    model keeps, by kind, against evals/yield.json. A topic keeping more than YIELD_DROP fewer than its
+    baseline fails: the regression check for compare.py's thresholds and grouping. `update` saves this run
+    as the baseline. Counts depend on the database (passages are matched over its whole corpus), so the
+    baseline is per database and not committed: save it on main's code, then run the change (CI does the
+    same). A topic not in the database is fetched and embedded first.
+    """
+    schema()
+    now = {}
+    for title in TOPICS:
+        found = app.compare_editions(title, None, lambda *_: None)["differences"]
+        app.card_order(found)
+        kept, error = app.judge(found, lambda *_: None)
+        if error:
+            print(f"{title}: {error}")
+            return 1
+        now[title] = {"candidates": len(found), "kept": len(kept)} | {
+            k: sum(f["kind"] == k for f in kept) for k in app.KINDS
+        }
+    base = json.loads(YIELD.read_text()) if YIELD.exists() else {}
+    failed = [t for t in TOPICS if t in base and now[t]["kept"] < (1 - YIELD_DROP) * base[t]["kept"]]
+    for t, n in now.items():
+        b = base.get(t, {})
+        print(
+            f"{t:<10} candidates {n['candidates']:>5} (was {b.get('candidates', '-')})  kept {n['kept']:>4} "
+            f"(was {b.get('kept', '-')})  precision {n['kept'] / max(1, n['candidates']):.2f}  "
+            + " ".join(f"{k} {n[k]}" for k in app.KINDS)
+            + ("  BELOW" if t in failed else "")
+        )
+    if update:
+        YIELD.write_text(json.dumps(now, indent=2) + "\n")
+        return 0
+    return 1 if failed else 0
+
+
 def add(title: str, lang: str, index: int, label: Label) -> None:
     """Label a topic's candidate finding at `index` (0 = the largest deviation; before the decision model
     drops any) and append it to the cases: its first SHOWN quotes, as the models get them. Needs the
     database and Modal, like the server.
     """
     finding = app.compare_editions(title, lang, lambda *_: None)["differences"][index]
-    members = sorted(finding["members"], key=lambda m: not (finding["outlier"] and m["lang"] == finding["lang"]))
+    app.card_order([finding])
+    members = finding["members"]
     case_id = f"{title}#{index}"
     passages = [{k: m[k] for k in ("lang", "heading", "text", "sentence")} for m in members[: app.SHOWN]]
     cases = [c for c in load() if c["id"] != case_id] if CASES.exists() else []
@@ -187,6 +230,8 @@ def main() -> None:
     commands.add_parser("decide", help="the decision model's verdicts")
     commands.add_parser("explain", help="the LLM's verdicts, highlights and translations")
     commands.add_parser("embeddings", help="bge-m3 distances against FRAMING_MAX")
+    yielding = commands.add_parser("yield", help="detection's yield on the reference topics, against a baseline")
+    yielding.add_argument("--update", action="store_true", help="save this run as the baseline")
     adding = commands.add_parser("add", help="label a finding of a topic as a new case")
     adding.add_argument("title")
     adding.add_argument("lang")
@@ -195,6 +240,8 @@ def main() -> None:
     args = parser.parse_args()
     if args.command == "add":
         add(args.title, args.lang, args.index, args.label)
+    elif args.command == "yield":
+        sys.exit(yield_eval(update=args.update))
     else:
         sys.exit({"decide": decide_eval, "explain": explain_eval, "embeddings": embeddings_eval}[args.command]())
 
