@@ -39,6 +39,7 @@ OVERLONG = 2.2  # an English quote this many times its original's length is a tr
 # Floors, set below what the current prompt and model measure: a run under one is a regression.
 FLOORS = {
     "decide_accuracy": 0.9,
+    "outlier_accuracy": 0.9,
     "accuracy": 0.8,
     "highlighted": 0.85,
     "not_overlong": 0.9,
@@ -90,22 +91,33 @@ def schema() -> None:
 
 
 def decide_eval() -> int:
-    """The decision model's verdict on each case: a disagreement (kept) only for "differ"."""
+    """The decision model's verdict on each case: a disagreement (kept) only for "differ"; and for a case
+    naming its `outlier` edition, whether the model names the same.
+    """
     llm.READ_CACHE = False  # the model as it answers now
     schema()
     cases = load()
     decisions, error = decide.decide(
         [[{"lang": p["lang"], "sentence": p["sentence"]} for p in c["passages"]] for c in cases], lambda *_: None
     )
-    correct = 0
+    correct, outliers = 0, []
     for case, d in zip(cases, decisions, strict=True):
-        ok = d is not None and (d["kind"] != decide.NONE) == (case["label"] == "differ")
+        ok = d is not None and decide.kept(d) == (case["label"] == "differ")
         correct += ok
-        verdict = f"{d['kind']:<8} P(disagreement) {d['real']:.2f}  strength {d['strength']:.2f}" if d else "ERROR"
+        if "outlier" in case:
+            outliers.append(d is not None and d["outlier"] == case["outlier"])
+        verdict = (
+            f"{d['kind']:<8} P(disagreement) {d['real']:.2f}  strength {d['strength']:.2f}  outlier {d['outlier']}"
+            if d
+            else "ERROR"
+        )
         print(f"{case['id']:<14} {case['label']:<9} {'ok   ' if ok else 'WRONG'} {verdict}")
     if error:
         print(error)
-    return report({"decide_accuracy": correct / len(cases)})  # an error counts as wrong
+    result = {"decide_accuracy": correct / len(cases)}  # an error counts as wrong
+    if outliers:
+        result["outlier_accuracy"] = sum(outliers) / len(outliers)
+    return report(result)
 
 
 def explain_eval() -> int:

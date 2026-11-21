@@ -43,12 +43,21 @@ LEVELS = [
     "Notable: a clear difference about something the article states",
     "Major: a central fact, judgement or event of the topic",
 ]
+# With three quotes or more: whose quote differs. The axis's outlier measures tone, not facts. (A separate
+# "same specific thing?" question was tried and dropped: docs/experiments/2026-11-decision-model.md.)
+OUTLIER = "Which edition's quote stands apart from the others about the thing they share?"
+NO_OUTLIER = "No single edition stands apart: they all differ, or none does."
+MIN_OUTLIER = 3  # quotes needed to ask for an outlier (compare.MIN_OUTLIER)
 BATCH = 10  # findings per request: answers stay per finding (checked on 3), fewer round trips
 WORKERS = 8  # requests at once (40 in 3 s met no rate limit)
 RETRIES = 3
 
 # What an answer depends on: the cache key (the API key does not change it, so it is left out).
-QUESTIONS = [settings.decision_url, settings.decision_model, KIND, CRITERIA, STRENGTH, LEVELS]
+QUESTIONS = [
+    settings.decision_url,
+    settings.decision_model,
+    [KIND, CRITERIA, STRENGTH, LEVELS, OUTLIER, NO_OUTLIER],
+]
 
 
 def lines(quotes: list[dict]) -> list[str]:
@@ -59,28 +68,52 @@ def key(quotes: list[dict]) -> bytes:
     return hashlib.sha256(json.dumps([QUESTIONS, lines(quotes)]).encode()).digest()
 
 
-def read(answers: dict, i: int) -> dict | None:
-    """Finding i's decision from a batch's answers: `kind` (KINDS or NONE), `real` (1 - P(none)) and
-    `strength` (0-2), or None if either question was refused or malformed.
+def outliers(quotes: list[dict]) -> dict[str, str]:
+    """The outlier question's options: each quote's language, and NONE."""
+    return {q["lang"]: f"The [{q['lang']}] quote differs from the others, which agree." for q in quotes} | {
+        NONE: NO_OUTLIER
+    }
+
+
+def read(answers: dict, i: int, quotes: list[dict]) -> dict | None:
+    """Finding i's decision from a batch's answers: `kind` (KINDS or NONE), `real` (1 - P(none)),
+    `strength` (0-2) and `outlier` (a quote's language, or None), or None if a question was refused or
+    malformed.
     """
     kind, strength = answers.get(f"kind_{i}") or {}, answers.get(f"strength_{i}") or {}
+    outlier = answers.get(f"outlier_{i}") or {}
     probabilities = kind.get("probabilities") or {}
     if kind.get("choice") not in (*KINDS, NONE) or not isinstance(strength.get("score"), int | float):
+        return None
+    asked = len(quotes) >= MIN_OUTLIER
+    if asked and outlier.get("choice") not in outliers(quotes):
         return None
     return {
         "kind": kind["choice"],
         "real": round(1 - float(probabilities.get(NONE, kind["choice"] == NONE)), 4),
         "strength": round(float(strength["score"]), 3),
+        "outlier": outlier["choice"] if asked and outlier["choice"] != NONE else None,
     }
+
+
+def kept(d: dict) -> bool:
+    """A decision that is a real disagreement."""
+    return d["kind"] != NONE
 
 
 def ask(batch: list[list[dict]]) -> list[dict | None]:
     """One request for up to BATCH findings (each its quotes: lang, sentence); raises RuntimeError."""
-    questions = {}
-    for i in range(len(batch)):
+    questions: dict[str, dict] = {}
+    for i, quotes in enumerate(batch):
         about = f"About f{i} only. "
         questions[f"kind_{i}"] = {"type": "choice", "instructions": about + KIND, "criteria": CRITERIA}
         questions[f"strength_{i}"] = {"type": "score", "instructions": about + STRENGTH, "criteria": LEVELS}
+        if len(quotes) >= MIN_OUTLIER:
+            questions[f"outlier_{i}"] = {
+                "type": "choice",
+                "instructions": about + OUTLIER,
+                "criteria": outliers(quotes),
+            }
     body = {
         "model": settings.decision_model,
         "state": {f"f{i}": lines(quotes) for i, quotes in enumerate(batch)},
@@ -100,7 +133,7 @@ def ask(batch: list[list[dict]]) -> list[dict | None]:
     if r.is_error:
         raise RuntimeError(f"decision model error {r.status_code}: {r.text[:300]}")
     answers = r.json().get("answers") or {}
-    return [read(answers, i) for i in range(len(batch))]
+    return [read(answers, i, quotes) for i, quotes in enumerate(batch)]
 
 
 def decide(findings: list[list[dict]], progress: Callable[[int, int], None]) -> tuple[list[dict | None], str | None]:

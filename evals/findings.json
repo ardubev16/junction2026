@@ -340,5 +340,48 @@
         "sentence": "Бюджет проекта составит 1,4 миллиарда евро."
       }
     ]
+  },
+  {
+    "id": "Battle of Manila (1945)#116",
+    "label": "differ",
+    "outlier": "en",
+    "passages": [
+      {
+        "lang": "it",
+        "heading": "L'avanzata statunitense",
+        "text": "Il 31 gennaio, l'8ª Armata, comandata dal generale Robert L. Eichelberger, che consisteva del 187º e del 188º Reggimento di Fanteria Alianti, del colonnello Robert H. Soule, e di componenti dell'11ª Divisione Aviotrasportata, sotto il comando del generale Joseph May Swing, sbarcarono senza incontrare resistenza a Nasugbu, nella parte meridionale dell'isola di Luzon, e iniziarono a muoversi verso nord in direzione di Manila. Nel frattempo, la 511ª Squadra da Combattimento Reggimentale dell'11ª Divisione, comandata dal colonnello Orin D. Haugen, fu paracadutata sul crinale del Tagaytay il 4 febbraio. Il 10 febbraio l'11ª Divisione passò sotto il comando della 6ª Armata e conquistò il Forte William McKinley il giorno 17 dello stesso mese.",
+        "sentence": "Haugen, fu paracadutata sul crinale del Tagaytay il 4 febbraio."
+      },
+      {
+        "lang": "en",
+        "heading": "Background",
+        "text": "After landing at San Fabian on 27 January, the 1st Cavalry Division, under the command of Major Gen. Verne D. Mudge, received orders from MacArthur to \"Get to Manila! Free the internees at Santo Tomas. Take Malacanang Palace and the Legislative Building.\"\nOn 31 January, the Eighth United States Army of Lt. Gen. Robert L. Eichelberger, including the 187th and 188th Glider Infantry Regiments of Col. Robert H. Soule and components of the U.S. 11th Airborne Division under Maj. Gen. Joseph Swing, landed unopposed at Nasugbu in southern Luzon and began moving north toward Manila. Meanwhile, the 11th Airborne's 511th Regimental Combat Team, commanded by Col. Orin D. \"Hard Rock\" Haugen, parachuted onto Tagaytay Ridge on 3 February. On 10 February, the 11th Airborne Division came under the command of the Sixth Army, and seized Fort William McKinley on 17 February",
+        "sentence": "Orin D. \"Hard Rock\" Haugen, parachuted onto Tagaytay Ridge on 3 February."
+      },
+      {
+        "lang": "bg",
+        "heading": "Контекст",
+        "text": "След като правят десант при Сан Фабиан на 27 януари, 1-ва кавалерийна дивизия, водена от генерал-майор Върнън Мъдж, получава заповеди от Макартър на 31 януари да се насочи към Манила и да превземе двореца Малаканянг.\nНа 31 януари 8-а армия с генерал-лейтенант Робърт Ейчелбергер, съставена от 187-и и 188-и пехотни полкове и части от 11-а парашутна дивизия, прави десант, без да среща съпротива, при Насугубу в южната част на Лусон и започва да се придвижва на север към Манила. Малко след това парашутни войски се спускат над хребета Тагайтай на 4 февруари. На 10 февруари 11-а парашутна дивизия преминава под командването на 6-а армия и превзема крепостта Бонифасио на 17 февруари.",
+        "sentence": "Малко след това парашутни войски се спускат над хребета Тагайтай на 4 февруари."
+      }
+    ]
+  },
+  {
+    "id": "Trento#5",
+    "label": "different",
+    "passages": [
+      {
+        "lang": "mk",
+        "heading": "Историја",
+        "text": "За време на  Првата светска војна овде се случувале многу важни промени. Во тоа време, јужно од градот се случувале исцрпувачки битки меѓу армиите на Италија и Австроунгарија. По војната, со Договорот на Сен Жермен од 1919 г. јужниот дел на крунската провинција Тирол со Тренто и бил додаден на  Италија. Населението од јужната половина на областа, населена со Италијанци (за разлика од северните делови), се согласи со ова.",
+        "sentence": "По војната, со Договорот на Сен Жермен од 1919 г. јужниот дел на крунската провинција Тирол со Тренто и бил додаден на  Италија."
+      },
+      {
+        "lang": "ru",
+        "heading": "История",
+        "text": "Италия оккупировала город 3 ноября 1918 года, в день подписания перемирия с Австро-Венгрией, и аннексировала в соответствии с Сен-Жерменским договором 1919 года.\nПосле капитуляции Италии (3 сентября 1943) в ходе Второй мировой войны, германские войска вторглись в северную Италию. Тренто и Южный Тироль были аннексированы Германией и вошли в состав Третьего рейха. Местное немецкое меньшинство, враждебно настроенное по отношению к итальянцам, попыталось воспользоваться этим для сведения счётов, однако их остановили нацисты, всё ещё считавшие Муссолини своим союзником и главой Республики Сало.",
+        "sentence": "Тренто и Южный Тироль были аннексированы Германией и вошли в состав Третьего рейха."
+      }
+    ]
   }
 ]

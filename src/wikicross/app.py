@@ -382,14 +382,14 @@ def diff(
     offset: int = 0,
     lang: str | None = None,
     focus: str | None = None,
-    dialects: bool = True,
+    dialects: bool = False,
     langs: str | None = None,
     kinds: str | None = None,
 ) -> dict:
     """What a topic's editions state differently, `limit` findings from `offset` (`total` counts all);
     `lang` is the edition the title is from (any if not given: then looked up on English Wikipedia if the
-    database does not have it), `focus` an edition whose findings go first. `dialects=false` leaves out
-    editions without a two-letter (ISO 639-1) code: see is_dialect(); `langs=fi,sv,ru` compares only those
+    database does not have it), `focus` an edition whose findings go first. Editions without a two-letter
+    (ISO 639-1) code are left out unless `dialects=true`: see is_dialect(); `langs=fi,sv,ru` compares only those
     editions; `kinds=factual,bias` keeps only findings of those KINDS. `languages` lists every edition,
     filtered or not. The decision model judges every finding (judge()): those it finds no disagreement in
     are left out, `kinds` counts the rest by kind, and the strongest come first. Each finding's members
@@ -425,6 +425,7 @@ def diff(
         found = data.pop("differences")
         card_order(found, focus)
         found, data["unchecked"] = judge(found, progress)
+        card_order(found, focus)  # the model's outlier, among the first SHOWN, next after the focus edition
         data["kinds"] = {k: sum(f["kind"] == k for f in found) for k in KINDS}
         wanted = set(kinds.split(",")) if kinds else None
         found = [f for f in found if wanted is None or f["kind"] in wanted]
@@ -597,6 +598,8 @@ def compare_editions(
 def judge(found: list[dict], progress: Progress) -> tuple[list[dict], str | None]:
     """The findings the decision model sees a disagreement in (decide.decide() of the first SHOWN quotes),
     each with its `kind` and `decision`; and why some went unchecked, if they did: those stay, kind None.
+    With three quotes or more, the model's outlier (or none) replaces the axis's: the axis measures tone,
+    which says nothing about whose fact differs.
     """
     decisions, error = decide.decide(
         [[{"lang": m["lang"], "sentence": m["sentence"]} for m in f["members"][:SHOWN]] for f in found],
@@ -604,14 +607,17 @@ def judge(found: list[dict], progress: Progress) -> tuple[list[dict], str | None
     )
     kept = []
     for f, d in zip(found, decisions, strict=True):
-        if d is None or d["kind"] != decide.NONE:
-            kept.append({**f, "kind": d and d["kind"], "decision": d})
+        if d is None:
+            kept.append({**f, "kind": None, "decision": None})
+        elif decide.kept(d):
+            outlier = {"outlier": d["outlier"] is not None} | ({"lang": d["outlier"]} if d["outlier"] else {})
+            kept.append({**f, **outlier, "kind": d["kind"], "decision": d})
     return kept, error
 
 
 def rank(f: dict) -> float:
-    """How strongly a finding is a disagreement, by the decision model: P(disagreement) times strength
-    (0-2) + 1; unchecked findings after the checked, in their order (the axis deviation).
+    """How strongly a finding is a disagreement, by the decision model: P(disagreement) × (strength (0-2)
+    + 1); unchecked findings after the checked, in their order (the axis deviation).
     """
     d = f["decision"]
     return d["real"] * (1 + d["strength"]) if d else -1
@@ -923,6 +929,7 @@ WEB = Path(__file__).with_name("web")  # the web app, built from ui/ by `make we
 
 
 @app.get("/")
+@app.get("/about")  # the web app's About page: the app reads the path
 def index() -> Response:  # a Response, not a union: FastAPI would take a union for a response model
     if not (WEB / "index.html").exists():
         return JSONResponse(
