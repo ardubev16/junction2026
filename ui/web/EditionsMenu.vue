@@ -1,8 +1,9 @@
-<!-- Every edition, in a Codex popover: a topic can have dozens. Each link opens that edition. -->
+<!-- Every edition, in a Codex popover behind Wikipedia's own "文A N languages" button: a topic can have
+     dozens. Each link opens that edition. -->
 <script setup lang="ts">
 import { ref, type ComponentPublicInstance } from "vue";
 import { CdxButton, CdxIcon, CdxPopover } from "@wikimedia/codex";
-import { cdxIconExpand } from "@wikimedia/codex-icons";
+import { cdxIconExpand, cdxIconLanguage } from "@wikimedia/codex-icons";
 import type { Article } from "../shared/types";
 import { langName } from "../shared/util";
 
@@ -13,8 +14,8 @@ const safe = (url: string) => (/^https?:\/\//.test(url) ? url : "#");
 </script>
 
 <template>
-  <CdxButton ref="anchor" weight="quiet" action="progressive" @click="open = !open">
-    {{ articles.length }} editions <CdxIcon :icon="cdxIconExpand" size="small" />
+  <CdxButton ref="anchor" weight="quiet" action="progressive" class="languages" @click="open = !open">
+    <CdxIcon :icon="cdxIconLanguage" /> {{ articles.length }} languages <CdxIcon :icon="cdxIconExpand" size="small" />
   </CdxButton>
   <CdxPopover
     v-model:open="open"

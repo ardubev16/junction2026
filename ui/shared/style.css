@@ -72,11 +72,38 @@
   border: 1px solid var(--border-color-base);
   border-radius: 50%;
 }
+/* The filters, as Wikipedia's "Appearance" panel: a bold title and "hide" over a rule, then sections
+   each under a muted, ruled legend. */
 .filters {
+  font-size: var(--font-size-small);
+}
+.filters-head {
   display: flex;
-  gap: 1rem;
   align-items: center;
-  flex-wrap: wrap;
+  gap: 0.6rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border-color-subtle);
+}
+.filters-head b {
+  font-size: var(--font-size-medium);
+}
+.filters fieldset {
+  border: 0;
+  margin: 0.8rem 0 0;
+  padding: 0;
+}
+.filters legend {
+  width: 100%;
+  padding: 0 0 0.3rem;
+  margin-bottom: 0.4rem;
+  color: var(--color-subtle);
+  border-bottom: 1px solid var(--border-color-subtle);
+}
+.filters .cdx-radio {
+  margin: 0.4rem 0;
+}
+.filters fieldset > .cdx-button {
+  margin-left: -0.5rem; /* quiet button: its text in line with the legend */
 }
 .picker {
   width: min(640px, 90vw);
@@ -175,6 +202,40 @@
   gap: 0.5rem;
   margin-top: 0.6rem;
   flex-wrap: wrap;
+}
+/* What the other editions say: one row per position, a quote's colour on its left edge. */
+.consensus {
+  margin-top: 0.8rem;
+  font-size: var(--font-size-small);
+}
+.consensus p {
+  margin: 0.4rem 0;
+}
+.consensus ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.consensus li {
+  border-left: 3px solid var(--hl-line, var(--border-color-subtle));
+  padding: 0.1rem 0 0.1rem 0.6rem;
+}
+.consensus b {
+  font-size: var(--font-size-medium);
+}
+.consensus .lead {
+  margin-left: 0.4rem;
+}
+.consensus .langs {
+  color: var(--color-subtle);
+}
+.consensus .langs span:not(:last-child)::after {
+  content: ", ";
+}
+.consensus .langs span {
+  cursor: help;
 }
 
 .quotes {

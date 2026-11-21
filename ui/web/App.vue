@@ -231,54 +231,56 @@ const refilter = ({ langs, dialects }: Filters) => {
 
     <LoadingSteps v-if="view.state === 'loading'" :key="view.id" :title="view.title" />
 
-    <div v-if="done" :key="done.id">
-      <div class="pagehead">
-        <h1>{{ head?.title }}</h1>
-        <EditionsMenu :articles="done.data.articles" />
-      </div>
+    <div v-if="done" :key="done.id" class="layout">
       <LanguageFilter
         :languages="done.data.languages"
         :langs="done.query.langs"
         :dialects="done.query.dialects"
         @change="refilter"
       />
-      <CdxAccordion class="timing">
-        <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
-        <LoadingSteps :title="done.title" :result="done.data.progress" />
-      </CdxAccordion>
-      <template v-if="done.data.total">
-        <h2>{{ done.data.total }} differences</h2>
-        <p class="muted">Strongest first. Showing {{ from + 1 }}–{{ from + done.data.differences.length }}.</p>
-        <FindingCard
-          v-for="(f, i) in done.data.differences"
-          :key="`${done.id}-${i}`"
-          :finding="f"
-          paragraphs
-          :irrelevant-target="irrelevant"
-          @dismiss="dismissed++"
-        />
-        <CdxButton
-          v-if="dismissed"
-          size="small"
-          :aria-expanded="String(showIrrelevant)"
-          @click="showIrrelevant = !showIrrelevant"
-        >
-          <CdxIcon :icon="showIrrelevant ? cdxIconEyeClosed : cdxIconEye" size="small" />
-          {{ showIrrelevant ? "Hide" : "Show" }} {{ dismissed }} finding{{ dismissed === 1 ? "" : "s" }} the AI marked
-          as irrelevant
-        </CdxButton>
-        <div v-show="showIrrelevant" ref="irrelevant" class="irrelevant"></div>
-        <nav v-if="pages > 1" class="pager" aria-label="Pages of differences">
-          <CdxButton :disabled="done.query.page <= 1" @click="go(done.query.page - 1)"
-            ><CdxIcon :icon="cdxIconPrevious" /> Previous</CdxButton
+      <div class="results">
+        <div class="pagehead">
+          <h1>{{ head?.title }}</h1>
+          <EditionsMenu :articles="done.data.articles" />
+        </div>
+        <CdxAccordion class="timing">
+          <template #title>Loaded in {{ Math.round(done.data.progress.seconds) }} s</template>
+          <LoadingSteps :title="done.title" :result="done.data.progress" />
+        </CdxAccordion>
+        <template v-if="done.data.total">
+          <h2>{{ done.data.total }} differences</h2>
+          <p class="muted">Strongest first. Showing {{ from + 1 }}–{{ from + done.data.differences.length }}.</p>
+          <FindingCard
+            v-for="(f, i) in done.data.differences"
+            :key="`${done.id}-${i}`"
+            :finding="f"
+            paragraphs
+            :irrelevant-target="irrelevant"
+            @dismiss="dismissed++"
+          />
+          <CdxButton
+            v-if="dismissed"
+            size="small"
+            :aria-expanded="String(showIrrelevant)"
+            @click="showIrrelevant = !showIrrelevant"
           >
-          <span>Page {{ done.query.page }} of {{ pages }}</span>
-          <CdxButton :disabled="done.query.page >= pages" @click="go(done.query.page + 1)"
-            >Next <CdxIcon :icon="cdxIconNext"
-          /></CdxButton>
-        </nav>
-      </template>
-      <p v-else class="muted">The editions state nothing differently that WikiCross can find.</p>
+            <CdxIcon :icon="showIrrelevant ? cdxIconEyeClosed : cdxIconEye" size="small" />
+            {{ showIrrelevant ? "Hide" : "Show" }} {{ dismissed }} finding{{ dismissed === 1 ? "" : "s" }} the AI marked
+            as irrelevant
+          </CdxButton>
+          <div v-show="showIrrelevant" ref="irrelevant" class="irrelevant"></div>
+          <nav v-if="pages > 1" class="pager" aria-label="Pages of differences">
+            <CdxButton :disabled="done.query.page <= 1" @click="go(done.query.page - 1)"
+              ><CdxIcon :icon="cdxIconPrevious" /> Previous</CdxButton
+            >
+            <span>Page {{ done.query.page }} of {{ pages }}</span>
+            <CdxButton :disabled="done.query.page >= pages" @click="go(done.query.page + 1)"
+              >Next <CdxIcon :icon="cdxIconNext"
+            /></CdxButton>
+          </nav>
+        </template>
+        <p v-else class="muted">The editions state nothing differently that WikiCross can find.</p>
+      </div>
     </div>
   </main>
 </template>
