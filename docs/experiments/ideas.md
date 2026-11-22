@@ -1,4 +1,7 @@
-# Ideas: other ways to find disagreements (2026-11-22, not run)
+# Ideas: other ways to find disagreements (2026-11-22)
+
+Tried so far (results in [quick matching ideas](2026-11-matching-ideas.md)): **1 rejected**, **2 rejected
+for now**, **4 open** (as a gate against different things matched, not as a ranking).
 
 A brainstorm, with what each would fix and how to test it. Nothing here has been measured yet. Move an
 idea to its own page when it is run, and add a row to the [index](README.md).
@@ -34,13 +37,19 @@ answer.**
 | 9 | **Section alignment.** Use Wikimedia Research's cross-language section alignments (Content Translation's section mapping) to restrict passage matching to aligned sections | different things matched across sections | a lookup per pair of editions | yield eval |
 | 10 | **Recency from history.** For a factual disagreement, read each edition's revision that introduced the value; the most recently sourced value is the likelier truth | "which is true" for numbers that change over time (populations) | history API calls per finding, on demand | the consensus cases (Kuopio's population) |
 
-## Suggested order
+## Suggested order (revised after 1, 2 and 4)
 
-1. **1 (value masking)** and **2 (instruction embeddings)**: cheap, measured with the existing evals in
-   minutes, and they attack the root cause. Then **3 (cross-encoder)**, if matching is still loose.
-2. **5 (wikilinks)** if Trento-like cases (same place, different event) matter. They need a fetch
+1. **4 as a gate**: generate questions only for kept findings and drop those whose questions are far apart
+   (Trento: 0.53, every real case under 0.29). Label more pairs first; cheap (a few dozen cached LLM calls
+   per topic).
+2. **3 (cross-encoder)** on kept findings, the same role as 4 without an LLM: bge-reranker-v2-m3 fits on the
+   same Modal GPU as bge-m3.
+3. **5 (wikilinks)** if Trento-like cases (same place, different event) matter. They need a fetch
    change anyway, which also brings citations (whether two editions cite the same source).
-3. **6 (claims)**: the largest gain and the largest change; worth it once 1–3 show how much is left.
+4. **6 (claims)**: the largest gain and the largest change; worth it once 1–3 show how much is left.
+
+Cheap above all: this is a free project. Modal (ephemeral apps, small GPUs, scale to zero) and the free
+decision model come first; the LLM only per shown card or per kept finding, cached.
 
 Every one is checked against the same yardsticks: `evals decide` and `evals embeddings` on the
 labelled cases, and `evals yield` A/B on the reference topics (confirmed findings at the same decision

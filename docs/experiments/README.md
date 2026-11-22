@@ -9,6 +9,12 @@ pending), **planned** (not run yet).
 
 | Date | Experiment | Result | Status |
 |---|---|---|---|
+| 2026-11-22 | [Questions as keys (idea 4)](2026-11-matching-ideas.md) | Separates same-claim from different-claim pairs (AUC 0.77 vs 0.63 for bge-m3 sentences; Trento at 0.53, every real case ≤ 0.29); no help ranking candidates | open: next as a gate on kept findings |
+| 2026-11-22 | [Value-masked matching (idea 1)](2026-11-matching-ideas.md) | Worse than nothing (AUC 0.39 ranking) | rejected |
+| 2026-11-22 | [Instruction embeddings, Qwen3-0.6B (idea 2)](2026-11-matching-ideas.md) | Ranking AUC 0.57 (bge-m3 0.50), claims apart 0.45 (bge-m3 0.63); the number rule beats both | rejected for now |
+| 2026-11-22 | [Picking a big group's quotes to judge](2026-11-bias-framing.md#the-leads-bias-still-not-found) | Medoid pairs, axis extremes, one question over the whole group, all 215 matched pairs: none finds the Mainila lead's bias; the decider sees it only on the ru/fi/uk triple | open |
+| 2026-11-22 | [Bias and framing on Shelling of Mainila: big groups, spread order](2026-11-bias-framing.md) | The topic's central bias finding (ru vs fi/uk leads, decider: bias 0.88) was cut by the tone gate in a 24-edition group, and judged on the wrong 3 quotes; 8+ editions now always candidates, members ordered most-different-first | adopted |
+| 2026-11-22 | [Stars: merging pairs around a shared sentence before judging](2026-11-bias-framing.md#changes-tried) | Fewer repeated cards, but real pairs lost (Mainila: 26 → 15 sentences shown); merged after judging instead (`merge_shared`) | rejected; replaced |
 | 2026-11-22 | [Decider asks for the outlier](2026-11-decision-model.md#follow-up-outlier-and-a-same-thing-question-2026-11-22) | Manila: English named (the tone axis said Italian); decide accuracy 0.95 on 20 cases, Trento#5 the miss | adopted |
 | 2026-11-22 | ["Same specific thing?" question, passage context](2026-11-decision-model.md#follow-up-outlier-and-a-same-thing-question-2026-11-22) | 0.85 and 0.55 (drops populations from different years); context 0.90 (fixes Trento, breaks two) | rejected |
 | 2026-11-22 | [Detection thresholds against the decision model](2026-11-detection-thresholds.md) | The 1.2σ deviation gate does not select disagreements (13% real at every deviation) and passes ~1/5 of what the judge confirms; distance 0.35 is right | thresholds kept; documented |
@@ -23,8 +29,8 @@ pending), **planned** (not run yet).
 
 ## Running now
 
-Nothing. Last run: the yield eval after the outlier question, 54 / 236 / 158 kept, within 15% of the
-baseline ([yield eval](2026-11-detection-thresholds.md#yield-eval)).
+Nothing. Last run: the yield eval after big groups and spread order, on four topics: 60 / 253 / 171 / 17
+kept, all up ([bias and framing](2026-11-bias-framing.md)).
 
 ## Planned
 
@@ -32,7 +38,8 @@ baseline ([yield eval](2026-11-detection-thresholds.md#yield-eval)).
 |---|---|---|
 | [Number prefilter with a share kept for tone](2026-11-detection-thresholds.md#next-number-prefilter-with-a-tone-share) | 2× the real findings at today's decision cost, without losing bias | check with the yield eval, by kind |
 | [CI fixture: where the test database lives](2026-11-detection-thresholds.md#ci-without-modal) | the yield eval on CI needs Modal and Wikipedia; CPU embedding is ~1.5 h (estimate) | recommended: a MariaDB image with the fixture on GHCR |
-| [Other ways to find disagreements](ideas.md) | different things matched (Trento), real ones missed | 10 ideas ranked: value-masked matching and instruction embeddings first |
+| [Questions as a gate on kept findings](2026-11-matching-ideas.md#outcome) | drops different things matched (Trento) that the decider keeps | label ~50 more same/different pairs first; cost: a few dozen cached LLM calls per topic |
+| [Other ways to find disagreements](ideas.md) | different things matched (Trento), real ones missed | order revised: questions as a gate, then a cross-encoder, wikilinks, claims |
 | Wikidata as ground truth for factual disagreements | "most editions" is not truth (see consensus) | needs mapping the subject to a property: unreliable, untried |
 | Staying under Wikimedia's API rate limits | 200 requests/min per client | options in [TODO.md](../../TODO.md) |
 
