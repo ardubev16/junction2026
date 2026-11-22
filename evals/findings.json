@@ -383,5 +383,155 @@
         "sentence": "Тренто и Южный Тироль были аннексированы Германией и вошли в состав Третьего рейха."
       }
     ]
+  },
+  {
+    "id": "Shelling of Mainila#lead",
+    "label": "differ",
+    "kind": ["bias", "framing"],
+    "outlier": "ru",
+    "passages": [
+      {
+        "lang": "ru",
+        "heading": "Майнильский инцидент",
+        "text": "Ма́йнильский инциде́нт (фин. Mainilan laukaukset, дословно — «майнильские выстрелы») — артиллерийский обстрел у приграничной советской деревни Майнила, произошедший 26 ноября 1939 года. Советское правительство заявило, что огонь был открыт с территории Финляндии и что в результате обстрела погибли четыре и были ранены девять советских военнослужащих. Финляндия отрицала свою причастность, сообщив, что выстрелы были произведены с советской стороны, и предложила провести совместное расследование и осуществить взаимный отвод войск от границы.",
+        "sentence": "Ма́йнильский инциде́нт (фин. Mainilan laukaukset, дословно — «майнильские выстрелы») — артиллерийский обстрел у приграничной советской деревни Майнила, произошедший 26 ноября 1939 года."
+      },
+      {
+        "lang": "fi",
+        "heading": "Mainilan laukaukset",
+        "text": "Mainilan laukaukset oli Mainilan kylässä tapahtunut, Neuvostoliiton lavastama välikohtaus, joka johti Suomen ja Neuvostoliiton välisen hyökkäämättömyyssopimuksen yksipuoliseen purkamiseen. Neljä päivää myöhemmin alkoi Suomen ja Neuvostoliiton välinen talvisota Neuvostoliiton hyökätessä Suomeen.\nNeuvostoliiton mukaan 26. marraskuuta 1939 sen alueella sijaitsevassa Mainilan rajakylässä Valkeasaaressa oli kuollut neljä harjoituksissa ollutta rajajoukkojen sotilasta Suomen puolelta tulleeseen tykki- ja heitintuleen. Suomi tarjoutui selvittämään tapausta yhteistyössä Neuvostoliiton kanssa. Neuvostoliitto kuitenkin sanoi irti voimassa olleen hyökkäämättömyyssopimuksen.",
+        "sentence": "Mainilan laukaukset oli Mainilan kylässä tapahtunut, Neuvostoliiton lavastama välikohtaus, joka johti Suomen ja Neuvostoliiton välisen hyökkäämättömyyssopimuksen yksipuoliseen purkamiseen."
+      },
+      {
+        "lang": "uk",
+        "heading": "Майнільський інцидент",
+        "text": "Майнільський інцидент (рос. Майнильский инцидент), або Обстріл Майніли (фін. Mainilan laukaukset, швед. Skotten i Mainila) — радянська провокація, що була використана керівництвом СРСР, як формальний привід для початку радянсько-фінської війни 1939 року.",
+        "sentence": "Mainilan laukaukset, швед. Skotten i Mainila) — радянська провокація, що була використана керівництвом СРСР, як формальний привід для початку радянсько-фінської війни 1939 року."
+      }
+    ]
+  },
+  {
+    "id": "Shelling of Mainila#be-cs",
+    "label": "differ",
+    "kind": "framing",
+    "passages": [
+      {
+        "lang": "be",
+        "heading": "Майнільскі інцыдэнт",
+        "text": "Ма́йнільскі інцыдэнт — інцыдэнт, які стаў фармальнай нагодай для пачатку савецка-фінскай вайны 1939 года.\nПаводле афіцыйных савецкіх сцвярджэнняў, 26 лістапада 1939 года на ўчастку мяжы каля вёскі Майніла групу савецкіх ваеннаслужачых  абстраляла артылерыя. Было зроблена сем гарматных выстралаў, у выніку чаго былі забіты трое радавых і адзін малодшы камандзір, сямёра радавых і двое з каманднага складу атрымалі раненні. Гэтыя лічбы былі прыведзены ў савецкай ноце і афіцыйным паведамленні ў газеце «Праўда».",
+        "sentence": "Паводле афіцыйных савецкіх сцвярджэнняў, 26 лістапада 1939 года на ўчастку мяжы каля вёскі Майніла групу савецкіх ваеннаслужачых  абстраляла артылерыя."
+      },
+      {
+        "lang": "cs",
+        "heading": "Mainilský incident",
+        "text": "Mainilský incident z 26. listopadu 1939 byl operací Rudé armády provedenou pod falešnou vlajkou, během níž sovětské dělostřelectvo fingovaně napadlo sovětskou příhraniční vesnici Mainila. Incident se stal záminkou k sovětskému útoku na Finsko.",
+        "sentence": "Mainilský incident z 26. listopadu 1939 byl operací Rudé armády provedenou pod falešnou vlajkou, během níž sovětské dělostřelectvo fingovaně napadlo sovětskou příhraniční vesnici Mainila."
+      }
+    ]
+  },
+  {
+    "id": "Shelling of Mainila#nb-sh",
+    "label": "differ",
+    "kind": "framing",
+    "passages": [
+      {
+        "lang": "nb",
+        "heading": "Mainila-episoden",
+        "text": "Mainila-episoden (finsk: Mainilan laukaukset) var en hendelse som skjedde den 26. november  1939, hvor Den røde hær hadde beskutt landsbyen Mainila (nær Beloostrov) med artilleri, hvoretter de påsto at finsk artilleri hadde beskutt landsbyen. Angrepet var en falsk flagg-operasjon hvor målet var å gi sovjeterne et casus belli for å angripe Finland, og hendelsen ble brukt i sovjetisk propaganda imot Finland. Hendelsen førte til begynnelsen av vinterkrigen fire dager senere.",
+        "sentence": "Angrepet var en falsk flagg-operasjon hvor målet var å gi sovjeterne et casus belli for å angripe Finland, og hendelsen ble brukt i sovjetisk propaganda imot Finland."
+      },
+      {
+        "lang": "sh",
+        "heading": "Bombardiranje Mainile",
+        "text": "Bombardiranje Mainile (finski Mainilan laukaukset) je bio vojni incident 26. studenog 1939., u kojem je sovjetska Crvena armija bombardirala svoje vlastito selo, Mainila (blizu Beloostrova) te potom objavila da je za napad odgovorna Finska. Mnogi ovaj incident smatraju operacijom pod lažnom zastavom uz pomoć kojeg je Staljin stekao propagandu i casus belli radi pokretanja Zimskog rata četiri dana kasnije.",
+        "sentence": "Mnogi ovaj incident smatraju operacijom pod lažnom zastavom uz pomoć kojeg je Staljin stekao propagandu i casus belli radi pokretanja Zimskog rata četiri dana kasnije."
+      }
+    ]
+  },
+  {
+    "id": "Shelling of Mainila#be-tarask-en-ca",
+    "label": "differ",
+    "kind": "framing",
+    "outlier": "be-tarask",
+    "passages": [
+      {
+        "lang": "be-tarask",
+        "heading": "Прычыны інцыдэнту",
+        "text": "Фінская гістарыяграфія разглядае інцыдэнт як наўмысную правакацыю з боку СССР з мэтаю атрымаць нагоду пачаць вайну.\nАбвастрэньне абстаноўкі на граніцы і абстрэл савецкай тэрыторыі ў той час не адпавядалі інтарэсам Фінляндыі. Так, за тры месяцы да інцыдэнту прэм’ер Фінляндыі Айма Каяндэр на гледзінах фінскіх рэзэрвістаў абвясьціў:",
+        "sentence": "Фінская гістарыяграфія разглядае інцыдэнт як наўмысную правакацыю з боку СССР з мэтаю атрымаць нагоду пачаць вайну."
+      },
+      {
+        "lang": "en",
+        "heading": "The incident",
+        "text": "Materials in the private archives of Soviet party leader Andrei Zhdanov show that the incident was orchestrated to paint Finland as an aggressor and launch an offensive. The Finnish side denied responsibility for the attacks and identified Soviet artillery as their source—indeed, the war diaries of nearby Finnish artillery batteries show that Mainila was out of range of all of them, as they had been withdrawn to prevent such incidents.",
+        "sentence": "Materials in the private archives of Soviet party leader Andrei Zhdanov show that the incident was orchestrated to paint Finland as an aggressor and launch an offensive."
+      },
+      {
+        "lang": "ca",
+        "heading": "Incident de Mainila",
+        "text": "D'acord amb els arxius del líder comunista Andrei Jdànov, l'incident va ser planificat per a culpar Finlàndia i pretextar un casus belli. Els finlandesos van negar rotundament que ells haguessin disparat contra la vila, de fet, diaris de guerra trobats posteriorment revelen que els oficials finlandesos havien retirat la seva artilleria de la frontera, i que en realitat, Mainila havia quedat fora del seu abast, justament per tal de prevenir un atac accidental.",
+        "sentence": "D'acord amb els arxius del líder comunista Andrei Jdànov, l'incident va ser planificat per a culpar Finlàndia i pretextar un casus belli."
+      }
+    ]
+  },
+  {
+    "id": "Shelling of Mainila#de-fr",
+    "label": "agree",
+    "passages": [
+      {
+        "lang": "de",
+        "heading": "Mainila-Zwischenfall",
+        "text": "Der Mainila-Zwischenfall war ein von der Roten Armee unter falscher Flagge vorgetäuschter finnischer Überfall auf ein sowjetisches Dorf und der Casus Belli für den sowjetisch-finnischen Winterkrieg.\nAm 26. November 1939 beschoss die Artillerie der Roten Armee den sowjetischen Grenzort Mainila (russisch Майнило), wobei vier Soldaten auf sowjetischer Seite getötet worden sein sollen. Außerdem forderten sie den sofortigen Abzug der finnischen Truppen von der Grenze. Die Sowjetunion kündigte am 28. November den bestehenden Nichtangriffspakt von 1932, brach am 29. November 1939 die diplomatischen Beziehungen zu Finnland ab und erklärte Finnland einen Tag später den Krieg. Finnischen Untersuchungen zufolge soll jedoch die sowjetische Artillerie selbst die sieben Granaten auf die Ortschaft Mainila abgefeuert haben.",
+        "sentence": "Am 26. November 1939 beschoss die Artillerie der Roten Armee den sowjetischen Grenzort Mainila (russisch Майнило), wobei vier Soldaten auf sowjetischer Seite getötet worden sein sollen."
+      },
+      {
+        "lang": "fr",
+        "heading": "Incident de Mainila",
+        "text": "L’incident de Mainila (en finnois : Mainilan laukaukset) fut un incident militaire qui se déroula le 26 novembre 1939. Ce jour-là, l'Armée rouge bombarda le village russe de Mainila (ru) (situé près de Beloostrov), déclara que l’origine du bombardement venait de la Finlande, la frontière étant toute proche, et annonça des pertes humaines. Grâce à cette opération sous fausse bannière, l'Union soviétique gagna un grand élan de propagande et un casus belli pour le lancement de la guerre d'Hiver quatre jours plus tard.",
+        "sentence": "Ce jour-là, l'Armée rouge bombarda le village russe de Mainila (ru) (situé près de Beloostrov), déclara que l’origine du bombardement venait de la Finlande, la frontière étant toute proche, et annonça des pertes humaines."
+      }
+    ]
+  },
+  {
+    "id": "Shelling of Mainila#en-nb",
+    "label": "agree",
+    "passages": [
+      {
+        "lang": "en",
+        "heading": "Shelling of Mainila",
+        "text": "60°15′08″N 29°51′12″E﻿ / ﻿60.25222°N 29.85333°E\nThe Shelling of Mainila (Finnish: Mainilan laukaukset, Swedish: Skotten i Mainila), or the Mainila incident (Russian: Майнильский инцидент, romanized: Maynilskiy intsident), was a military incident on 26 November 1939 in which the Soviet Union's Red Army shelled the Soviet border village of Mainila (Russian: Майнило, romanized: Maynilo) near Beloostrov. The Soviet Union declared that the fire originated from Finland across the nearby border and claimed to have had losses in personnel. Through that false flag operation, the Soviet Union gained a great propaganda boost and a casus belli for launching the Winter War four days later.",
+        "sentence": "Through that false flag operation, the Soviet Union gained a great propaganda boost and a casus belli for launching the Winter War four days later."
+      },
+      {
+        "lang": "nb",
+        "heading": "Mainila-episoden",
+        "text": "Mainila-episoden (finsk: Mainilan laukaukset) var en hendelse som skjedde den 26. november  1939, hvor Den røde hær hadde beskutt landsbyen Mainila (nær Beloostrov) med artilleri, hvoretter de påsto at finsk artilleri hadde beskutt landsbyen. Angrepet var en falsk flagg-operasjon hvor målet var å gi sovjeterne et casus belli for å angripe Finland, og hendelsen ble brukt i sovjetisk propaganda imot Finland. Hendelsen førte til begynnelsen av vinterkrigen fire dager senere.",
+        "sentence": "Angrepet var en falsk flagg-operasjon hvor målet var å gi sovjeterne et casus belli for å angripe Finland, og hendelsen ble brukt i sovjetisk propaganda imot Finland."
+      }
+    ]
+  },
+  {
+    "id": "Shelling of Mainila#ru-en-et",
+    "label": "different",
+    "passages": [
+      {
+        "lang": "ru",
+        "heading": "Ход событий",
+        "text": "Ответ правительства Финляндии вызвал негативную реакцию в Москве, поскольку при обоюдном отводе войск советские части пришлось бы отвести к пригородам Ленинграда, что усилило бы угрозу его безопасности. Документ был расценён как «отражающий глубокую враждебность правительства Финляндии к Советскому Союзу и призванный довести до крайности кризис в отношениях между обеими странами». 28 ноября СССР в ответной ноте в одностороннем порядке объявил утратившим силу пакт о ненападении с Финляндией, заявив, что «считает себя свободным от обязательств, взятых на себя в силу пакта о ненападении, заключённого между СССР и Финляндией и систематически нарушаемого правительством Финляндии». Эта нота фактически означала разрыв советско-финляндских отношений. Советское правительство отзывало из Финляндии своих политических и хозяйственных представителей.",
+        "sentence": "Документ был расценён как «отражающий глубокую враждебность правительства Финляндии к Советскому Союзу и призванный довести до крайности кризис в отношениях между обеими странами». 28 ноября СССР в ответной ноте в одностороннем порядке объявил утратившим силу пакт о ненападении с Финляндией, заявив, что «считает себя свободным от обязательств, взятых на себя в силу пакта о ненападении, заключённого между СССР и Финляндией и систематически нарушаемого правительством Финляндии»."
+      },
+      {
+        "lang": "en",
+        "heading": "The incident",
+        "text": "Seven shots were fired, and three Finnish observation posts detected their fall. These witnesses estimated that the shells detonated approximately 800 meters (2,600 ft) inside Soviet territory. Finland proposed a neutral investigation of the incident, but the Soviet Union refused and broke diplomatic relations with Finland on November 29.",
+        "sentence": "Finland proposed a neutral investigation of the incident, but the Soviet Union refused and broke diplomatic relations with Finland on November 29."
+      },
+      {
+        "lang": "et",
+        "heading": "Intsident",
+        "text": "Välja tulistati seitse mürsku ja nende kukkumise tuvastasid kolm Soome vaatluspunkti. Nende tunnistajate hinnangul plahvatasid mürsud Nõukogude Liidu territooriumil umbes 800 meetri kaugusel piirist. 26. novembril kell 15.45 teatas Nõukogude Liidu uudisteagentuur TASS, et soomlased tulistasid Mainila küla ja et selle tulemusel hukkus neli ning sai haavata üheksa punaarmeelast. Nõukogude Liit nõudis seejärel Soomelt väeosade viimist piirist 25 kilomeetri kaugusele. Venemaa süüdistusi eitanud Soome pani ette korraldada intsidendi neutraalne uurimine, kuid Nõukogude Liit keeldus ja katkestas 29. novembril Soomega diplomaatilised suhted.",
+        "sentence": "Venemaa süüdistusi eitanud Soome pani ette korraldada intsidendi neutraalne uurimine, kuid Nõukogude Liit keeldus ja katkestas 29. novembril Soomega diplomaatilised suhted."
+      }
+    ]
   }
 ]

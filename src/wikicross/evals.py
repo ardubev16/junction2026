@@ -13,6 +13,8 @@ A case is one finding's first SHOWN quotes, each with its passage, and a label:
 - "differ": the quotes make one claim and differ about it: a real disagreement, to keep;
 - "agree": one claim, stated alike: to drop;
 - "different": claims about different things: to drop, and ideally not grouped at all.
+A "differ" case may name its `kind` (or a list of acceptable kinds, when it is honestly both), and a
+case its `outlier` edition.
 """
 
 import argparse
@@ -40,14 +42,16 @@ OVERLONG = 2.2  # an English quote this many times its original's length is a tr
 FLOORS = {
     "decide_accuracy": 0.9,
     "outlier_accuracy": 0.9,
+    "kind_accuracy": 0.8,
     "accuracy": 0.8,
     "highlighted": 0.85,
     "not_overlong": 0.9,
     "embeddings_accuracy": 0.6,
 }
-# The reference topics of the yield eval: a city (94 editions), a war (a long article in many editions)
-# and a company (127 editions); a topic keeping more than YIELD_DROP fewer findings than in YIELD fails.
-TOPICS = ("Kuopio", "Talvisota", "Google")
+# The reference topics of the yield eval: a city (94 editions), a war (a long article in many editions),
+# a company (127 editions) and a contested incident (bias and framing, 25 editions); a topic keeping more
+# than YIELD_DROP fewer findings than in YIELD fails.
+TOPICS = ("Kuopio", "Talvisota", "Google", "Shelling of Mainila")
 YIELD = CASES.with_name("yield.json")
 YIELD_DROP = 0.15
 
@@ -91,8 +95,8 @@ def schema() -> None:
 
 
 def decide_eval() -> int:
-    """The decision model's verdict on each case: a disagreement (kept) only for "differ"; and for a case
-    naming its `outlier` edition, whether the model names the same.
+    """The decision model's verdict on each case: a disagreement (kept) only for "differ"; for a case
+    naming its `kind` or `outlier` edition, whether the model names the same.
     """
     llm.READ_CACHE = False  # the model as it answers now
     schema()
@@ -100,12 +104,15 @@ def decide_eval() -> int:
     decisions, error = decide.decide(
         [[{"lang": p["lang"], "sentence": p["sentence"]} for p in c["passages"]] for c in cases], lambda *_: None
     )
-    correct, outliers = 0, []
+    correct, outliers, kinds = 0, [], []
     for case, d in zip(cases, decisions, strict=True):
         ok = d is not None and decide.kept(d) == (case["label"] == "differ")
         correct += ok
         if "outlier" in case:
             outliers.append(d is not None and d["outlier"] == case["outlier"])
+        if "kind" in case:
+            wanted = case["kind"] if isinstance(case["kind"], list) else [case["kind"]]
+            kinds.append(d is not None and d["kind"] in wanted)
         verdict = (
             f"{d['kind']:<8} P(disagreement) {d['real']:.2f}  strength {d['strength']:.2f}  outlier {d['outlier']}"
             if d
@@ -117,6 +124,8 @@ def decide_eval() -> int:
     result = {"decide_accuracy": correct / len(cases)}  # an error counts as wrong
     if outliers:
         result["outlier_accuracy"] = sum(outliers) / len(outliers)
+    if kinds:
+        result["kind_accuracy"] = sum(kinds) / len(kinds)
     return report(result)
 
 
