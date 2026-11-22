@@ -425,6 +425,7 @@ def diff(
         found = data.pop("differences")
         card_order(found, focus)
         found, data["unchecked"] = judge(found, progress)
+        found = merge_shared(found)
         card_order(found, focus)  # the model's outlier, among the first SHOWN, next after the focus edition
         data["kinds"] = {k: sum(f["kind"] == k for f in found) for k in KINDS}
         wanted = set(kinds.split(",")) if kinds else None
@@ -469,7 +470,8 @@ def narrow(found: list[dict], kept: set[str]) -> list[dict]:
     """The findings among the editions in `kept`, from those computed over every edition, without
     recomputing them. Each finding keeps the sentences of those editions, and its deviations are redone
     from the stored ones: d_i = z_i - mean(z_j, j != i) gives z_i = d_i (n-1)/n up to a shift, which
-    cancels. A finding whose furthest edition is now under FRAMING_MIN_Z, or with one edition left, goes.
+    cancels. A finding whose furthest edition is now under FRAMING_MIN_Z (unless it still holds
+    compare.BIG_GROUP editions, as in differences()), or with one edition left, goes.
     shortcut: the axis stays the one chosen over every edition, and a group linked only through a
     left-out edition stays one finding; run differences() on `kept` instead if that matters.
     """
@@ -482,7 +484,7 @@ def narrow(found: list[dict], kept: set[str]) -> list[dict]:
             continue
         deviations = {lang: zl - fmean(v for other, v in z.items() if other != lang) for lang, zl in z.items()}
         lang = max(deviations, key=lambda k: abs(deviations[k]))
-        if abs(deviations[lang]) < compare.FRAMING_MIN_Z:
+        if abs(deviations[lang]) < compare.FRAMING_MIN_Z and len(members) < compare.BIG_GROUP:
             continue
         out.append(
             {
@@ -621,6 +623,47 @@ def rank(f: dict) -> float:
     """
     d = f["decision"]
     return d["real"] * (1 + d["strength"]) if d else -1
+
+
+def place_of(m: dict) -> tuple:
+    return (m["lang"], m["page_id"], m["seq"], m["n"])
+
+
+def merge_shared(found: list[dict]) -> list[dict]:
+    """Judged findings of two quotes that share one sentence and a kind, as one card around it: that
+    sentence, the outlier, then per language the partner of the strongest of them. A sentence matched by
+    many editions' sentences that belong to another group comes out as one pair each (Mainila: one
+    Belarusian sentence, 7 cards). Merged after judging: merged before, a group judged on three of its
+    quotes lost the pairs that were real (docs/experiments/2026-11-bias-framing.md).
+    """
+    shared: dict = defaultdict(list)  # (sentence, kind) -> the pairs holding it
+    for f in found:
+        if f["decision"] and len(f["members"]) == MIN_EDITIONS:
+            for m in f["members"]:
+                shared[place_of(m), f["kind"]].append(f)
+    used: set[int] = set()
+    merged: dict[int, dict] = {}  # id of the strongest pair -> the card that replaces it
+    for (place, _), holding in sorted(shared.items(), key=lambda kv: -len(kv[1])):
+        pairs = sorted((f for f in holding if id(f) not in used), key=lambda f: -rank(f))
+        if len(pairs) < MIN_EDITIONS:
+            continue
+        hub = next(m for m in pairs[0]["members"] if place_of(m) == place)
+        partners: dict = {}
+        for f in pairs:
+            other = next(m for m in f["members"] if place_of(m) != place)
+            if other["lang"] != hub["lang"]:
+                partners.setdefault(other["lang"], other)
+            used.add(id(f))
+        best = pairs[0]
+        merged[id(best)] = {
+            **best,
+            "members": [hub, *partners.values()],
+            "lang": hub["lang"],
+            "outlier": True,
+            "distance": max(f["distance"] for f in pairs),
+            "decision": {**best["decision"], "outlier": hub["lang"]},
+        }
+    return [merged.get(id(f), f) for f in found if id(f) not in used or id(f) in merged]
 
 
 @app.get("/api/context")

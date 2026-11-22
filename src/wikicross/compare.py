@@ -39,6 +39,7 @@ FRAMING_MIN_Z = 1.2  # how many standard deviations apart two sentences must sit
 MIN_STATS_SENTENCES = 200  # fewer sentences in a language: use all languages' pooled mean and spread
 MIN_EDITIONS = 2  # a comparison needs two editions
 MIN_OUTLIER = 3  # with this many editions or more, the furthest is the outlier
+BIG_GROUP = 8  # a statement this many editions make is a candidate whatever its tone
 CONSENSUS_MAX = PASSAGE_MAX  # a sentence this close to a finding may state its subject; the LLM tells if it does
 CONSENSUS_EDITIONS = 40  # other editions asked about a finding at most, the closest: one LLM call
 
@@ -276,7 +277,8 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     closest first, and only when the two groups have no language in common, so a chain that would
     reach a second sentence of one language stops there instead of breaking the group up. A pair
     left between two groups is kept as a group of its own, after the groups: its two sentences
-    still match.
+    still match. Merging such pairs around a shared sentence before judging lost findings
+    (docs/experiments/2026-11-bias-framing.md); app.merge_shared() merges them after.
     """
     parent: dict = {}
     langs: dict = {}  # group root -> its languages
@@ -306,6 +308,28 @@ def groups(edges: list[tuple], max_dist: float) -> list[tuple[list, float]]:
     return [
         (sorted(members, key=lambda item: lang_order(item[0])), dist) for members, dist in inside.values()
     ] + between
+
+
+def spread(ids: list[tuple], distance: dict[frozenset, float]) -> list[tuple]:
+    """A group's items, most different first: the farthest matched pair, then each next item the one
+    farthest from those chosen (by its matched pairs with them), the rest in their order. The first
+    SHOWN are what a card shows and the decision model judges: in a 24-edition group, language order
+    showed three that agreed.
+    """
+    known = [(d, sorted(p, key=ids.index)) for p, d in distance.items() if p <= set(ids)]
+    if not known:
+        return ids
+    chosen = max(known)[1]
+    while len(chosen) < len(ids):
+        gaps = {
+            i: min(ds)
+            for i in ids
+            if i not in chosen and (ds := [distance[p] for c in chosen if (p := frozenset((i, c))) in distance])
+        }
+        if not gaps:
+            break
+        chosen.append(max(gaps, key=lambda i: (gaps[i], -ids.index(i))))
+    return chosen + [i for i in ids if i not in chosen]
 
 
 def differences(
@@ -355,6 +379,7 @@ def differences(
     def member(i: tuple) -> dict:  # a sentence (lang, page_id, seq, n)
         return {**passages[i[:3]], "n": i[3], "sentence": sentence[i][0]}
 
+    distance = {frozenset((a, b)): d for a, b, d in edges}
     framing: list[dict] = []
     for ids, dist in groups(edges, FRAMING_MAX):
         best: dict | None = None
@@ -363,7 +388,7 @@ def differences(
             # how far each edition sits from the others' average: with two, just their difference
             deviations = {lang: zl - fmean(v for other, v in z.items() if other != lang) for lang, zl in z.items()}
             for lang, deviation in deviations.items():
-                if abs(deviation) >= FRAMING_MIN_Z and (not best or abs(deviation) > abs(best["deviation"])):
+                if not best or abs(deviation) > abs(best["deviation"]):
                     best = {
                         "axis": name,
                         "ends": ends,
@@ -371,14 +396,16 @@ def differences(
                         "deviation": deviation,
                         "deviations": {other: round(d, 2) for other, d in deviations.items()},
                     }
-        if best:
+        # A statement many editions make is a core one: a candidate whatever its tone, which averaging
+        # over many editions flattens (Mainila's lead, 24 editions: at most 1.12σ).
+        if best and (abs(best["deviation"]) >= FRAMING_MIN_Z or len(ids) >= BIG_GROUP):
             framing.append(
                 {
                     "kind": "framing",
                     "distance": dist,
                     **best,
                     "outlier": len(ids) >= MIN_OUTLIER,
-                    "members": [member(i) for i in ids],
+                    "members": [member(i) for i in spread(ids, distance)],
                 }
             )
     framing.sort(key=lambda f: -abs(f["deviation"]))
