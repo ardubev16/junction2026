@@ -21,7 +21,7 @@
       </li>
       <li>
         A group becomes a candidate when one edition sits apart from the others on a tone axis (how positive, how
-        certain, how loaded its wording is).
+        certain, how loaded its wording is), or when eight editions or more state it.
       </li>
       <li>
         A decision model reads every candidate's quotes and judges whether they really disagree, how, and how much.
@@ -30,14 +30,43 @@
       <li>When a finding is shown, an AI writes its title and summary and translates its quotes into English.</li>
     </ol>
 
+    <h2 id="kinds">Kinds of difference</h2>
+    <p>
+      The decision model sorts every candidate into one of these, reading only its quotes. A difference is always about
+      one same specific thing: one event, one figure, one claim.
+    </p>
+    <dl>
+      <dt>Factual disagreement</dt>
+      <dd>
+        The quotes state facts that cannot all be true: numbers, dates, names, places, outcomes, causes, who did what.
+        For example, one edition gives Kuopio 121,557 inhabitants and another 90,000.
+      </dd>
+      <dt>Bias</dt>
+      <dd>
+        One quote is clearly more favourable or critical than another, or uses loaded, emotive words where another is
+        neutral. For example, the Finnish edition calls Urho Kekkonen's 1978 election a triumph, the Swedish one merely
+        a political spectacle.
+      </dd>
+      <dt>Framing</dt>
+      <dd>
+        The same facts, presented differently: settled in one edition, disputed or attributed to someone in another. For
+        example, the Czech edition states that the shelling of Mainila was a false-flag operation by the Red Army; the
+        Belarusian one reports only what Soviet officials claimed.
+      </dd>
+      <dt>Not a difference</dt>
+      <dd>
+        The quotes state different things, even about the same place, event or company (the number of employees in one,
+        of data centres in another); one only adds detail; or they agree. These are never shown.
+      </dd>
+    </dl>
+
     <h2 id="numbers">The numbers behind a finding</h2>
     <dl>
       <dt>Decision model</dt>
       <dd>
-        The kind of disagreement: <b>factual</b> (statements that cannot all be true), <b>bias</b> (one edition clearly
-        more favourable or critical, or loaded wording), or <b>framing</b> (the same facts, presented as more or less
-        certain). Then how likely the quotes are to disagree at all, and how much a reader would care: minor, notable or
-        major, on a scale from 0 to 2. Findings are listed by likelihood times strength.
+        The <a href="#kinds">kind of difference</a>. Then how likely the quotes are to disagree at all, and how much a
+        reader would care: minor, notable or major, on a scale from 0 to 2. Findings are listed by likelihood times
+        strength.
       </dd>
       <dt>Stands apart</dt>
       <dd>With three editions or more, the one whose quote differs from the others, if one does.</dd>

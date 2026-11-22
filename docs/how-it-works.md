@@ -184,17 +184,30 @@ and spread: $z_\ell = (p - \mu_\ell) / \sigma_\ell$. In a group, each edition's 
 $$\Delta_\ell = z_\ell - \frac{1}{|G|-1}\sum_{k \in G,\,k \neq \ell} z_k$$
 
 With two editions this is just their difference. The largest $|\Delta|$ over editions and axes is
-reported when it is at least 1.2σ; with three or more editions, that edition is the outlier.
+reported when it is at least 1.2σ; with three or more editions, that edition is the outlier. A group of
+eight editions or more is a candidate whatever its deviation: averaged over that many, one edition
+rarely stands 1.2σ apart, and those groups are a topic's central statements. Its members are ordered
+most-different-first (`compare.spread()`), so that the decision model's three quotes differ.
 
 ### 5. Judging the candidates (`decide.py`)
 
 Every candidate's first three quotes go to a decision model (OpenRouter's Decisions API,
-`perplexity/pplx-decider-v1.3`) with two typed questions: its **kind** (factual, bias, framing, or none)
-and its **strength** (minor, notable, major), answered as calibrated probabilities, not text. "None" is
-dropped; the rest are ordered by P(disagreement) × (1 + strength). Ten candidates go in one request,
-eight requests at a time: Google's 1,528 candidates take 10 s on a first load, then come from
-`llm_cache`. On the 18 labelled findings (`python -m wikicross.evals decide`) it is right on all 18;
-the LLM's own verdict, before, on 82%.
+`perplexity/pplx-decider-v1.3`) with typed questions: its **kind**, its **strength** (minor, notable,
+major), and with three quotes or more, which edition stands apart, answered as calibrated
+probabilities, not text. The kinds (`decide.CRITERIA`, also on the About page):
+
+- **factual**: facts about one same thing that cannot all be true (numbers, dates, names, places,
+  outcomes, causes, who did what);
+- **bias**: about one same thing, one quote clearly more favourable or critical, or loaded, emotive
+  words where another is neutral;
+- **framing**: the same facts presented differently: settled in one, disputed or attributed in another;
+- **none**: different things (even about the same place or company), one only adding detail, or agreeing.
+
+"None" is dropped; the rest are ordered by P(disagreement) × (1 + strength). Ten candidates go in one
+request, eight requests at a time: Google's 1,528 candidates take 10 s on a first load, then come from
+`llm_cache`. On the 27 labelled findings (`python -m wikicross.evals decide`) it is right on 25, with
+the kind right on every case that names one (Shelling of Mainila's bias and framing); the LLM's own
+verdict, before, on 82% of the first 18.
 
 #### Is detection tuned right? (November 2026)
 
