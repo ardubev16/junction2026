@@ -1,4 +1,4 @@
-from wikicross.app import sentences
+from wikicross.compare import sentences
 
 
 def test_sentences_split_on_full_stops_but_not_finnish_dates_or_abbreviations():
@@ -40,4 +40,19 @@ def test_sentences_split_before_cyrillic_capitals_and_guillemets():
         "Кекконен родился в 1900 году в Пиелавеси.",
         "«Ночные заморозки» начались в 1958 году.",
         "Это было давно, но до сих пор важно для Финляндии.",
+    ]
+
+
+def test_sentences_do_not_break_inside_brackets():
+    # The Ukrainian lead lost its claim ("a Soviet provocation") at "(фін." before.
+    part = (
+        "Майнільський інцидент (рос. Майнильский инцидент), або Обстріл Майніли (фін. Mainilan laukaukset, "
+        "швед. Skotten i Mainila) — радянська провокація. Фінський уряд заперечив факт обстрілу."
+    )
+    assert sentences(part) == [
+        (
+            "Майнільський інцидент (рос. Майнильский инцидент), або Обстріл Майніли (фін. Mainilan laukaukset, "
+            "швед. Skotten i Mainila) — радянська провокація."
+        ),
+        "Фінський уряд заперечив факт обстрілу.",
     ]

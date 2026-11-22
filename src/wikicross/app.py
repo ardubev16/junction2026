@@ -25,7 +25,7 @@ from opentelemetry import trace
 from pydantic import BaseModel, Field
 
 from . import compare, decide, embed_gpu, translator, wiki
-from .compare import MIN_EDITIONS, MIN_OUTLIER, differences, nearest_elsewhere
+from .compare import MIN_EDITIONS, MIN_OUTLIER, differences, nearest_elsewhere, sentences
 from .config import settings
 from .db import SCHEMA, connect, widen_lang
 from .embeddings import embed
@@ -172,71 +172,45 @@ def ensure_chunks(cur: pymysql.cursors.Cursor, articles: list[tuple[str, int, st
     conn.commit()
 
 
-# A sentence ends at . ! ? followed by an uppercase letter of any alphabet, a quote or a bracket. Not
-# before a digit or a lowercase letter: "(k. 1985)", "3. syyskuuta", "z. B. der" stay whole; a sentence
-# starting with a year joins the one before, which is harmless.
-SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=\S)")
-OPENERS = '"“”«„('
-MIN_SENTENCE = 30  # shorter pieces ("Ks. myös.") join a neighbour in the same line
-
-
-def sentences(part: str) -> list[str]:
-    """A part's sentences; table rows and list items count as one sentence each."""
-    out: list[str] = []
-    for raw in part.splitlines():
-        line = raw.strip()
-        if not line or (line.startswith("|") and set(line) <= set("|-: ")):
-            continue  # blank, or a table separator row
-        if line.startswith(("|", "- ")):
-            out.append(line)
-            continue
-        mine, buf = [], ""
-        pieces, start = [], 0
-        for m in SENTENCE_BREAK.finditer(line):
-            if line[m.end()] in OPENERS or line[m.end()].isupper():
-                pieces.append(line[start : m.start()].strip())
-                start = m.end()
-        pieces.append(line[start:].strip())
-        for piece in pieces:
-            buf = f"{buf} {piece}".strip()
-            if len(buf) >= MIN_SENTENCE:
-                mine.append(buf)
-                buf = ""
-        if buf and mine:
-            mine[-1] += " " + buf
-        elif buf:
-            mine.append(buf)
-        out += mine
-    return out
-
-
 def ensure_sentences(cur: pymysql.cursors.Cursor, pages: list[tuple[str, int]]) -> None:
-    """Embed the sentences of the pages' parts (parts must exist) that have none yet: one embed() call."""
+    """Store the sentences of the pages' parts (parts must exist) as compare.sentences() splits them
+    today: a page split otherwise before (none yet, or an older splitter) is stored again. Sentences whose
+    text is unchanged keep their vector; the rest are embedded in one embed() call.
+    """
     if not pages:
         return
+    keys = [v for k in pages for v in k]
     cur.execute(
-        f"SELECT DISTINCT lang, page_id FROM sentence WHERE (lang, page_id) IN ({_in(pages)})",
-        [v for k in pages for v in k],
-    )
-    missing = sorted(set(map(tuple, pages)) - set(cur.fetchall()))
-    if not missing:
-        return
-    cur.execute(
-        f"SELECT lang, page_id, seq, text FROM chunk WHERE (lang, page_id) IN ({_in(missing)}) "
+        f"SELECT lang, page_id, seq, text FROM chunk WHERE (lang, page_id) IN ({_in(pages)}) "
         "ORDER BY lang, page_id, seq",
-        [v for k in missing for v in k],
+        keys,
     )
-    rows = [
-        (lang, page_id, seq, n, s) for lang, page_id, seq, text in cur.fetchall() for n, s in enumerate(sentences(text))
-    ]
-    if not rows:
+    want: dict[tuple, list] = defaultdict(list)
+    for lang, page_id, seq, text in cur.fetchall():
+        want[lang, page_id] += [(seq, n, s) for n, s in enumerate(sentences(text))]
+    cur.execute(
+        f"SELECT lang, page_id, seq, n, text FROM sentence WHERE (lang, page_id) IN ({_in(pages)}) "
+        "ORDER BY lang, page_id, seq, n",
+        keys,
+    )
+    have: dict[tuple, list] = defaultdict(list)
+    for lang, page_id, seq, n, text in cur.fetchall():
+        have[lang, page_id].append((seq, n, text))
+    stale = [p for p in want if want[p] != have.get(p, [])]
+    if not stale:
         return
-    vectors = embed([s for *_, s in rows])
+    cur.execute(
+        f"SELECT text, embedding FROM sentence WHERE (lang, page_id) IN ({_in(stale)})", [v for k in stale for v in k]
+    )
+    known = dict(cur.fetchall())
+    rows = [(*p, seq, n, s) for p in stale for seq, n, s in want[p]]
+    todo = sorted({s for *_, s in rows if s not in known})
+    known |= dict(zip(todo, embed(todo), strict=True))
     conn = cast("pymysql.connections.Connection", cur.connection)  # None only once the cursor is closed
-    conn.begin()
+    conn.begin()  # a page's sentences are replaced whole or not at all
+    cur.execute(f"DELETE FROM sentence WHERE (lang, page_id) IN ({_in(stale)})", [v for k in stale for v in k])
     cur.executemany(
-        "INSERT IGNORE INTO sentence VALUES (%s, %s, %s, %s, %s, %s)",
-        [(*row, v) for row, v in zip(rows, vectors, strict=True)],
+        "INSERT IGNORE INTO sentence VALUES (%s, %s, %s, %s, %s, %s)", [(*row, known[row[-1]]) for row in rows]
     )
     conn.commit()
 

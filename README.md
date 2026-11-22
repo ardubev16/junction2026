@@ -65,7 +65,7 @@ comparison code or model changes; to force it, delete the topic's `diff_cache` r
 | `prek install` | run the checks below on every commit (once per clone; [prek](https://github.com/j178/prek), or `uvx prek install`) |
 | `make check` | the pre-commit hooks on all files (format, lint, types: Python, TypeScript/Vue, Markdown, TOML, Dockerfile, Caddyfile; fixing what they can) and pytest: must pass |
 | `make eval` | the decision model's verdicts, the AI's explanations and bge-m3's distances on the labelled findings in `evals/`, with floors (`src/wikicross/evals.py`); `python -m wikicross.evals add TITLE LANG INDEX LABEL` labels one more |
-| `python -m wikicross.evals yield [--update]` | detection's yield (candidates, findings confirmed) on Kuopio, Talvisota and Google against a per-database baseline: `--update` on main's code, then run the change; see [how it works](docs/how-it-works.md#is-detection-tuned-right-november-2026) |
+| `python -m wikicross.evals yield [--update]` | detection's yield (candidates, findings confirmed) on the reference topics (`evals.TOPICS`: Kuopio, Talvisota, Google and three contested ones) against a per-database baseline, and the findings each must show (`evals.EXPECTED`, e.g. Mainila's bias): `--update` on main's code, then run the change; see [how it works](docs/how-it-works.md#is-detection-tuned-right-november-2026) |
 | `make profile TITLE=Joensuu EDITION=fi [NAME=…] [PROFILE_ARGS=--fresh]` | VizTracer profile of a topic's first load, into `profiles/NAME.json` |
 | `make profile-view NAME=…` | open a profile (without NAME: list them) |
 

@@ -124,9 +124,12 @@ sequenceDiagram
 - **Passages** (`split()` in `app.py`): consecutive lines merged until ≥300 characters, never across a
   heading. Sections of sources and links (*Lähteet*, *Källor*, *References*…) and "Main article:"
   lines are skipped: they always differ and say nothing.
-- **Sentences** (`sentences()`): split at `.!?` followed by a capital letter, quote or bracket; not
-  before a digit, so Finnish "3. syyskuuta" and "(k. 1985)" stay whole. Pieces under 30 characters
-  join a neighbour in the same line. Table rows and list items are one sentence each.
+- **Sentences** (`compare.sentences()`): split at `.!?` followed by a capital letter, quote or bracket;
+  not before a digit, so Finnish "3. syyskuuta" and "(k. 1985)" stay whole, and not inside brackets,
+  where leads give names: "(фін. Mainilan laukaukset)". Pieces under 30 characters join a neighbour in
+  the same line. Table rows and list items are one sentence each. A page whose stored sentences differ
+  from today's split is split again (`ensure_sentences()`), keeping the vectors of unchanged sentences;
+  the splitter is in `compare.py`, so changing it also invalidates the cached findings.
 
 ### 2. Matching
 
@@ -244,9 +247,11 @@ deviation gate: 26,303 candidates), and every candidate judged:
 
 Thresholds stay as they are; the number prefilter is the candidate change worth making, with a share
 of the budget kept for tone candidates. Any such change is checked by the yield eval:
-`python -m wikicross.evals yield` counts candidates and confirmed findings on the three topics and fails
-if a topic keeps over 15% fewer than its baseline (`yield --update` on main's code first, as the
-on-demand CI job does: counts depend on the database's corpus). Narrowing `FRAMING_MAX` to 0.30, for
+`python -m wikicross.evals yield` counts candidates and confirmed findings on the reference topics, as
+the page shows them (dialects hidden), and fails if a topic keeps over 15% fewer than its baseline, or
+misses a finding it must show (`evals.EXPECTED`: a bias finding on Mainila, Crimea and Bandera). The
+baseline comes first, `yield --update` on main's code, as the on-demand CI job does: counts depend on
+the database's corpus. Narrowing `FRAMING_MAX` to 0.30, for
 example, keeps 20 of 60 (Kuopio), 107 of 248, 87 of 160: all three fail.
 
 ### 6. Worked example (real output)
@@ -369,11 +374,11 @@ flowchart LR
 
 Articles are edited all the time; the stored vectors describe the text they were made from.
 
-**Today nothing detects a change.** `ensure_chunks()` and `ensure_sentences()` only check whether an
-article has rows at all, and `wiki.py` fetches a topic's editions once (`topic_editions`) and keeps no
-revision: findings may quote text that has changed since. To refresh a topic until the steps below
-exist: delete its `topic_editions` row, its `article` rows and their `chunk` /
-`sentence` rows; the next request fetches it again.
+**Today nothing detects a change.** `ensure_chunks()` only checks whether an article has rows at
+all (`ensure_sentences()` re-splits a page only when the splitter changes), and `wiki.py` fetches a
+topic's editions once (`topic_editions`) and keeps no revision: findings may quote text that has
+changed since. To refresh a topic until the steps below exist: delete its `topic_editions` row, its
+`article` rows and their `chunk` / `sentence` rows; the next request fetches it again.
 
 **What goes stale when one edition of a topic changes:**
 

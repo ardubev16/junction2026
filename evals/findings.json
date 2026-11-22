@@ -533,5 +533,68 @@
         "sentence": "Venemaa süüdistusi eitanud Soome pani ette korraldada intsidendi neutraalne uurimine, kuid Nõukogude Liit keeldus ja katkestas 29. novembril Soomega diplomaatilised suhted."
       }
     ]
+  },
+  {
+    "id": "Shelling of Mainila#36",
+    "label": "differ",
+    "kind": "bias",
+    "passages": [
+      {
+        "lang": "fi",
+        "heading": "Mainilan laukaukset",
+        "text": "Mainilan laukaukset oli Mainilan kylässä tapahtunut, Neuvostoliiton lavastama välikohtaus, joka johti Suomen ja Neuvostoliiton välisen hyökkäämättömyyssopimuksen yksipuoliseen purkamiseen. Neljä päivää myöhemmin alkoi Suomen ja Neuvostoliiton välinen talvisota Neuvostoliiton hyökätessä Suomeen.\nNeuvostoliiton mukaan 26. marraskuuta 1939 sen alueella sijaitsevassa Mainilan rajakylässä Valkeasaaressa oli kuollut neljä harjoituksissa ollutta rajajoukkojen sotilasta Suomen puolelta tulleeseen tykki- ja heitintuleen. Suomi tarjoutui selvittämään tapausta yhteistyössä Neuvostoliiton kanssa. Neuvostoliitto kuitenkin sanoi irti voimassa olleen hyökkäämättömyyssopimuksen.",
+        "sentence": "Mainilan laukaukset oli Mainilan kylässä tapahtunut, Neuvostoliiton lavastama välikohtaus, joka johti Suomen ja Neuvostoliiton välisen hyökkäämättömyyssopimuksen yksipuoliseen purkamiseen."
+      },
+      {
+        "lang": "uk",
+        "heading": "Майнільський інцидент",
+        "text": "Майнільський інцидент (рос. Майнильский инцидент), або Обстріл Майніли (фін. Mainilan laukaukset, швед. Skotten i Mainila) — радянська провокація, що була використана керівництвом СРСР, як формальний привід для початку радянсько-фінської війни 1939 року.",
+        "sentence": "Майнільський інцидент (рос. Майнильский инцидент), або Обстріл Майніли (фін. Mainilan laukaukset, швед. Skotten i Mainila) — радянська провокація, що була використана керівництвом СРСР, як формальний привід для початку радянсько-фінської війни 1939 року."
+      },
+      {
+        "lang": "da",
+        "heading": "Beskydningen ved Mainila",
+        "text": "Beskydningen ved Mainila (fi: Mainilan laukaukset) var en militær episode, som fandt sted den 26. november 1939, hvorunder den sovjetiske Røde Hær indledte en artilleribeskydning af den russiske landsby Mainila, der ligger i nærheden af Beloostrov. Sovjet hævdede at beskydningen stammede fra Finland på den anden side af den nærliggende grænse og hævdede at have lidt tab i menneskeliv. På den måde fik man en propagandasejr og en casus belli som blev indledningen på Vinterkrigen fire dage senere.",
+        "sentence": "Beskydningen ved Mainila (fi: Mainilan laukaukset) var en militær episode, som fandt sted den 26. november 1939, hvorunder den sovjetiske Røde Hær indledte en artilleribeskydning af den russiske landsby Mainila, der ligger i nærheden af Beloostrov."
+      }
+    ]
+  },
+  {
+    "id": "Annexation of Crimea by the Russian Federation#394",
+    "label": "differ",
+    "kind": "bias",
+    "passages": [
+      {
+        "lang": "be",
+        "heading": "Анексія Крыма Расіяй",
+        "text": "Анексія Крыма Расіяй — супрацьпраўнае адрыньванне большай часткі часова акупаванага Крымскага паўвострава, размешчанага ў межах украінскіх адміністрацыйных адзінак — Аўтаномнай Рэспублікі Крым і Севастопаля, ад Украіны і аднабаковае незаконнае ўключэнне іх у склад Расійскай Федэрацыі на правах суб'ектаў федэрацыі — Рэспублікі Крым і горада федэральнага значэння Севастопаль, абвешчаны Расійскай Федэрацыяй 18 сакавіка 2014 года (нібыта ў выніку так званага «рэферэндуму аб статусе Крыма» 16 сакавіка 2014 года).",
+        "sentence": "Анексія Крыма Расіяй — супрацьпраўнае адрыньванне большай часткі часова акупаванага Крымскага паўвострава, размешчанага ў межах украінскіх адміністрацыйных адзінак — Аўтаномнай Рэспублікі Крым і Севастопаля, ад Украіны і аднабаковае незаконнае ўключэнне іх у склад Расійскай Федэрацыі на правах суб'ектаў федэрацыі — Рэспублікі Крым і горада федэральнага значэння Севастопаль, абвешчаны Расійскай Федэрацыяй 18 сакавіка 2014 года (нібыта ў выніку так званага «рэферэндуму аб статусе Крыма» 16 сакавіка 2014 года)."
+      },
+      {
+        "lang": "fr",
+        "heading": "Annexion de la Crimée par la Russie en 2014",
+        "text": "Le 18 mars 2014, à la suite d'un référendum tenu le 16 mars, le gouvernement russe annonce que la république de Crimée (correspondant à l'ancienne république autonome de Crimée) et la ville de Sébastopol, anciennement ukrainiennes, deviennent deux nouveaux sujets de la fédération de Russie et le gouvernement ukrainien commence alors à retirer ses troupes de Crimée. Début avril, une insurrection armée séparatiste soutenue par la Russie émerge dans l'est du pays. Commence alors la guerre du Donbass.",
+        "sentence": "Le 18 mars 2014, à la suite d'un référendum tenu le 16 mars, le gouvernement russe annonce que la république de Crimée (correspondant à l'ancienne république autonome de Crimée) et la ville de Sébastopol, anciennement ukrainiennes, deviennent deux nouveaux sujets de la fédération de Russie et le gouvernement ukrainien commence alors à retirer ses troupes de Crimée."
+      }
+    ]
+  },
+  {
+    "id": "Stepan Bandera#4",
+    "label": "differ",
+    "kind": ["bias", "framing"],
+    "passages": [
+      {
+        "lang": "az",
+        "heading": "Həyatı",
+        "text": "Bütün həyatını Ukraynanın müstəqilliyi uğrunda mübarizəyə sərf edən milliyyətçi Stepan Bandera bu gün Ukrayna milli qəhrəmanıdır.",
+        "sentence": "Bütün həyatını Ukraynanın müstəqilliyi uğrunda mübarizəyə sərf edən milliyyətçi Stepan Bandera bu gün Ukrayna milli qəhrəmanıdır."
+      },
+      {
+        "lang": "fr",
+        "heading": "Postérité",
+        "text": "Stepan Bandera est une figure controversée en Ukraine, certains le considérant, dans sa région natale, comme un héros national, d'autres comme un collaborateur des nazis. L'assassinat de Bandera par l'URSS confère à ce dernier un statut de martyr de l'indépendance côté ukrainien, tandis que les Soviétiques appellent indistinctement les nationalistes ukrainiens des « banderovtsi ».",
+        "sentence": "Stepan Bandera est une figure controversée en Ukraine, certains le considérant, dans sa région natale, comme un héros national, d'autres comme un collaborateur des nazis."
+      }
+    ]
   }
 ]

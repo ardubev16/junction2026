@@ -9,6 +9,7 @@ pending), **planned** (not run yet).
 
 | Date | Experiment | Result | Status |
 |---|---|---|---|
+| 2026-11-23 | [Why Mainila showed no bias](2026-11-bias-shown.md) | The splitter broke sentences inside brackets ("(фін. Mainilan…"): the Ukrainian lead's "a Soviet provocation" was never compared (0.5% of sentences, mostly leads). Fixed: Mainila's lead is judged bias; judging big groups' members against their centre did not help | adopted |
 | 2026-11-22 | [Questions as keys (idea 4)](2026-11-matching-ideas.md) | Separates same-claim from different-claim pairs (AUC 0.77 vs 0.63 for bge-m3 sentences; Trento at 0.53, every real case ≤ 0.29); no help ranking candidates | open: next as a gate on kept findings |
 | 2026-11-22 | [Value-masked matching (idea 1)](2026-11-matching-ideas.md) | Worse than nothing (AUC 0.39 ranking) | rejected |
 | 2026-11-22 | [Instruction embeddings, Qwen3-0.6B (idea 2)](2026-11-matching-ideas.md) | Ranking AUC 0.57 (bge-m3 0.50), claims apart 0.45 (bge-m3 0.63); the number rule beats both | rejected for now |
@@ -29,8 +30,9 @@ pending), **planned** (not run yet).
 
 ## Running now
 
-Nothing. Last run: the yield eval after big groups and spread order, on four topics: 60 / 253 / 171 / 17
-kept, all up ([bias and framing](2026-11-bias-framing.md)).
+Nothing. Last run: the yield eval with the bracket-aware splitter, dialects hidden, on six topics; A/B
+against the old splitter: 34 / 235 / 120 / 18 kept vs 34 / 241 / 119 / 17, Mainila's bias 0 → 1
+([why Mainila showed no bias](2026-11-bias-shown.md)).
 
 ## Planned
 

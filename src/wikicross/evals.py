@@ -49,9 +49,24 @@ FLOORS = {
     "embeddings_accuracy": 0.6,
 }
 # The reference topics of the yield eval: a city (94 editions), a war (a long article in many editions),
-# a company (127 editions) and a contested incident (bias and framing, 25 editions); a topic keeping more
-# than YIELD_DROP fewer findings than in YIELD fails.
-TOPICS = ("Kuopio", "Talvisota", "Google", "Shelling of Mainila")
+# a company (127 editions), then contested ones, for bias; a topic keeping more than YIELD_DROP fewer
+# findings than in YIELD fails.
+TOPICS = (
+    "Kuopio",
+    "Talvisota",
+    "Google",
+    "Shelling of Mainila",
+    "Annexation of Crimea by the Russian Federation",
+    "Stepan Bandera",
+)
+# Findings detection must show, whatever the baseline: per topic, (kind, editions all among the quotes the
+# decision model judged in one finding of that kind; none: any). A missing one fails the yield eval. The
+# model's kind for one finding can change with the others in its request (Bandera's az/fr: bias or framing).
+EXPECTED: dict[str, list[tuple[str, set[str]]]] = {
+    "Shelling of Mainila": [("bias", {"uk"})],  # "a Soviet provocation" (lost to "(фін." before)
+    "Annexation of Crimea by the Russian Federation": [("bias", {"be", "fr"})],  # "unlawful seizure", neutral
+    "Stepan Bandera": [("bias", set())],  # 16 bias findings
+}
 YIELD = CASES.with_name("yield.json")
 YIELD_DROP = 0.15
 
@@ -195,16 +210,17 @@ def report(result: dict[str, float]) -> int:
 
 def yield_eval(*, update: bool) -> int:
     """Detection's yield on the reference topics: per topic, its candidates and how many the decision
-    model keeps, by kind, against evals/yield.json. A topic keeping more than YIELD_DROP fewer than its
-    baseline fails: the regression check for compare.py's thresholds and grouping. `update` saves this run
+    model keeps, by kind, against evals/yield.json, as the page shows them (dialects hidden). A topic keeping
+    more than YIELD_DROP fewer than its baseline fails, as does a missing EXPECTED finding: the regression
+    check for compare.py's splitting, thresholds and grouping. `update` saves this run
     as the baseline. Counts depend on the database (passages are matched over its whole corpus), so the
     baseline is per database and not committed: save it on main's code, then run the change (CI does the
     same). A topic not in the database is fetched and embedded first.
     """
     schema()
-    now = {}
+    now, missing = {}, []
     for title in TOPICS:
-        found = app.compare_editions(title, None, lambda *_: None)["differences"]
+        found = app.compare_editions(title, None, lambda *_: None, dialects=False)["differences"]  # as the page
         app.card_order(found)
         kept, error = app.judge(found, lambda *_: None)
         if error:
@@ -213,8 +229,14 @@ def yield_eval(*, update: bool) -> int:
         now[title] = {"candidates": len(found), "kept": len(kept)} | {
             k: sum(f["kind"] == k for f in kept) for k in app.KINDS
         }
+        for kind, langs in EXPECTED.get(title, []):
+            if not any(f["kind"] == kind and langs <= {m["lang"] for m in f["members"][: app.SHOWN]} for f in kept):
+                missing.append(
+                    f"{title}: no {kind} finding" + (f" showing {', '.join(sorted(langs))}" if langs else "")
+                )
     base = json.loads(YIELD.read_text()) if YIELD.exists() else {}
     failed = [t for t in TOPICS if t in base and now[t]["kept"] < (1 - YIELD_DROP) * base[t]["kept"]]
+    print(*missing, sep="\n")
     for t, n in now.items():
         b = base.get(t, {})
         print(
@@ -225,8 +247,8 @@ def yield_eval(*, update: bool) -> int:
         )
     if update:
         YIELD.write_text(json.dumps(now, indent=2) + "\n")
-        return 0
-    return 1 if failed else 0
+        return 0  # a baseline records; only the run against it judges
+    return 1 if failed or missing else 0
 
 
 def add(title: str, lang: str, index: int, label: Label) -> None:
@@ -234,7 +256,7 @@ def add(title: str, lang: str, index: int, label: Label) -> None:
     drops any) and append it to the cases: its first SHOWN quotes, as the models get them. Needs the
     database and Modal, like the server.
     """
-    finding = app.compare_editions(title, lang, lambda *_: None)["differences"][index]
+    finding = app.compare_editions(title, lang, lambda *_: None, dialects=False)["differences"][index]
     app.card_order([finding])
     members = finding["members"]
     case_id = f"{title}#{index}"

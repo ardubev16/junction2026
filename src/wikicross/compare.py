@@ -19,6 +19,7 @@ one group per fact, however many editions state it. Within a group:
 See docs/how-it-works.md.
 """
 
+import re
 import threading
 from collections.abc import Callable
 from functools import lru_cache
@@ -42,6 +43,46 @@ MIN_OUTLIER = 3  # with this many editions or more, the furthest is the outlier
 BIG_GROUP = 8  # a statement this many editions make is a candidate whatever its tone
 CONSENSUS_MAX = PASSAGE_MAX  # a sentence this close to a finding may state its subject; the LLM tells if it does
 CONSENSUS_EDITIONS = 40  # other editions asked about a finding at most, the closest: one LLM call
+
+# A sentence ends at . ! ? followed by an uppercase letter of any alphabet, a quote or a bracket. Not
+# before a digit or a lowercase letter: "(k. 1985)", "3. syyskuuta", "z. B. der" stay whole; a sentence
+# starting with a year joins the one before, which is harmless. Not inside brackets either: leads give
+# names as "(фін. Mainilan laukaukset)", and a break there cut off the claim that follows.
+SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=\S)")
+OPENERS = '"“”«„('
+MIN_SENTENCE = 30  # shorter pieces ("Ks. myös.") join a neighbour in the same line
+
+
+def sentences(part: str) -> list[str]:
+    """A part's sentences; table rows and list items count as one sentence each."""
+    out: list[str] = []
+    for raw in part.splitlines():
+        line = raw.strip()
+        if not line or (line.startswith("|") and set(line) <= set("|-: ")):
+            continue  # blank, or a table separator row
+        if line.startswith(("|", "- ")):
+            out.append(line)
+            continue
+        mine, buf = [], ""
+        pieces, start = [], 0
+        for m in SENTENCE_BREAK.finditer(line):
+            piece = line[start : m.start()]
+            if piece.count("(") <= piece.count(")") and (line[m.end()] in OPENERS or line[m.end()].isupper()):
+                pieces.append(line[start : m.start()].strip())
+                start = m.end()
+        pieces.append(line[start:].strip())
+        for piece in pieces:
+            buf = f"{buf} {piece}".strip()
+            if len(buf) >= MIN_SENTENCE:
+                mine.append(buf)
+                buf = ""
+        if buf and mine:
+            mine[-1] += " " + buf
+        elif buf:
+            mine.append(buf)
+        out += mine
+    return out
+
 
 # axis -> (anchors for the positive end, anchors for the negative end, how each end reads)
 AXES = {
