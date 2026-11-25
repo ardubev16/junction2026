@@ -1,6 +1,6 @@
 [project]
 name = "wikicross"
-version = "0.1.0"
+version = "1.0.0"
 description = "Where the language editions of a Wikipedia article state things differently: MariaDB Vector, no LLM in detection"
 readme = "README.md"
 license = "GPL-3.0-or-later"
